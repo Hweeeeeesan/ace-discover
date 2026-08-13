@@ -1,0 +1,38 @@
+node_modules
+.next
+
+# Local environment files can contain Drive, Supabase, and deployment secrets.
+.env*
+!.env.example
+
+# Credential exports and private keys must stay outside source control.
+.npmrc
+.vercel/
+credentials/
+secrets/
+.secrets/
+*service-account*.json
+*credentials*.json
+*secrets*.json
+*private-key*.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+
+# Python test/importer cache files.
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Organizer-only spreadsheet snapshot and link audits. Keep these out of Git.
+data/
+reports/
+
+# Optional Supabase migration previews/backups.
+*.before-supabase
+lib/profiles.supabase.js

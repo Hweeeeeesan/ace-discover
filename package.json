@@ -1,0 +1,29 @@
+{
+  "name": "profile-gallery-discovery-v2",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "npm run test:discovery && npm run test:importer && npm run validate:data && npm run test:drive",
+    "test:discovery": "node scripts/test-discovery.mjs",
+    "test:importer": "python3 scripts/test-importer.py",
+    "validate:data": "python3 scripts/validate-public-data.py",
+    "test:drive": "node scripts/test-drive-route.mjs",
+    "images:migrate": "node scripts/migrate-drive-images-to-supabase.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "0.468.0",
+    "next": "16.3.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "allowScripts": {
+    "sharp@0.34.5": true
+  }
+}
