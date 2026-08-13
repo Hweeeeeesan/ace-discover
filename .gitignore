@@ -36,3 +36,4 @@ reports/
 # Optional Supabase migration previews/backups.
 *.before-supabase
 lib/profiles.supabase.js
+FALL 25 MASTER APPS.xlsx

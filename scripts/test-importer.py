@@ -81,6 +81,37 @@ class ImageClassificationTests(unittest.TestCase):
 
 
 class PublicProfileTests(unittest.TestCase):
+    def test_normalizes_instagram_handles_and_urls(self):
+        expected = 'https://www.instagram.com/example.user_1/'
+        values = [
+            '@example.user_1',
+            'example.user_1',
+            'instagram.com/example.user_1',
+            'https://instagram.com/example.user_1/',
+            'https://www.instagram.com/example.user_1/',
+        ]
+        for value in values:
+            with self.subTest(value=value):
+                self.assertEqual(IMPORTER.normalize_instagram(value), expected)
+
+    def test_normalizes_one_unambiguous_instagram_handle_in_explanatory_text(self):
+        self.assertEqual(
+            IMPORTER.normalize_instagram('Facebook link unavailable; @example_user on Instagram'),
+            'https://www.instagram.com/example_user/',
+        )
+
+    def test_rejects_invalid_or_ambiguous_instagram_values(self):
+        values = [
+            '', 'N/A', 'none', "I don't have Instagram.",
+            'https://facebook.com/example',
+            'https://instagram.com/p/example-post/',
+            'bad handle', '.leadingdot', 'trailingdot.', 'two..dots',
+            '@first_handle @second_handle',
+        ]
+        for value in values:
+            with self.subTest(value=value):
+                self.assertEqual(IMPORTER.normalize_instagram(value), '')
+
     def test_long_profile_text_is_not_truncated(self):
         value = 'A long profile description. ' * 100
         self.assertEqual(IMPORTER.redact_pii(value), value.strip())

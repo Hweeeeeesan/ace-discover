@@ -10,6 +10,7 @@ ACE Discover is a mobile-first Next.js profile discovery app generated from `FAL
   - 22 Family applicants
 - 26 submitted slide-deck links
 - Full-screen vertical discovery feed and individual profile pages
+- Canonical Instagram links on profile detail pages when a valid handle was submitted
 - Server-side Google Drive image proxy
 - Automatic image fallback sequence
 - Drive folder support when Google Drive credentials are configured

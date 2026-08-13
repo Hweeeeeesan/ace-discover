@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { ExternalLink, Presentation } from 'lucide-react';
+import { ExternalLink, Instagram, Presentation } from 'lucide-react';
 import { getProfile, profiles } from '../../../lib/profiles';
 import DiscoveryBackButton from '../../../components/DiscoveryBackButton';
 import ProfileImage from '../../../components/ProfileImage';
@@ -54,6 +54,22 @@ export default async function ProfilePage({ params }) {
             {profile.family && <span>{profile.family}</span>}
             {profile.program && <span>{profile.program}</span>}
           </div>
+
+          {profile.instagram && (
+            <a
+              className="instagram-button"
+              href={profile.instagram}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span className="instagram-icon"><Instagram size={20} /></span>
+              <span>
+                <strong>View Instagram</strong>
+                <small>Opens this profile on Instagram</small>
+              </span>
+              <ExternalLink size={18} />
+            </a>
+          )}
 
           <InfoSection title="Hobbies & interests">{profile.hobbies}</InfoSection>
           <InfoSection title="Music">{profile.music}</InfoSection>

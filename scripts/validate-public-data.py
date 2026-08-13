@@ -18,6 +18,10 @@ PRIVATE_KEYS = {
 EMAIL_RE = re.compile(r'\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b', re.I)
 PHONE_RE = re.compile(r'(?<!\w)(?:\+?1[ .-]?)?(?:\(?\d{3}\)?[ .-]?)\d{3}[ .-]?\d{4}(?!\w)')
 SCIENTIFIC_PHONE_RE = re.compile(r'(?<!\w)\d(?:\.\d{7,12})?[Ee]\+?9(?!\w)', re.I)
+INSTAGRAM_URL_RE = re.compile(
+    r'https://www\.instagram\.com/(?!\.)(?![^/]*\.\.)(?![^/]*\./)'
+    r'[A-Za-z0-9._]{1,30}/'
+)
 SENSITIVE_PARAMETER_RE = re.compile(
     r'(?i)(?:^|[?&#;\s])(?:access_token|refresh_token|id_token|client_secret|'
     r'api_key|apikey|service_role_key|private_key)\s*=\s*[^&#;\s]+'
@@ -59,6 +63,8 @@ def main():
         assert profile.get('imageCandidates'), f"Profile {profile.get('id')} has no image fallback list."
         deck = profile.get('slideDeckUrl', '')
         assert not deck or deck.startswith(('http://', 'https://')), 'Invalid slide-deck URL.'
+        instagram = profile.get('instagram', '')
+        assert not instagram or INSTAGRAM_URL_RE.fullmatch(instagram), 'Invalid Instagram URL.'
 
     assert not violations, f'Public text contains possible email/phone values: {violations[:5]}'
 

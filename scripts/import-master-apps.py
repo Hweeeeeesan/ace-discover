@@ -36,7 +36,8 @@ SHEETS = {
         'sheet': 'xl/worksheets/sheet3.xml', 'role': 'Family',
         'name': ('E', 'F'), 'year': 'M', 'school': 'O', 'major': 'P', 'program': 'R',
         'hobbies': ('S', 'AT'), 'music': 'U', 'movies': 'V', 'perfectDay': 'W', 'story': None,
-        'instagram': 'AK', 'image': ('AL', 'BX', 'DO'), 'deck': ('BZ', 'DQ'), 'family': ('AN', 'CA'),
+        'instagram': ('AK', 'BW', 'DN'), 'image': ('AL', 'BX', 'DO'),
+        'deck': ('BZ', 'DQ'), 'family': ('AN', 'CA'),
     },
 }
 
@@ -61,6 +62,26 @@ SENSITIVE_PARAMETER_RE = re.compile(
 )
 PRIVATE_KEY_RE = re.compile(r'-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----', re.I)
 HTTP_URL_RE = re.compile(r'https?://[^\s<>"\']+', re.I)
+INSTAGRAM_HANDLE_RE = re.compile(
+    r'^(?!\.)(?!.*\.\.)(?!.*\.$)[A-Za-z0-9._]{1,30}$'
+)
+INSTAGRAM_URL_RE = re.compile(
+    r'(?i)(?<![A-Za-z0-9._])((?:https?://)?(?:www\.)?instagram\.com/[^\s<>"\']+)'
+)
+INSTAGRAM_AT_HANDLE_RE = re.compile(
+    r'(?<![A-Za-z0-9._])@([A-Za-z0-9._]{1,30})(?![A-Za-z0-9._])'
+)
+INSTAGRAM_LABELED_HANDLE_RE = re.compile(
+    r'(?i)\b(?:user(?:name)?|ig|instagram)'
+    r'(?:(?:\s+(?:is|handle))?\s*[:=]\s*|\s+(?:is|handle)\s+)'
+    r'@?([A-Za-z0-9._]{1,30})(?![A-Za-z0-9._])'
+)
+INSTAGRAM_ON_PLATFORM_RE = re.compile(
+    r'(?i)(?<![A-Za-z0-9._])([A-Za-z0-9._]{1,30})\s+on\s+instagram\b'
+)
+INSTAGRAM_RESERVED_PATHS = {
+    'accounts', 'direct', 'explore', 'p', 'reel', 'reels', 'stories',
+}
 
 
 def cell_value(cell, shared):
@@ -124,6 +145,89 @@ def redact_pii(value):
         value = HTTP_URL_RE.sub('[link with embedded credentials removed]', value)
         value = SENSITIVE_PARAMETER_RE.sub('[embedded credential removed]', value)
     return value
+
+
+def valid_instagram_handle(value):
+    return bool(INSTAGRAM_HANDLE_RE.fullmatch(value or ''))
+
+
+def instagram_handle_from_url(value):
+    candidate = value.rstrip('.,);]')
+    if not re.match(r'^https?://', candidate, flags=re.I):
+        candidate = f'https://{candidate}'
+
+    try:
+        parsed = urlparse(candidate)
+    except ValueError:
+        return ''
+
+    host = parsed.netloc.lower().split(':')[0]
+    if host not in {'instagram.com', 'www.instagram.com'}:
+        return ''
+
+    path_parts = [part for part in parsed.path.split('/') if part]
+    if len(path_parts) != 1:
+        return ''
+
+    handle = path_parts[0]
+    if handle.lower() in INSTAGRAM_RESERVED_PATHS or not valid_instagram_handle(handle):
+        return ''
+    return handle
+
+
+def normalize_instagram(value):
+    """Return one unambiguous Instagram profile URL or an empty string."""
+    text = clean_text(value)
+    lower = text.lower()
+    if lower in MISSING_VALUES:
+        return ''
+    if any(phrase in lower for phrase in (
+        "don't have instagram", 'do not have instagram', "don't have one",
+        'no instagram', 'without instagram',
+    )):
+        return ''
+
+    candidates = []
+    exact_handle = text[1:] if text.startswith('@') else text
+    if valid_instagram_handle(exact_handle):
+        candidates.append(exact_handle)
+
+    for url in INSTAGRAM_URL_RE.findall(text):
+        handle = instagram_handle_from_url(url)
+        if handle:
+            candidates.append(handle)
+
+    candidates.extend(INSTAGRAM_AT_HANDLE_RE.findall(text))
+    candidates.extend(INSTAGRAM_LABELED_HANDLE_RE.findall(text))
+    candidates.extend(INSTAGRAM_ON_PLATFORM_RE.findall(text))
+
+    unique = []
+    seen = set()
+    for candidate in candidates:
+        handle = candidate.strip().lstrip('@')
+        key = handle.lower()
+        if (
+            not valid_instagram_handle(handle)
+            or key in INSTAGRAM_RESERVED_PATHS
+            or key in seen
+        ):
+            continue
+        seen.add(key)
+        unique.append(key)
+
+    if len(unique) != 1:
+        return ''
+    return f'https://www.instagram.com/{unique[0]}/'
+
+
+def first_instagram(row, columns):
+    if isinstance(columns, str):
+        columns = (columns,)
+    for column in columns or ():
+        normalized = normalize_instagram(row.get(column, ''))
+        if normalized:
+            return normalized
+    return ''
 
 
 def looks_like_name(value):
@@ -432,7 +536,7 @@ def build_profiles(xlsx_path):
                     perfect_day = row.get('AI', '')
                     music = row.get('AF', '')
                     movies = row.get('AG', '')
-                    instagram = row.get('BA', '')
+                    instagram = normalize_instagram(row.get('BA', ''))
                     raw_image = row.get('BB', '')
                     raw_deck = ''
                 else:
@@ -448,7 +552,7 @@ def build_profiles(xlsx_path):
                     perfect_day = first(row, config['perfectDay'])
                     music = first(row, config['music'])
                     movies = first(row, config['movies'])
-                    instagram = first(row, config['instagram'])
+                    instagram = first_instagram(row, config['instagram'])
                     raw_image = first(row, config['image'])
                     raw_deck = first(row, config['deck'])
 
@@ -478,7 +582,7 @@ def build_profiles(xlsx_path):
                     'music': redact_pii(music),
                     'movies': redact_pii(movies),
                     'perfectDay': redact_pii(perfect_day),
-                    'instagram': redact_pii(instagram),
+                    'instagram': instagram,
                     'image': image['app_url'],
                     'imageCandidates': image_candidates(image),
                     'imageKind': image['kind'],

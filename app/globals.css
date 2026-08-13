@@ -485,6 +485,12 @@ select:focus-visible {
 .tag.light { border-color: #dedbd2; color: #3d3b37; background: #f5f3ee; }
 .profile-meta { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; }
 .profile-meta span { padding: 8px 10px; border-radius: 10px; color: #68655f; background: #f3f1ec; font-size: 12px; font-weight: 750; }
+.instagram-button { width: 100%; min-height: 68px; margin-top: 22px; padding: 11px 14px; border: 1px solid #e4e0d8; border-radius: 18px; display: grid; grid-template-columns: 42px minmax(0,1fr) auto; align-items: center; gap: 11px; color: #25231f; background: #f7f5f0; }
+.instagram-button:hover { background: #f1eee7; }
+.instagram-icon { width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center; color: white; background: #171717; }
+.instagram-button > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.instagram-button strong { font-size: 14px; }
+.instagram-button small { overflow-wrap: anywhere; color: #777168; font-size: 11px; }
 .info-section { margin-top: 28px; padding-top: 22px; border-top: 1px solid #ebe8e1; }
 .info-section h2 { margin: 0 0 8px; color: #171717; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
 .info-section p { max-width: 100%; margin: 0; overflow-wrap: anywhere; color: #5b5954; font-size: 15px; line-height: 1.65; }
