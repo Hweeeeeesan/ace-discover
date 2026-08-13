@@ -95,7 +95,7 @@ export default function DiscoveryToolbar({
         ) : (
           <div className="toolbar-row">
             <div className="discover-heading">
-              <strong>{query ? 'Search results' : 'Discover'}</strong>
+              <strong>ACE Discover</strong>
               <span aria-live="polite">{resultCount} {resultCount === 1 ? 'profile' : 'profiles'}</span>
             </div>
             <div className="toolbar-actions">

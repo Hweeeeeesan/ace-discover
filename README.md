@@ -1,6 +1,6 @@
-# VSA Profile Discover — Discovery V2
+# ACE Discover
 
-A mobile-first Next.js profile discovery app generated from `FALL 25 MASTER APPS.xlsx`. This version adds search, role and advanced filters, stable randomized discovery, and state-preserving profile navigation while retaining the Google Drive and Supabase image system. The project is pinned to Next.js 16.3.0 and React 19.2.6.
+ACE Discover is a mobile-first Next.js profile discovery app generated from `FALL 25 MASTER APPS.xlsx`. It includes search, role and advanced filters, stable randomized discovery, and state-preserving profile navigation while retaining the Google Drive and Supabase image system. The project is pinned to Next.js 16.3.0 and React 19.2.6.
 
 ## Included in this build
 

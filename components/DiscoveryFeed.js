@@ -323,7 +323,7 @@ export default function DiscoveryFeed({ profiles }) {
     return (
       <main className="discovery-shell discovery-loading" aria-busy="true">
         <div className="loading-orb" aria-hidden="true" />
-        <strong>Preparing discovery</strong>
+        <strong>Preparing ACE Discover…</strong>
         <span>Loading your randomized profile order</span>
       </main>
     );

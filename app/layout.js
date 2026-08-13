@@ -1,8 +1,8 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'VSA Profile Discover',
-  description: 'A mobile-first gallery for discovering Fall 2025 VSA profiles.',
+  title: 'ACE Discover',
+  description: 'A mobile-first gallery for discovering ACE community profiles.',
   robots: {
     index: false,
     follow: false,

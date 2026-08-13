@@ -296,7 +296,7 @@ async function fetchExternalImage(url) {
     redirect: 'follow',
     headers: {
       Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-      'User-Agent': 'VSA-Profile-Gallery-Migration/1.0',
+      'User-Agent': 'ACE-Discover-Image-Migration/1.0',
     },
   });
   return responseToImage(response);
