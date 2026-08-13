@@ -81,6 +81,10 @@ class ImageClassificationTests(unittest.TestCase):
 
 
 class PublicProfileTests(unittest.TestCase):
+    def test_long_profile_text_is_not_truncated(self):
+        value = 'A long profile description. ' * 100
+        self.assertEqual(IMPORTER.redact_pii(value), value.strip())
+
     def test_redacts_email_phone_and_scientific_notation_phone(self):
         value = 'Email jane@example.com or call (408) 555-1212 / 9.164309097E9.'
         redacted = IMPORTER.redact_pii(value)

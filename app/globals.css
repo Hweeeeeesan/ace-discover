@@ -279,7 +279,7 @@ select:focus-visible {
 .eyebrow { color: rgba(255,255,255,.82); font-size: 12px; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; }
 .profile-copy h2 {
   max-width: 100%;
-  margin: 8px 0 10px;
+  margin: 8px 0 0;
   overflow: hidden;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -289,17 +289,6 @@ select:focus-visible {
   line-height: .95;
   letter-spacing: -.048em;
   text-wrap: balance;
-}
-.profile-summary {
-  max-width: 560px;
-  margin: 0;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  color: rgba(255,255,255,.86);
-  font-size: 15px;
-  line-height: 1.52;
 }
 .tag-row { margin-top: 17px; display: flex; flex-wrap: wrap; gap: 8px; }
 .tag {
@@ -483,22 +472,22 @@ select:focus-visible {
 }
 
 .detail-shell { min-height: 100svh; padding: 0; display: grid; place-items: center; background: var(--paper); }
-.detail-card { width: 100%; min-height: 100svh; overflow: hidden; background: white; }
-.detail-photo-wrap { position: relative; height: 48svh; min-height: 340px; }
+.detail-card { width: 100%; min-width: 0; min-height: 100svh; background: white; }
+.detail-photo-wrap { position: relative; height: 48svh; min-height: 340px; overflow: hidden; }
 .detail-photo { width: 100%; height: 100%; display: block; object-fit: cover; background: #111; }
 .back-button { position: absolute; top: max(18px, env(safe-area-inset-top)); left: 18px; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; color: #111; background: rgba(255,255,255,.93); box-shadow: 0 8px 30px rgba(0,0,0,.12); }
 .detail-role-pill { position: absolute; top: max(18px, env(safe-area-inset-top)); right: 18px; padding: 9px 13px; border-radius: 999px; color: white; background: rgba(17,17,17,.78); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); font-size: 11px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
-.detail-content { padding: 28px 22px calc(32px + env(safe-area-inset-bottom)); }
+.detail-content { min-width: 0; padding: 28px 22px calc(32px + env(safe-area-inset-bottom)); }
 .eyebrow.dark { color: #6d6a63; opacity: 1; }
-.detail-content h1 { margin: 8px 0 12px; color: #111; font-size: clamp(40px, 11vw, 64px); line-height: .98; letter-spacing: -.045em; }
-.detail-bio { margin: 0; color: #5b5954; font-size: 16px; line-height: 1.65; }
+.detail-content h1 { max-width: 100%; margin: 8px 0 12px; overflow-wrap: anywhere; color: #111; font-size: clamp(40px, 11vw, 64px); line-height: .98; letter-spacing: -.045em; }
+.detail-bio { max-width: 100%; margin: 0; overflow-wrap: anywhere; color: #5b5954; font-size: 16px; line-height: 1.65; }
 .detail-tags { margin-top: 20px; }
 .tag.light { border-color: #dedbd2; color: #3d3b37; background: #f5f3ee; }
 .profile-meta { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; }
 .profile-meta span { padding: 8px 10px; border-radius: 10px; color: #68655f; background: #f3f1ec; font-size: 12px; font-weight: 750; }
 .info-section { margin-top: 28px; padding-top: 22px; border-top: 1px solid #ebe8e1; }
 .info-section h2 { margin: 0 0 8px; color: #171717; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
-.info-section p { margin: 0; color: #5b5954; font-size: 15px; line-height: 1.65; }
+.info-section p { max-width: 100%; margin: 0; overflow-wrap: anywhere; color: #5b5954; font-size: 15px; line-height: 1.65; }
 .deck-button { width: 100%; min-height: 74px; margin-top: 30px; padding: 12px 15px; border-radius: 20px; display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 12px; color: white; background: #111; }
 .deck-icon { width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; background: #242424; }
 .deck-button span:nth-child(2) { display: flex; flex-direction: column; gap: 3px; }
@@ -526,7 +515,6 @@ select:focus-visible {
   .filter-chip { min-height: 33px; }
   .profile-copy { padding-bottom: calc(45px + env(safe-area-inset-bottom)); }
   .profile-copy h2 { margin-top: 6px; font-size: clamp(34px, 9.5vw, 52px); }
-  .profile-summary { -webkit-line-clamp: 3; font-size: 14px; line-height: 1.45; }
   .tag-row { margin-top: 12px; }
   .tag { padding: 7px 10px; }
   .card-actions { margin-top: 14px; }
@@ -548,7 +536,7 @@ select:focus-visible {
   .filter-sheet { bottom: 24px; left: 12px; right: 12px; border-radius: 26px; }
   .detail-shell { padding: 40px; }
   .detail-card { max-width: var(--shell-width); min-height: auto; border-radius: 28px; box-shadow: 0 20px 70px rgba(0,0,0,.1); }
-  .detail-photo-wrap { height: 500px; }
+  .detail-photo-wrap { height: 500px; border-radius: 28px 28px 0 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

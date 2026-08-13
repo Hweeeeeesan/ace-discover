@@ -161,14 +161,6 @@ def is_legacy_big_expanded_row(row):
     )
 
 
-def excerpt(value, limit=230):
-    value = redact_pii(value)
-    if len(value) <= limit:
-        return value
-    cut = value[:limit].rsplit(' ', 1)[0]
-    return cut + '…'
-
-
 def slugify(value):
     value = re.sub(r'[^a-zA-Z0-9]+', '-', value.lower()).strip('-')
     return value or 'profile'
@@ -468,7 +460,7 @@ def build_profiles(xlsx_path):
                 seen[base] = seen.get(base, 0) + 1
                 profile_id = base if seen[base] == 1 else f'{base}-{seen[base]}'
 
-                bio = excerpt(story or hobbies or perfect_day or f'{config["role"]} applicant', 260)
+                bio = redact_pii(story or hobbies or perfect_day or f'{config["role"]} applicant')
                 image = parse_image_source(raw_image)
 
                 profile = {
@@ -482,10 +474,10 @@ def build_profiles(xlsx_path):
                     'family': redact_pii(family),
                     'bio': bio,
                     'interests': interest_tags(hobbies, config['role'], program),
-                    'hobbies': excerpt(hobbies, 700),
-                    'music': excerpt(music, 500),
-                    'movies': excerpt(movies, 500),
-                    'perfectDay': excerpt(perfect_day, 700),
+                    'hobbies': redact_pii(hobbies),
+                    'music': redact_pii(music),
+                    'movies': redact_pii(movies),
+                    'perfectDay': redact_pii(perfect_day),
                     'instagram': redact_pii(instagram),
                     'image': image['app_url'],
                     'imageCandidates': image_candidates(image),
