@@ -1,11 +1,16 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Presentation, RotateCcw, X } from 'lucide-react';
-import { countAdvancedFilters, DEFAULT_FILTERS, sanitizeFilters } from '../lib/discovery';
+import { RotateCcw, X } from 'lucide-react';
+import {
+  countAdvancedFilters,
+  DEFAULT_FILTERS,
+  sanitizeFilters,
+  SOCIAL_STYLE_OPTIONS,
+} from '../lib/discovery';
 
 function emptyFilters() {
-  return { ...DEFAULT_FILTERS, years: [] };
+  return { ...DEFAULT_FILTERS, years: [], majorGroups: [], socialStyles: [] };
 }
 
 export default function FilterSheet({
@@ -49,7 +54,7 @@ export default function FilterSheet({
   }, [open, onClose]);
 
   const draftCount = useMemo(
-    () => countAdvancedFilters(draft) + Number(draft.hasDeck),
+    () => countAdvancedFilters(draft),
     [draft],
   );
 
@@ -61,6 +66,33 @@ export default function FilterSheet({
       years: current.years.includes(value)
         ? current.years.filter((year) => year !== value)
         : [...current.years, value],
+    }));
+  }
+
+  function toggleArrayValue(key, value) {
+    setDraft((current) => ({
+      ...current,
+      [key]: current[key].includes(value)
+        ? current[key].filter((item) => item !== value)
+        : [...current[key], value],
+    }));
+  }
+
+  function setSocialMinimum(value) {
+    const minimum = Number(value);
+    setDraft((current) => ({
+      ...current,
+      socialLevelMin: minimum,
+      socialLevelMax: Math.max(minimum, current.socialLevelMax),
+    }));
+  }
+
+  function setSocialMaximum(value) {
+    const maximum = Number(value);
+    setDraft((current) => ({
+      ...current,
+      socialLevelMin: Math.min(maximum, current.socialLevelMin),
+      socialLevelMax: maximum,
     }));
   }
 
@@ -119,66 +151,87 @@ export default function FilterSheet({
             </div>
           </fieldset>
 
-          <div className="select-grid">
-            <label className="select-field">
-              <span>Major</span>
-              <select
-                value={draft.major}
-                onChange={(event) => setDraft((current) => ({ ...current, major: event.target.value }))}
-              >
-                <option value="">Any major</option>
-                {options.majors.map((option) => (
-                  <option value={option.value} key={option.value}>
-                    {option.label} ({option.count})
-                  </option>
-                ))}
-              </select>
-            </label>
+          <fieldset className="filter-fieldset">
+            <legend>Major Area</legend>
+            <div className="major-group-options">
+              {options.majorGroups.map((option) => {
+                const selected = draft.majorGroups.includes(option.value);
+                return (
+                  <button
+                    className={`year-chip${selected ? ' is-selected' : ''}`}
+                    type="button"
+                    key={option.value}
+                    onClick={() => toggleArrayValue('majorGroups', option.value)}
+                    aria-pressed={selected}
+                  >
+                    <span>{option.label}</span>
+                    <small>{option.count}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
 
-            <label className="select-field">
-              <span>School</span>
-              <select
-                value={draft.school}
-                onChange={(event) => setDraft((current) => ({ ...current, school: event.target.value }))}
-              >
-                <option value="">Any school</option>
-                {options.schools.map((option) => (
-                  <option value={option.value} key={option.value}>
-                    {option.label} ({option.count})
-                  </option>
-                ))}
-              </select>
-            </label>
+          <fieldset className="filter-fieldset social-level-fieldset">
+            <legend>Social Level</legend>
+            <div className="social-range-summary">
+              <span>Low-key</span>
+              <strong>{draft.socialLevelMin}–{draft.socialLevelMax}</strong>
+              <span>Very social</span>
+            </div>
+            <div className="social-range-scale" aria-hidden="true">
+              {[1, 2, 3, 4, 5].map((level) => <span key={level}>{level}</span>)}
+            </div>
+            <div
+              className="dual-range-control"
+              style={{
+                '--range-start': `${((draft.socialLevelMin - 1) / 4) * 100}%`,
+                '--range-end': `${((draft.socialLevelMax - 1) / 4) * 100}%`,
+              }}
+            >
+              <input
+                className={draft.socialLevelMin === 5 ? 'is-on-top' : ''}
+                type="range"
+                min="1"
+                max="5"
+                step="1"
+                value={draft.socialLevelMin}
+                onChange={(event) => setSocialMinimum(event.target.value)}
+                aria-label="Minimum social level"
+              />
+              <input
+                type="range"
+                min="1"
+                max="5"
+                step="1"
+                value={draft.socialLevelMax}
+                onChange={(event) => setSocialMaximum(event.target.value)}
+                aria-label="Maximum social level"
+              />
+            </div>
+            <p className="filter-help">Profiles without a rating remain included at 1–5 and are excluded when you narrow the range.</p>
+          </fieldset>
 
-            <label className="select-field select-field-wide">
-              <span>Program</span>
-              <select
-                value={draft.program}
-                onChange={(event) => setDraft((current) => ({ ...current, program: event.target.value }))}
-              >
-                <option value="">Any program</option>
-                {options.programs.map((option) => (
-                  <option value={option.value} key={option.value}>
-                    {option.label} ({option.count})
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+          <fieldset className="filter-fieldset">
+            <legend>Social Style</legend>
+            <div className="social-style-options">
+              {SOCIAL_STYLE_OPTIONS.map((style) => {
+                const selected = draft.socialStyles.includes(style);
+                return (
+                  <button
+                    className={`year-chip${selected ? ' is-selected' : ''}`}
+                    type="button"
+                    key={style}
+                    onClick={() => toggleArrayValue('socialStyles', style)}
+                    aria-pressed={selected}
+                  >
+                    <span>{style}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
 
-          <button
-            className={`deck-toggle-row${draft.hasDeck ? ' is-selected' : ''}`}
-            type="button"
-            onClick={() => setDraft((current) => ({ ...current, hasDeck: !current.hasDeck }))}
-            aria-pressed={draft.hasDeck}
-          >
-            <span className="deck-toggle-icon"><Presentation size={19} /></span>
-            <span className="deck-toggle-copy">
-              <strong>Slide deck available</strong>
-              <small>Only show profiles with a submitted deck.</small>
-            </span>
-            <span className="toggle-switch" aria-hidden="true"><span /></span>
-          </button>
         </div>
 
         <div className="sheet-footer">
@@ -188,14 +241,14 @@ export default function FilterSheet({
             onClick={() => setDraft(emptyFilters())}
             disabled={draftCount === 0}
           >
-            <RotateCcw size={16} /> Reset
+            <RotateCcw size={16} /> Reset filters
           </button>
           <button
             className="apply-filters-button"
             type="button"
             onClick={() => onApply(sanitizeFilters(draft))}
           >
-            Apply filters{draftCount ? ` (${draftCount})` : ''}
+            Apply{draftCount ? ` (${draftCount})` : ''}
           </button>
         </div>
       </section>

@@ -3,7 +3,6 @@
 import { useEffect, useRef } from 'react';
 import {
   ChevronLeft,
-  Presentation,
   Search,
   Shuffle,
   SlidersHorizontal,
@@ -11,7 +10,7 @@ import {
 } from 'lucide-react';
 
 const ROLE_FILTERS = [
-  { value: 'All', label: 'All' },
+  { value: 'All', label: 'All roles' },
   { value: 'Little', label: 'Littles' },
   { value: 'Big', label: 'Bigs' },
   { value: 'Family', label: 'Family' },
@@ -25,8 +24,10 @@ export default function DiscoveryToolbar({
   onSearchClose,
   role,
   onRoleChange,
-  hasDeck,
-  onHasDeckChange,
+  mode,
+  onModeChange,
+  selectedVibeCount,
+  onOpenVibes,
   onShuffle,
   onOpenFilters,
   activeFilterCount,
@@ -133,7 +134,26 @@ export default function DiscoveryToolbar({
           </div>
         )}
 
-        <nav className="filter-strip" aria-label="Profile type filters">
+        <nav className="mode-strip" aria-label="Discovery mode">
+          {['All', 'Unseen', 'Vibes'].map((value) => (
+            <button
+              className={`mode-chip${mode === value ? ' is-selected' : ''}`}
+              type="button"
+              key={value}
+              aria-pressed={mode === value}
+              onClick={() => onModeChange(value)}
+            >
+              {value}{value === 'Vibes' && selectedVibeCount > 0 ? ` (${selectedVibeCount})` : ''}
+            </button>
+          ))}
+          {mode === 'Vibes' && (
+            <button className="vibe-picker-trigger" type="button" onClick={onOpenVibes}>
+              {selectedVibeCount ? 'Edit vibes' : 'Choose vibes'}
+            </button>
+          )}
+        </nav>
+
+        <nav className="filter-strip" aria-label="Profile role filters">
           {ROLE_FILTERS.map((filter) => {
             const selected = role === filter.value;
             return (
@@ -148,14 +168,6 @@ export default function DiscoveryToolbar({
               </button>
             );
           })}
-          <button
-            className={`filter-chip deck-chip${hasDeck ? ' is-selected' : ''}`}
-            type="button"
-            aria-pressed={hasDeck}
-            onClick={() => onHasDeckChange(!hasDeck)}
-          >
-            <Presentation size={14} /> Has deck
-          </button>
         </nav>
       </div>
     </header>

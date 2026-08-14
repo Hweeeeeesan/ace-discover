@@ -81,6 +81,95 @@ class ImageClassificationTests(unittest.TestCase):
 
 
 class PublicProfileTests(unittest.TestCase):
+    def test_normalizes_representative_year_values(self):
+        cases = {
+            '1st year': 'First year', 'first': 'First year', 'Freshman': 'First year',
+            'Second': 'Second year', '2nd Year': 'Second year',
+            'Third': 'Third year', 'junior': 'Third year',
+            'Fourth': 'Fourth year+', '5th year': 'Fourth year+',
+            'Grad student': 'Graduate / Other',
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(IMPORTER.normalize_year(raw), expected)
+        self.assertEqual(IMPORTER.normalize_year('Year not listed'), '')
+
+    def test_normalizes_major_groups_with_business_mis_precedence(self):
+        cases = {
+            'Computer Science': 'Computing & Data',
+            'Data Science': 'Computing & Data',
+            'Software Engineering': 'Computing & Data',
+            'MIS': 'Business',
+            'Management Information Systems': 'Business',
+            'Business Management Information Systems': 'Business',
+            'Mechanical Engineering': 'Engineering',
+            'Public Health': 'Health & Life Sciences',
+            'Psychology': 'Social Sciences',
+            'Graphic Design': 'Arts, Media & Design',
+            'English': 'Education & Humanities',
+            'Unmapped Interdisciplinary Major': 'Other / Undeclared',
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(IMPORTER.normalize_major_group(raw), expected)
+
+    def test_parses_social_level_conservatively(self):
+        for raw, expected in [('1', 1), ('2.0', 2), (' 5.0 ', 5)]:
+            with self.subTest(raw=raw):
+                self.assertEqual(IMPORTER.parse_social_level(raw), expected)
+        for raw in ['', '0', '6', '3 out of 5', 'very social']:
+            with self.subTest(raw=raw):
+                self.assertIsNone(IMPORTER.parse_social_level(raw))
+
+    def test_normalizes_social_style_conservatively(self):
+        cases = {
+            'introvert': 'Introvert',
+            'mostly introverted': 'Introvert',
+            'very extroverted': 'Extrovert',
+            'ambivert': 'Ambivert',
+            'ambivert leaning introvert': 'Ambivert',
+            'ambivert leaning extrovert': 'Ambivert',
+            'introverted extrovert': 'Ambivert',
+            'depends on the situation, both introverted and extroverted': 'Ambivert',
+            'depends on the day': '',
+            'social sometimes': '',
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(IMPORTER.normalize_social_style(raw), expected)
+
+    def test_shifted_social_columns_use_first_valid_normalized_value(self):
+        little = {'AU': 'an unrelated activity answer', 'BN': '4.0', 'AW': 'N/A', 'BP': 'extrovert'}
+        self.assertEqual(IMPORTER.first_parsed(little, ('AU', 'BN'), IMPORTER.parse_social_level), 4)
+        self.assertEqual(IMPORTER.first_parsed(little, ('AW', 'BP'), IMPORTER.normalize_social_style), 'Extrovert')
+
+    def test_vibe_inference_is_deterministic_and_ordered(self):
+        values = ('I enjoy hiking, Valorant, matcha cafes, and taking photos.',)
+        expected = ['Outdoors', 'Gaming', 'Coffee & Cafes', 'Photography']
+        self.assertEqual(IMPORTER.infer_vibes(*values), expected)
+        self.assertEqual(IMPORTER.infer_vibes(*values), expected)
+
+    def test_vibe_rules_avoid_broad_false_positives(self):
+        self.assertEqual(IMPORTER.infer_vibes('I like good vibes and meeting people.'), [])
+
+    def test_import_health_contains_safe_aggregate_issues(self):
+        profile = {
+            'id': 'example', 'role': 'Little', 'instagram': '', 'major': 'Major not listed',
+            'year': 'Year not listed', 'bio': 'short', 'hobbies': '', 'music': '',
+            'movies': '', 'perfectDay': '', 'imageKind': 'missing', 'vibes': ['Gaming'],
+            'slideDeckUrl': '', 'majorGroup': 'Other / Undeclared',
+            'socialLevel': None, 'socialStyle': '',
+        }
+        health = IMPORTER.build_import_health([profile])
+        self.assertEqual(health['totalProfiles'], 1)
+        self.assertEqual(health['vibeDistribution']['Gaming'], 1)
+        self.assertEqual(health['issues']['missingInstagram'], ['example'])
+        self.assertEqual(health['majorGroupDistribution']['Other / Undeclared'], 1)
+        self.assertEqual(health['socialLevelDistribution']['Missing / invalid'], 1)
+        self.assertEqual(health['socialStyleDistribution']['Missing / unknown'], 1)
+        self.assertEqual(health['issues']['missingSocialLevel'], ['example'])
+        self.assertNotIn('name', health['issues'])
+
     def test_normalizes_instagram_handles_and_urls(self):
         expected = 'https://www.instagram.com/example.user_1/'
         values = [

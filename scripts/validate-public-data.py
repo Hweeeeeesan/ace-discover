@@ -29,8 +29,23 @@ SENSITIVE_PARAMETER_RE = re.compile(
 PRIVATE_KEY_RE = re.compile(r'-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----', re.I)
 PUBLIC_TEXT_FIELDS = {
     'name', 'role', 'major', 'year', 'school', 'program', 'family', 'bio',
-    'hobbies', 'music', 'movies', 'perfectDay', 'instagram', 'interests',
+    'hobbies', 'music', 'movies', 'perfectDay', 'instagram', 'interests', 'vibes',
+    'majorGroup', 'normalizedYear', 'socialStyle',
 }
+VIBES = {
+    'Foodie', 'Outdoors', 'Gaming', 'Music', 'Creative', 'Fitness', 'Sports',
+    'Travel', 'Movies & TV', 'Anime', 'Nightlife', 'Coffee & Cafes', 'Studying',
+    'Fashion', 'Photography', 'Volunteering',
+}
+MAJOR_GROUPS = {
+    'Computing & Data', 'Engineering', 'Business', 'Health & Life Sciences',
+    'Social Sciences', 'Arts, Media & Design', 'Education & Humanities',
+    'Other / Undeclared',
+}
+NORMALIZED_YEARS = {
+    '', 'First year', 'Second year', 'Third year', 'Fourth year+', 'Graduate / Other',
+}
+SOCIAL_STYLES = {'', 'Introvert', 'Ambivert', 'Extrovert'}
 
 
 def drive_ids_from_allowlist(text):
@@ -61,6 +76,14 @@ def main():
 
         assert profile.get('name'), f"Profile {profile.get('id')} has no name."
         assert profile.get('imageCandidates'), f"Profile {profile.get('id')} has no image fallback list."
+        assert isinstance(profile.get('vibes'), list), 'Every profile must have a vibes array.'
+        assert set(profile['vibes']).issubset(VIBES), 'Unknown vibe in public profile data.'
+        assert len(profile['vibes']) == len(set(profile['vibes'])), 'Duplicate vibe in profile.'
+        assert profile.get('majorGroup') in MAJOR_GROUPS, 'Unknown major group.'
+        assert profile.get('normalizedYear', '') in NORMALIZED_YEARS, 'Unknown normalized year.'
+        assert profile.get('socialStyle', '') in SOCIAL_STYLES, 'Unknown social style.'
+        social_level = profile.get('socialLevel')
+        assert social_level is None or social_level in range(1, 6), 'Invalid social level.'
         deck = profile.get('slideDeckUrl', '')
         assert not deck or deck.startswith(('http://', 'https://')), 'Invalid slide-deck URL.'
         instagram = profile.get('instagram', '')
@@ -92,6 +115,18 @@ def main():
             )
 
     deck_count = sum(bool(profile.get('slideDeckUrl')) for profile in profiles)
+    health_path = ROOT / 'reports' / 'import-health.json'
+    assert health_path.exists(), 'Import health report was not generated.'
+    health = json.loads(health_path.read_text(encoding='utf-8'))
+    assert health['totalProfiles'] == len(profiles), 'Health report total does not match profiles.'
+    assert set(health['vibeDistribution']) == VIBES, 'Health report vibe taxonomy mismatch.'
+    assert set(health['majorGroupDistribution']) == MAJOR_GROUPS, 'Health report major taxonomy mismatch.'
+    assert set(health['socialLevelDistribution']) == {'1', '2', '3', '4', '5', 'Missing / invalid'}
+    assert set(health['socialStyleDistribution']) == {'Introvert', 'Ambivert', 'Extrovert', 'Missing / unknown'}
+    all_ids = set(ids)
+    assert all(set(issue_ids).issubset(all_ids) for issue_ids in health['issues'].values()), (
+        'Health report contains unknown profile IDs.'
+    )
     print(
         f'Public data validation passed: {len(profiles)} profiles, '
         f'{len(allowed_files)} Drive files, {len(allowed_folders)} Drive folders, '

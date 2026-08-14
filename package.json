@@ -1,6 +1,6 @@
 {
   "name": "ace-discover",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -11,6 +11,7 @@
     "test:importer": "python3 scripts/test-importer.py",
     "validate:data": "python3 scripts/validate-public-data.py",
     "test:drive": "node scripts/test-drive-route.mjs",
+    "profiles:import": "node scripts/import-profiles.mjs",
     "images:migrate": "node scripts/migrate-drive-images-to-supabase.mjs"
   },
   "dependencies": {

@@ -3,6 +3,7 @@ import { ExternalLink, Instagram, Presentation } from 'lucide-react';
 import { getProfile, profiles } from '../../../lib/profiles';
 import DiscoveryBackButton from '../../../components/DiscoveryBackButton';
 import ProfileImage from '../../../components/ProfileImage';
+import SeenProfileMarker from '../../../components/SeenProfileMarker';
 
 export function generateStaticParams() {
   return profiles.map((profile) => ({ id: profile.id }));
@@ -25,6 +26,7 @@ export default async function ProfilePage({ params }) {
 
   return (
     <main className="detail-shell">
+      <SeenProfileMarker profileId={profile.id} />
       <div className="detail-card">
         <div className="detail-photo-wrap">
           <ProfileImage

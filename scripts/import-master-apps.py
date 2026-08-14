@@ -10,14 +10,118 @@ import csv
 import json
 import re
 import sys
+import unicodedata
 import zipfile
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 NS = {'m': MAIN}
 PLACEHOLDER_IMAGE = '/profile-placeholder.svg'
+VIBE_ORDER = [
+    'Foodie', 'Outdoors', 'Gaming', 'Music', 'Creative', 'Fitness', 'Sports',
+    'Travel', 'Movies & TV', 'Anime', 'Nightlife', 'Coffee & Cafes', 'Studying',
+    'Fashion', 'Photography', 'Volunteering',
+]
+VIBE_RULES = {
+    'Foodie': (r'\bfoodie\b', r'\btrying (?:new )?food\b', r'\beating out\b', r'\bcook(?:ing)?\b', r'\bbak(?:e|ing)\b', r'\brestaurant'),
+    'Outdoors': (r'\bhik(?:e|ing)\b', r'\bcamp(?:ing)?\b', r'\bnature\b', r'\bbeach\b', r'\btrail\b', r'\bbackpack(?:ing)?\b'),
+    'Gaming': (r'\bvideo games?\b', r'\bgaming\b', r'\bvalorant\b', r'\bleague of legends\b', r'\bfortnite\b', r'\broblox\b', r'\btft\b'),
+    'Music': (r'\bmusic\b', r'\bconcerts?\b', r'\bsing(?:ing)?\b', r'\bguitar\b', r'\bpiano\b', r'\bdj(?:ing)?\b', r'\braves?\b'),
+    'Creative': (r'\bdraw(?:ing)?\b', r'\bpaint(?:ing)?\b', r'\bcraft(?:s|ing)?\b', r'\bcreative writing\b', r'\bscrapbook(?:ing)?\b', r'\bdesign(?:ing)?\b'),
+    'Fitness': (r'\bgym\b', r'\bwork(?:ing)? out\b', r'\bweightlift(?:ing)?\b', r'\bfitness\b', r'\bbodybuilding\b', r'\brunning\b'),
+    'Sports': (r'\bvolleyball\b', r'\bbasketball\b', r'\bsoccer\b', r'\bbadminton\b', r'\bpickleball\b', r'\bfootball\b', r'\btennis\b', r'\bsports?\b'),
+    'Travel': (r'\btravel(?:ing|ling)?\b', r'\broad trips?\b', r'\bexplor(?:e|ing) new (?:cities|places)\b', r'\bvisit(?:ing)? (?:new )?(?:countries|places)\b'),
+    'Movies & TV': (r'\bmovies?\b', r'\bfilms?\b', r'\btv shows?\b', r'\bk-?dramas?\b', r'\bsitcoms?\b', r'\bnetflix\b'),
+    'Anime': (r'\banime\b', r'\bmanga\b', r'\bmanhwa\b', r'\bjujutsu kaisen\b', r'\bdemon slayer\b'),
+    'Nightlife': (r'\bnightlife\b', r'\bclub(?:bing)?\b', r'\bbars?\b', r'\braves?\b', r'\bpart(?:y|ies|ying)\b'),
+    'Coffee & Cafes': (r'\bcaf[eé]s?\b', r'\bcafe hopping\b', r'\bcoffee shops?\b', r'\bmatcha\b', r'\bboba\b'),
+    'Studying': (r'\bstudy(?:ing)?\b', r'\bstudy sessions?\b', r'\blibrary\b', r'\bacademic(?:s)?\b'),
+    'Fashion': (r'\bfashion\b', r'\bthrift(?:ing)?\b', r'\bshopping\b', r'\bstreetwear\b', r'\bclothes?\b', r'\boutfits?\b'),
+    'Photography': (r'\bphotograph(?:y|er|ing)?\b', r'\btaking photos?\b', r'\bdigicam\b', r'\bcamera\b'),
+    'Volunteering': (r'\bvolunteer(?:ing)?\b', r'\bcommunity service\b', r'\bgiving back\b', r'\bnonprofit\b', r'\bcharity\b'),
+}
+
+YEAR_GROUP_ORDER = [
+    'First year', 'Second year', 'Third year', 'Fourth year+', 'Graduate / Other',
+]
+MAJOR_GROUP_ORDER = [
+    'Computing & Data', 'Engineering', 'Business', 'Health & Life Sciences',
+    'Social Sciences', 'Arts, Media & Design', 'Education & Humanities',
+    'Other / Undeclared',
+]
+
+# Exact normalized phrases are evaluated before the conservative phrase rules below.
+# This makes the current dataset auditable while still handling minor punctuation/case changes.
+MAJOR_EXACT_GROUPS = {
+    'cs': 'Computing & Data',
+    'computer science': 'Computing & Data',
+    'computer science cs': 'Computing & Data',
+    'data science': 'Computing & Data',
+    'software engineer': 'Computing & Data',
+    'software engineering': 'Computing & Data',
+    'mis': 'Business',
+    'management information system': 'Business',
+    'management information systems': 'Business',
+    'business management information systems': 'Business',
+    'business management info systems': 'Business',
+    'business admin management information systems': 'Business',
+    'finance mis': 'Business',
+    'mis mba': 'Business',
+    'management aviation': 'Business',
+    'major not listed': 'Other / Undeclared',
+    'n a': 'Other / Undeclared',
+    'undeclared': 'Other / Undeclared',
+}
+
+MAJOR_PHRASE_RULES = [
+    ('Business', (
+        r'\bmanagement info(?:rmation)? systems?\b', r'\bmis\b',
+        r'\bbusiness\b', r'\baccounting\b', r'\bfinance\b', r'\bmarketing\b',
+        r'\bentrepreneurship\b', r'\bhuman resources?\b', r'\bmba\b',
+        r'\boperations? (?:and )?supply ?chain\b', r'\bhospitality\b',
+    )),
+    ('Engineering', (
+        r'\bcomputer engineering\b', r'\bcomp engineering\b', r'\bcmpe\b',
+        r'\bmechanical engineer(?:ing)?\b', r'\bmech e\b',
+        r'\belectrical engineer(?:ing)?\b', r'\bcivil engineer(?:ing)?\b',
+        r'\baerospace engineer(?:ing)?\b', r'\bindustrial engineer(?:ing)?\b',
+        r'\bmanufacturing (?:systems?|engineering)\b', r'\betech manufacturing sys\b',
+        r'\bbiomedical engineer(?:ing)?\b', r'\bchemical engineer(?:ing)?\b',
+        r'\bmaterials? engineer(?:ing)?\b', r'\btechnology engineering\b',
+    )),
+    ('Computing & Data', (
+        r'\bcomputer science\b', r'\bdata science\b', r'\bsoftware engineer(?:ing)?\b',
+        r'\bapplied computing\b', r'\bcomputer network system management\b',
+        r'\btechnical informatics\b', r'\bstatistics\b',
+    )),
+    ('Health & Life Sciences', (
+        r'\bpublic health\b', r'\bnursing\b', r'\bpre nursing\b',
+        r'\bbiology\b', r'\bbiological science', r'\bbiochem(?:istry)?\b',
+        r'\bbiotech(?:nology)?\b', r'\bkinesiology\b', r'\bnutrition\b',
+        r'\bhealth science\b', r'\bmicrobiology\b', r'\bmolecular biology\b',
+        r'\boccupational therapy\b', r'\bzoology\b', r'\bmarine bio',
+    )),
+    ('Social Sciences', (
+        r'\bpsych(?:ology)?\b', r'\bsociology\b', r'\beconomics?\b',
+        r'\bpolitical science\b', r'\banthropology\b', r'\bcommunications? studies\b',
+        r'\bbehavioral sciences?\b', r'\bsocial work\b', r'\bjustice studies\b',
+        r'\bglobal studies\b',
+    )),
+    ('Arts, Media & Design', (
+        r'\bgraphic design\b', r'\bdesign studies\b', r'\binteraction design\b',
+        r'\banimation\b', r'\billustration\b', r'\bfilm\b', r'\bmusic\b',
+        r'\bjournalism\b', r'\bphotography\b', r'\bdigital media\b',
+        r'\bart studio\b', r'\btheatre arts\b',
+    )),
+    ('Education & Humanities', (
+        r'\benglish\b', r'\bhistory\b', r'\bphilosophy\b', r'\beducation\b',
+        r'\bliberal studies\b', r'\blinguistics\b', r'\bhumanities\b',
+        r'\bteacher preparation\b',
+    )),
+]
 
 SHEETS = {
     'LITTLES': {
@@ -25,12 +129,14 @@ SHEETS = {
         'name': ('E', 'F'), 'year': 'M', 'school': 'O', 'major': 'P', 'program': 'R',
         'hobbies': ('AA', 'S'), 'music': 'AG', 'movies': 'AH', 'perfectDay': 'AJ', 'story': 'BA',
         'instagram': 'BD', 'image': 'BE', 'deck': 'BG', 'family': ('BH', 'U'),
+        'socialLevel': ('AU', 'BN'), 'socialStyle': ('AW', 'BP'),
     },
     'BIGS': {
         'sheet': 'xl/worksheets/sheet2.xml', 'role': 'Big',
         'name': ('E', 'F'), 'year': 'M', 'school': 'O', 'major': 'P', 'program': 'R',
         'hobbies': ('AE', 'S'), 'music': 'AK', 'movies': 'AL', 'perfectDay': 'AN', 'story': 'BD',
         'instagram': 'BG', 'image': 'BH', 'deck': 'BJ', 'family': ('T',),
+        'socialLevel': ('AY',), 'socialStyle': ('BA',),
     },
     'FAMS': {
         'sheet': 'xl/worksheets/sheet3.xml', 'role': 'Family',
@@ -38,6 +144,7 @@ SHEETS = {
         'hobbies': ('S', 'AT'), 'music': 'U', 'movies': 'V', 'perfectDay': 'W', 'story': None,
         'instagram': ('AK', 'BW', 'DN'), 'image': ('AL', 'BX', 'DO'),
         'deck': ('BZ', 'DQ'), 'family': ('AN', 'CA'),
+        'socialLevel': ('AH', 'BN', 'DF'), 'socialStyle': ('BP', 'DH'),
     },
 }
 
@@ -132,6 +239,75 @@ def first(row, columns):
 def clean_text(value):
     value = (value or '').replace('\x00', ' ').strip()
     return re.sub(r'\s+', ' ', value)
+
+
+def normalization_key(value):
+    value = unicodedata.normalize('NFKD', clean_text(value))
+    value = ''.join(character for character in value if not unicodedata.combining(character))
+    value = value.lower().replace('&', ' and ')
+    return re.sub(r'[^a-z0-9]+', ' ', value).strip()
+
+
+def normalize_year(value):
+    normalized = normalization_key(value)
+    if not normalized or normalized in {'n a', 'na', 'none', 'year not listed', 'not listed'}:
+        return ''
+    if re.fullmatch(r'(?:first|1st|1st year|freshman|year 1|1 year|first year)', normalized):
+        return 'First year'
+    if re.fullmatch(r'(?:second|2nd|2nd year|sophomore|year 2|2 year|second year)', normalized):
+        return 'Second year'
+    if re.fullmatch(r'(?:third|3rd|3rd year|junior|year 3|3 year|third year)', normalized):
+        return 'Third year'
+    if re.fullmatch(r'(?:fourth|4th|senior|year 4|4 year|fourth year)', normalized):
+        return 'Fourth year+'
+    if re.search(r'\b(?:fifth|5th|sixth|6th)\b', normalized):
+        return 'Fourth year+'
+    if re.search(r'\b(?:grad|graduate|masters?|doctoral|phd)\b', normalized):
+        return 'Graduate / Other'
+    return 'Graduate / Other'
+
+
+def normalize_major_group(value):
+    normalized = normalization_key(value)
+    if not normalized:
+        return 'Other / Undeclared'
+    if normalized in MAJOR_EXACT_GROUPS:
+        return MAJOR_EXACT_GROUPS[normalized]
+    for group, patterns in MAJOR_PHRASE_RULES:
+        if any(re.search(pattern, normalized) for pattern in patterns):
+            return group
+    return 'Other / Undeclared'
+
+
+def parse_social_level(value):
+    normalized = clean_text(value)
+    if not re.fullmatch(r'[1-5](?:\.0+)?', normalized):
+        return None
+    return int(float(normalized))
+
+
+def normalize_social_style(value):
+    normalized = normalization_key(value)
+    if not normalized:
+        return ''
+    has_introvert = bool(re.search(r'\bintrovert\w*\b', normalized))
+    has_extrovert = bool(re.search(r'\bextrovert\w*\b', normalized))
+    has_ambivert = bool(re.search(r'\bambivert\w*\b|\bambi\b', normalized))
+    if has_ambivert or (has_introvert and has_extrovert):
+        return 'Ambivert'
+    if has_introvert:
+        return 'Introvert'
+    if has_extrovert:
+        return 'Extrovert'
+    return ''
+
+
+def first_parsed(row, columns, parser):
+    for column in columns or ():
+        parsed = parser(row.get(column, ''))
+        if parsed not in (None, ''):
+            return parsed
+    return None if parser is parse_social_level else ''
 
 
 def redact_pii(value):
@@ -486,6 +662,47 @@ def interest_tags(hobbies, role, program):
     return (candidates or [role])[:3]
 
 
+def infer_vibes(*values):
+    text = clean_text(' '.join(str(value or '') for value in values)).lower()
+    return [
+        vibe for vibe in VIBE_ORDER
+        if any(re.search(pattern, text, flags=re.I) for pattern in VIBE_RULES[vibe])
+    ]
+
+
+def validate_workbook_schema(archive, shared):
+    expected = {
+        'LITTLES': {
+            'E': 'first', 'F': 'last', 'BD': 'instagram',
+            'AU': 'social setting', 'AW': 'introvert',
+        },
+        'BIGS': {
+            'E': 'first', 'F': 'last', 'BG': 'instagram',
+            'AY': 'social setting', 'BA': 'introvert',
+        },
+        'FAMS': {
+            'E': 'first', 'F': 'last', 'AK': 'instagram',
+            'AH': 'social setting', 'BP': 'introvert',
+        },
+    }
+    missing_sheets = [config['sheet'] for config in SHEETS.values() if config['sheet'] not in archive.namelist()]
+    if missing_sheets:
+        raise ValueError(f'Workbook is missing expected worksheet data: {missing_sheets}')
+    for sheet_name, config in SHEETS.items():
+        root = ET.fromstring(archive.read(config['sheet']))
+        header_row = root.find('.//m:sheetData/m:row', NS)
+        headers = {}
+        for cell in header_row.findall('m:c', NS) if header_row is not None else []:
+            match = re.match(r'([A-Z]+)', cell.attrib.get('r', ''))
+            if match:
+                headers[match.group(1)] = cell_value(cell, shared).lower()
+        for column, token in expected[sheet_name].items():
+            if token not in headers.get(column, ''):
+                raise ValueError(
+                    f'{sheet_name} schema mismatch: expected {token!r} in column {column} header.'
+                )
+
+
 def build_profiles(xlsx_path):
     profiles = []
     image_report = []
@@ -497,6 +714,8 @@ def build_profiles(xlsx_path):
             root = ET.fromstring(archive.read('xl/sharedStrings.xml'))
             for shared_item in root.findall('m:si', NS):
                 shared.append(''.join((node.text or '') for node in shared_item.iter(f'{{{MAIN}}}t')))
+
+        validate_workbook_schema(archive, shared)
 
         for sheet_name, config in SHEETS.items():
             for row_number, row in enumerate(read_sheet(archive, config['sheet'], shared), start=2):
@@ -519,6 +738,8 @@ def build_profiles(xlsx_path):
                     instagram = ''
                     raw_image = ''
                     raw_deck = ''
+                    social_level = None
+                    social_style = ''
                 elif sheet_name == 'BIGS' and is_legacy_big_expanded_row(row):
                     # This edited response used an older full-form layout. The
                     # profile-safe fields below were verified against that
@@ -539,6 +760,8 @@ def build_profiles(xlsx_path):
                     instagram = normalize_instagram(row.get('BA', ''))
                     raw_image = row.get('BB', '')
                     raw_deck = ''
+                    social_level = parse_social_level(row.get('AS', ''))
+                    social_style = normalize_social_style(row.get('AU', ''))
                 else:
                     first_name = first(row, config['name'][0])
                     last_name = first(row, config['name'][1])
@@ -555,6 +778,8 @@ def build_profiles(xlsx_path):
                     instagram = first_instagram(row, config['instagram'])
                     raw_image = first(row, config['image'])
                     raw_deck = first(row, config['deck'])
+                    social_level = first_parsed(row, config['socialLevel'], parse_social_level)
+                    social_style = first_parsed(row, config['socialStyle'], normalize_social_style)
 
                 name = redact_pii(f'{first_name} {last_name}')
                 if not name or '[email removed]' in name or '[phone removed]' in name:
@@ -572,12 +797,17 @@ def build_profiles(xlsx_path):
                     'name': name,
                     'role': config['role'],
                     'major': redact_pii(major) or 'Major not listed',
+                    'majorGroup': normalize_major_group(major),
                     'year': redact_pii(year) or 'Year not listed',
+                    'normalizedYear': normalize_year(year),
+                    'socialLevel': social_level,
+                    'socialStyle': social_style,
                     'school': redact_pii(school),
                     'program': redact_pii(program),
                     'family': redact_pii(family),
                     'bio': bio,
                     'interests': interest_tags(hobbies, config['role'], program),
+                    'vibes': infer_vibes(hobbies, music, movies, perfect_day, story),
                     'hobbies': redact_pii(hobbies),
                     'music': redact_pii(music),
                     'movies': redact_pii(movies),
@@ -687,6 +917,96 @@ def write_image_summary(summary_path, profiles):
     return summary
 
 
+def missing_value(value, placeholders):
+    return clean_text(value).lower() in placeholders
+
+
+def build_import_health(profiles):
+    supported_images = {'drive-file', 'drive-folder', 'direct-image-url'}
+    image_counts = {}
+    role_counts = {'Little': 0, 'Big': 0, 'Family': 0}
+    vibe_distribution = {vibe: 0 for vibe in VIBE_ORDER}
+    major_group_distribution = {group: 0 for group in MAJOR_GROUP_ORDER}
+    social_level_distribution = {str(level): 0 for level in range(1, 6)}
+    social_level_distribution['Missing / invalid'] = 0
+    social_style_distribution = {
+        'Introvert': 0, 'Ambivert': 0, 'Extrovert': 0, 'Missing / unknown': 0,
+    }
+    issues = {
+        'missingInstagram': [], 'missingMajor': [], 'missingYear': [],
+        'missingMeaningfulText': [], 'missingOrInvalidImage': [],
+        'missingSocialLevel': [], 'missingSocialStyle': [],
+        'missingOrUnclassifiedMajorGroup': [],
+    }
+    for profile in profiles:
+        role_counts[profile['role']] = role_counts.get(profile['role'], 0) + 1
+        image_counts[profile['imageKind']] = image_counts.get(profile['imageKind'], 0) + 1
+        for vibe in profile['vibes']:
+            vibe_distribution[vibe] += 1
+        major_group = profile.get('majorGroup', 'Other / Undeclared')
+        major_group_distribution[major_group] += 1
+        social_level = profile.get('socialLevel')
+        if social_level in range(1, 6):
+            social_level_distribution[str(social_level)] += 1
+        else:
+            social_level_distribution['Missing / invalid'] += 1
+            issues['missingSocialLevel'].append(profile['id'])
+        social_style = profile.get('socialStyle', '')
+        if social_style in {'Introvert', 'Ambivert', 'Extrovert'}:
+            social_style_distribution[social_style] += 1
+        else:
+            social_style_distribution['Missing / unknown'] += 1
+            issues['missingSocialStyle'].append(profile['id'])
+        if major_group == 'Other / Undeclared':
+            issues['missingOrUnclassifiedMajorGroup'].append(profile['id'])
+        if not profile['instagram']:
+            issues['missingInstagram'].append(profile['id'])
+        if missing_value(profile['major'], {'', 'n/a', 'na', 'none', 'major not listed'}):
+            issues['missingMajor'].append(profile['id'])
+        if missing_value(profile['year'], {'', 'n/a', 'na', 'none', 'year not listed'}):
+            issues['missingYear'].append(profile['id'])
+        meaningful = ' '.join(profile.get(field, '') for field in ('bio', 'hobbies', 'music', 'movies', 'perfectDay'))
+        if len(clean_text(meaningful)) < 40:
+            issues['missingMeaningfulText'].append(profile['id'])
+        if profile['imageKind'] not in supported_images:
+            issues['missingOrInvalidImage'].append(profile['id'])
+    usable_images = sum(image_counts.get(kind, 0) for kind in supported_images)
+    return {
+        'schemaVersion': 2,
+        'generatedAt': datetime.now(timezone.utc).isoformat(),
+        'totalProfiles': len(profiles),
+        'roleCounts': role_counts,
+        'instagramCount': sum(bool(profile['instagram']) for profile in profiles),
+        'slideDeckCount': sum(bool(profile['slideDeckUrl']) for profile in profiles),
+        'imageStatus': {
+            'usable': usable_images,
+            'missingOrInvalid': len(profiles) - usable_images,
+            'byKind': dict(sorted(image_counts.items())),
+        },
+        'missingFieldCounts': {key: len(value) for key, value in issues.items()},
+        'vibeDistribution': vibe_distribution,
+        'majorGroupDistribution': major_group_distribution,
+        'socialLevelDistribution': social_level_distribution,
+        'socialStyleDistribution': social_style_distribution,
+        'issues': issues,
+    }
+
+
+def write_import_health(report_path, module_path, profiles):
+    health = build_import_health(profiles)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(health, indent=2) + '\n', encoding='utf-8')
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(
+        '// Generated by scripts/import-master-apps.py. Do not edit manually.\n'
+        + 'export const importHealth = '
+        + json.dumps(health, ensure_ascii=False, indent=2)
+        + ';\n',
+        encoding='utf-8',
+    )
+    return health
+
+
 def main():
     if len(sys.argv) < 3:
         print('Usage: import-master-apps.py INPUT.xlsx OUTPUT.js [IMAGE_REPORT.csv] [PROFILE_DATA.json]')
@@ -705,6 +1025,8 @@ def main():
         else output_path.parent.parent / 'data' / 'profiles.json'
     )
     summary_path = report_path.with_name('image-import-summary.json')
+    health_path = report_path.with_name('import-health.json')
+    health_module_path = output_path.with_name('import-health.js')
 
     profiles, image_report = build_profiles(input_path)
     write_profiles(output_path, profiles)
@@ -713,6 +1035,7 @@ def main():
     write_drive_allowlist(allowlist_path, profiles)
     write_image_report(report_path, image_report)
     summary = write_image_summary(summary_path, profiles)
+    health = write_import_health(health_path, health_module_path, profiles)
 
     counts = {key: sum(1 for profile in profiles if profile['sourceGroup'] == key) for key in SHEETS}
     decks = sum(1 for profile in profiles if profile['slideDeckUrl'])
@@ -727,6 +1050,11 @@ def main():
     print(f'Image report: {report_path}')
     print(f'Image summary: {summary_path}')
     print(f'Drive proxy allowlist: {allowlist_path}')
+    print(f'Import health: {health_path}')
+    print('Vibe distribution: ' + json.dumps(health['vibeDistribution']))
+    print('Major group distribution: ' + json.dumps(health['majorGroupDistribution']))
+    print('Social level distribution: ' + json.dumps(health['socialLevelDistribution']))
+    print('Social style distribution: ' + json.dumps(health['socialStyleDistribution']))
     print(f'Migration data: {data_path}')
 
 

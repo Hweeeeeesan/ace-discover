@@ -174,12 +174,10 @@ npm run start
 Download the Google Sheet as `.xlsx`, then run from this project folder:
 
 ```bash
-python3 scripts/import-master-apps.py \
-  "/path/to/FALL 25 MASTER APPS.xlsx" \
-  lib/profiles.js \
-  reports/image-import-report.csv \
-  data/profiles.json
+npm run profiles:import -- "/path/to/FALL 25 MASTER APPS.xlsx"
 ```
+
+The command validates the expected workbook schema, preserves complete public-facing responses, applies privacy redaction, normalizes Instagram and Drive sources, infers the controlled vibe taxonomy, and generates the public profile module plus organizer health reports. It also creates deterministic `normalizedYear`, `majorGroup`, `socialLevel`, and `socialStyle` fields used by discovery. It never stages, commits, pushes, deploys, or modifies the source workbook.
 
 Run the importer, public-data privacy checks, and Drive-route guard tests with:
 
@@ -202,17 +200,28 @@ Supabase image URLs require no runtime secret. Once migration is complete, the a
 
 This app presents application responses as public-facing profiles. Confirm that every participant consented to publication before deploying the gallery. The organizer-only `data/` and `reports/` folders are gitignored because they retain submitted image links for migration and troubleshooting; do not force-add them to Git. Keep the repository private as an additional safeguard because `lib/profiles.js` still contains the profile fields displayed by the public app.
 
-## Discovery V2 controls
+## Discovery V3 controls
 
 This build adds a stateful discovery layer without changing the spreadsheet format or database schema:
 
-- fixed mobile toolbar with **All**, **Littles**, **Bigs**, **Family**, and **Deck** filters;
+- **All**, **Unseen**, and **Vibes** discovery modes with browser-local seen history;
+- role filters for **All roles**, **Littles**, **Bigs**, and **Family**;
+- deterministic multi-vibe OR filtering using a controlled 16-vibe taxonomy;
 - live relevance-ranked search across names, majors, years, interests, hobbies, music, movies, and bios;
-- advanced filters for year, major, program, and school;
+- advanced filters for normalized year, controlled Major Area, a 1–5 Social Level range, and multi-select Social Style;
 - stable session-based shuffle, with role balancing to reduce repetitive runs;
 - counters based on the active filtered result set;
 - saved search, filters, shuffle order, active profile, and feed position when opening a detail page and returning;
 - empty-result recovery controls and accessible keyboard/focus behavior.
+- an unlinked `/admin` organizer dashboard with safe import-health metrics and a browser-local seen-history reset.
+
+Seen profile IDs are stored only in browser `localStorage`; they are never written to profile data. Instagram URLs are removed from the discovery payload and are rendered only on individual profile detail pages. Slide decks remain available on detail pages and in organizer reporting, but are no longer a discovery filter.
+
+The advanced sheet intentionally does not filter by school, program, profile completeness, Instagram, photo availability, or slide-deck availability. Year and Major Area filters use normalized import fields while detail cards preserve the original submitted year and major text. Major Area supports multiple selections with OR matching; MIS and Management Information Systems are classified as Business. Social Style chips also use OR matching.
+
+Social Level defaults to 1–5. At that default, profiles without a valid rating remain eligible. Narrowing either end of the range excludes missing or invalid ratings. With no Social Style selected, missing styles remain eligible; selecting any style excludes missing or unknown styles. Reset inside the advanced sheet resets only Year, Major Area, Social Level, and Social Style. Older session values for removed filters are ignored safely.
+
+The generated safe health report and `/admin` dashboard include Major Area, Social Level, and Social Style distributions plus affected profile IDs for missing or unclassified values. They do not include raw workbook answers.
 
 The main discovery files are:
 

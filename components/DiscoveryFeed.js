@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SearchX, SlidersHorizontal } from 'lucide-react';
 import DiscoveryToolbar from './DiscoveryToolbar';
 import FilterSheet from './FilterSheet';
+import VibeSheet from './VibeSheet';
 import ProfileCard from './ProfileCard';
 import {
   countAdvancedFilters,
@@ -15,14 +16,17 @@ import {
   getDiscoveryOptions,
   sanitizeFilters,
 } from '../lib/discovery';
+import { readSeenIds, SEEN_CHANGE_EVENT } from '../lib/seen-profiles';
 
 function emptyFilters() {
-  return { ...DEFAULT_FILTERS, years: [] };
+  return { ...DEFAULT_FILTERS, years: [], majorGroups: [], socialStyles: [] };
 }
 
 const INITIAL_STATE = {
   query: '',
   role: 'All',
+  mode: 'All',
+  selectedVibes: [],
   filters: emptyFilters(),
   seed: 1,
   activeProfileId: '',
@@ -37,6 +41,10 @@ function sanitizeStoredState(value) {
   return {
     query: typeof source.query === 'string' ? source.query.slice(0, 160) : '',
     role: ['All', 'Little', 'Big', 'Family'].includes(source.role) ? source.role : 'All',
+    mode: ['All', 'Unseen', 'Vibes'].includes(source.mode) ? source.mode : 'All',
+    selectedVibes: Array.isArray(source.selectedVibes)
+      ? source.selectedVibes.filter((value) => typeof value === 'string').slice(0, 16)
+      : [],
     filters: sanitizeFilters(source.filters),
     seed: Number.isFinite(numericSeed) && numericSeed > 0 ? numericSeed : createSeed(),
     activeProfileId: typeof source.activeProfileId === 'string' ? source.activeProfileId : '',
@@ -55,6 +63,8 @@ export default function DiscoveryFeed({ profiles }) {
   const [discovery, setDiscovery] = useState(INITIAL_STATE);
   const [searchOpen, setSearchOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [vibesOpen, setVibesOpen] = useState(false);
+  const [seenIds, setSeenIds] = useState([]);
   const [toast, setToast] = useState('');
 
   stateRef.current = discovery;
@@ -64,10 +74,13 @@ export default function DiscoveryFeed({ profiles }) {
     () => filterAndOrderProfiles(profiles, {
       query: discovery.query,
       role: discovery.role,
+      mode: discovery.mode,
+      selectedVibes: discovery.selectedVibes,
+      seenIds,
       ...discovery.filters,
       seed: discovery.seed,
     }),
-    [profiles, discovery.query, discovery.role, discovery.filters, discovery.seed],
+    [profiles, discovery.query, discovery.role, discovery.mode, discovery.selectedVibes, discovery.filters, discovery.seed, seenIds],
   );
   const visibleKey = useMemo(
     () => visibleProfiles.map((profile) => profile.id).join('|'),
@@ -75,9 +88,10 @@ export default function DiscoveryFeed({ profiles }) {
   );
 
   const advancedFilterCount = countAdvancedFilters(discovery.filters);
-  const sheetFilterCount = advancedFilterCount + Number(discovery.filters.hasDeck);
+  const sheetFilterCount = advancedFilterCount;
   const totalActiveControls = advancedFilterCount
-    + Number(discovery.filters.hasDeck)
+    + Number(discovery.mode !== 'All')
+    + discovery.selectedVibes.length
     + Number(discovery.role !== 'All')
     + Number(Boolean(discovery.query));
   const activeProfileId = visibleProfiles.some((profile) => profile.id === discovery.activeProfileId)
@@ -129,6 +143,19 @@ export default function DiscoveryFeed({ profiles }) {
     setDiscovery(initial);
     setSearchOpen(Boolean(initial.query));
     setReady(true);
+  }, []);
+
+  useEffect(() => {
+    function refreshSeen() { setSeenIds(readSeenIds()); }
+    refreshSeen();
+    window.addEventListener('pageshow', refreshSeen);
+    window.addEventListener('focus', refreshSeen);
+    window.addEventListener(SEEN_CHANGE_EVENT, refreshSeen);
+    return () => {
+      window.removeEventListener('pageshow', refreshSeen);
+      window.removeEventListener('focus', refreshSeen);
+      window.removeEventListener(SEEN_CHANGE_EVENT, refreshSeen);
+    };
   }, []);
 
   useEffect(() => {
@@ -226,13 +253,14 @@ export default function DiscoveryFeed({ profiles }) {
   useEffect(() => {
     function handleEscape(event) {
       if (event.key !== 'Escape') return;
-      if (filtersOpen) setFiltersOpen(false);
+      if (vibesOpen) setVibesOpen(false);
+      else if (filtersOpen) setFiltersOpen(false);
       else if (searchOpen) setSearchOpen(false);
     }
 
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
-  }, [filtersOpen, searchOpen]);
+  }, [filtersOpen, searchOpen, vibesOpen]);
 
   useEffect(() => () => {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
@@ -276,10 +304,17 @@ export default function DiscoveryFeed({ profiles }) {
     updateControls((current) => ({ ...current, role }));
   }
 
-  function handleDeckChange(hasDeck) {
+  function handleModeChange(mode) {
+    updateControls((current) => ({ ...current, mode }));
+    if (mode === 'Vibes' && discovery.selectedVibes.length === 0) setVibesOpen(true);
+  }
+
+  function toggleVibe(vibe) {
     updateControls((current) => ({
       ...current,
-      filters: { ...current.filters, hasDeck },
+      selectedVibes: current.selectedVibes.includes(vibe)
+        ? current.selectedVibes.filter((value) => value !== vibe)
+        : [...current.selectedVibes, vibe],
     }));
   }
 
@@ -298,6 +333,8 @@ export default function DiscoveryFeed({ profiles }) {
       ...current,
       query: '',
       role: 'All',
+      mode: 'All',
+      selectedVibes: [],
       filters: emptyFilters(),
     }));
     setSearchOpen(false);
@@ -339,8 +376,10 @@ export default function DiscoveryFeed({ profiles }) {
         onSearchClose={() => setSearchOpen(false)}
         role={discovery.role}
         onRoleChange={handleRoleChange}
-        hasDeck={discovery.filters.hasDeck}
-        onHasDeckChange={handleDeckChange}
+        mode={discovery.mode}
+        onModeChange={handleModeChange}
+        selectedVibeCount={discovery.selectedVibes.length}
+        onOpenVibes={() => setVibesOpen(true)}
         onShuffle={handleShuffle}
         onOpenFilters={() => {
           setSearchOpen(false);
@@ -355,7 +394,7 @@ export default function DiscoveryFeed({ profiles }) {
       </div>
 
       <div
-        className={`feed ${filtersOpen ? 'is-locked' : ''}`}
+        className={`feed ${filtersOpen || vibesOpen ? 'is-locked' : ''}`}
         ref={feedRef}
         aria-label="Profile discovery feed"
         onScroll={(event) => {
@@ -397,6 +436,14 @@ export default function DiscoveryFeed({ profiles }) {
         values={discovery.filters}
         onClose={() => setFiltersOpen(false)}
         onApply={handleApplyFilters}
+      />
+
+      <VibeSheet
+        open={vibesOpen}
+        selected={discovery.selectedVibes}
+        onToggle={toggleVibe}
+        onClear={() => updateControls((current) => ({ ...current, selectedVibes: [] }))}
+        onClose={() => setVibesOpen(false)}
       />
 
       {!restored && (
