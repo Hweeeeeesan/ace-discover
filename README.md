@@ -185,6 +185,14 @@ Run the importer, public-data privacy checks, and Drive-route guard tests with:
 npm test
 ```
 
+Run the Playwright browser smoke suite at mobile (390×844 emulation) and desktop (1440×900):
+
+```bash
+npm run test:e2e
+```
+
+The suite starts a Next.js dev server on port 3100 and shuts it down when complete. It uses the locally installed Chrome channel; on a machine without Chrome, install a Playwright browser with `npx playwright install chromium` and adjust the channel in `playwright.config.js` if needed. Failure screenshots, traces, and the HTML report are written to ignored Playwright artifact folders.
+
 The import command regenerates the spreadsheet snapshot, `lib/drive-image-allowlist.js`, the image audit, and the migration data. It also replaces any previously migrated Supabase URLs. Run the Supabase migration again after importing a newer workbook.
 
 ## Deploy to Vercel
@@ -204,9 +212,8 @@ This app presents application responses as public-facing profiles. Confirm that 
 
 This build adds a stateful discovery layer without changing the spreadsheet format or database schema:
 
-- **All**, **Unseen**, and **Vibes** discovery modes with browser-local seen history;
-- role filters for **All roles**, **Littles**, **Bigs**, and **Family**;
-- deterministic multi-vibe OR filtering using a controlled 16-vibe taxonomy;
+- mutually exclusive **All**, **Little**, **Big**, and **Family** role chips, plus an independent browser-local **Unseen** toggle;
+- deterministic multi-vibe OR filtering in the first section of the advanced Filters sheet using a controlled 16-vibe taxonomy;
 - live relevance-ranked search across names, majors, years, interests, hobbies, music, movies, and bios;
 - advanced filters for normalized year, controlled Major Area, a 1–5 Social Level range, and multi-select Social Style;
 - stable session-based shuffle, with role balancing to reduce repetitive runs;
@@ -217,7 +224,7 @@ This build adds a stateful discovery layer without changing the spreadsheet form
 
 Seen profile IDs are stored only in browser `localStorage`; they are never written to profile data. Instagram URLs are removed from the discovery payload and are rendered only on individual profile detail pages. Slide decks remain available on detail pages and in organizer reporting, but are no longer a discovery filter.
 
-The advanced sheet intentionally does not filter by school, program, profile completeness, Instagram, photo availability, or slide-deck availability. Year and Major Area filters use normalized import fields while detail cards preserve the original submitted year and major text. Major Area supports multiple selections with OR matching; MIS and Management Information Systems are classified as Business. Social Style chips also use OR matching.
+The advanced sheet order is Vibes, Year, Major Area, Social Level, and Social Style. It intentionally does not filter by school, program, profile completeness, Instagram, photo availability, or slide-deck availability. Year and Major Area filters use normalized import fields while detail cards preserve the original submitted year and major text. Major Area supports multiple selections with OR matching; MIS and Management Information Systems are classified as Business. Social Style chips also use OR matching.
 
 Social Level defaults to 1–5. At that default, profiles without a valid rating remain eligible. Narrowing either end of the range excludes missing or invalid ratings. With no Social Style selected, missing styles remain eligible; selecting any style excludes missing or unknown styles. Reset inside the advanced sheet resets only Year, Major Area, Social Level, and Social Style. Older session values for removed filters are ignored safely.
 

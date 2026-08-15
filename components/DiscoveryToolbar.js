@@ -10,9 +10,9 @@ import {
 } from 'lucide-react';
 
 const ROLE_FILTERS = [
-  { value: 'All', label: 'All roles' },
-  { value: 'Little', label: 'Littles' },
-  { value: 'Big', label: 'Bigs' },
+  { value: 'All', label: 'All' },
+  { value: 'Little', label: 'Little' },
+  { value: 'Big', label: 'Big' },
   { value: 'Family', label: 'Family' },
 ];
 
@@ -24,10 +24,8 @@ export default function DiscoveryToolbar({
   onSearchClose,
   role,
   onRoleChange,
-  mode,
-  onModeChange,
-  selectedVibeCount,
-  onOpenVibes,
+  unseen,
+  onUnseenChange,
   onShuffle,
   onOpenFilters,
   activeFilterCount,
@@ -134,40 +132,33 @@ export default function DiscoveryToolbar({
           </div>
         )}
 
-        <nav className="mode-strip" aria-label="Discovery mode">
-          {['All', 'Unseen', 'Vibes'].map((value) => (
-            <button
-              className={`mode-chip${mode === value ? ' is-selected' : ''}`}
-              type="button"
-              key={value}
-              aria-pressed={mode === value}
-              onClick={() => onModeChange(value)}
-            >
-              {value}{value === 'Vibes' && selectedVibeCount > 0 ? ` (${selectedVibeCount})` : ''}
-            </button>
-          ))}
-          {mode === 'Vibes' && (
-            <button className="vibe-picker-trigger" type="button" onClick={onOpenVibes}>
-              {selectedVibeCount ? 'Edit vibes' : 'Choose vibes'}
-            </button>
-          )}
-        </nav>
-
-        <nav className="filter-strip" aria-label="Profile role filters">
-          {ROLE_FILTERS.map((filter) => {
-            const selected = role === filter.value;
-            return (
-              <button
-                className={`filter-chip${selected ? ' is-selected' : ''}`}
-                type="button"
-                key={filter.value}
-                aria-pressed={selected}
-                onClick={() => onRoleChange(filter.value)}
-              >
-                {filter.label}
-              </button>
-            );
-          })}
+        <nav className="filter-strip role-control-strip" aria-label="Profile role and seen filters">
+          <div className="role-chip-scroll">
+            {ROLE_FILTERS.map((filter) => {
+              const selected = role === filter.value;
+              return (
+                <button
+                  className={`filter-chip${selected ? ' is-selected' : ''}`}
+                  type="button"
+                  key={filter.value}
+                  aria-pressed={selected}
+                  onClick={() => onRoleChange(filter.value)}
+                >
+                  {filter.label}
+                </button>
+              );
+            })}
+          </div>
+          <label className="unseen-toggle">
+            <span>Unseen</span>
+            <input
+              type="checkbox"
+              checked={unseen}
+              onChange={(event) => onUnseenChange(event.target.checked)}
+              aria-label="Show unseen profiles only"
+            />
+            <span className="toggle-track" aria-hidden="true"><span /></span>
+          </label>
         </nav>
       </div>
     </header>

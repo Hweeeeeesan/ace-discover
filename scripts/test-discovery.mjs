@@ -6,6 +6,7 @@ import {
   canonicalYear,
   filterAndOrderProfiles,
   getDiscoveryOptions,
+  migrateDiscoveryState,
   normalizeText,
   scoreProfile,
   sanitizeFilters,
@@ -75,9 +76,15 @@ const legacyDeckState = filterAndOrderProfiles(profiles, {
 assert.equal(legacyDeckState.length, 210, 'Obsolete Has Deck state must no longer filter discovery');
 
 const seenIds = profiles.slice(0, 5).map((profile) => profile.id);
-const unseen = filterAndOrderProfiles(profiles, { mode: 'Unseen', seenIds, seed });
+const unseen = filterAndOrderProfiles(profiles, { unseen: true, seenIds, seed });
 assert.equal(unseen.length, 205);
 assert.ok(unseen.every((profile) => !seenIds.includes(profile.id)));
+for (const role of ['All', 'Little', 'Big', 'Family']) {
+  const roleUnseen = filterAndOrderProfiles(profiles, { role, unseen: true, seenIds, seed });
+  const roleAll = filterAndOrderProfiles(profiles, { role, seed });
+  assert.equal(roleUnseen.length, roleAll.length - seenIds.filter((id) => profiles.find((profile) => profile.id === id)?.role === (role === 'All' ? profiles.find((profile) => profile.id === id)?.role : role)).length);
+  assert.ok(roleUnseen.every((profile) => profile.role === role || role === 'All'));
+}
 
 const vibeFixture = [
   { id: 'one', role: 'Little', vibes: ['Gaming'], major: 'Computer Science', majorGroup: 'Computing & Data', year: 'First', normalizedYear: 'First year', socialLevel: 4, socialStyle: 'Introvert', bio: 'alpha anime' },
@@ -85,11 +92,11 @@ const vibeFixture = [
   { id: 'three', role: 'Little', vibes: ['Music'], major: 'Mechanical Engineering', majorGroup: 'Engineering', year: 'First', normalizedYear: 'First year', socialLevel: null, socialStyle: '', bio: 'gamma' },
   { id: 'four', role: 'Big', vibes: ['Music'], major: 'Electrical Engineering', majorGroup: 'Engineering', year: 'Third', normalizedYear: 'Third year', socialLevel: 5, socialStyle: 'Extrovert', bio: 'delta anime' },
 ];
-const multiVibe = filterAndOrderProfiles(vibeFixture, { mode: 'Vibes', selectedVibes: ['Gaming', 'Travel'], seed });
+const multiVibe = filterAndOrderProfiles(vibeFixture, { vibes: ['Gaming', 'Travel'], seed });
 assert.deepEqual(new Set(multiVibe.map((profile) => profile.id)), new Set(['one', 'two']), 'Vibes use OR matching');
-const roleAndVibe = filterAndOrderProfiles(vibeFixture, { mode: 'Vibes', selectedVibes: ['Gaming', 'Travel'], role: 'Little', seed });
+const roleAndVibe = filterAndOrderProfiles(vibeFixture, { vibes: ['Gaming', 'Travel'], role: 'Little', seed });
 assert.deepEqual(roleAndVibe.map((profile) => profile.id), ['one']);
-const searchAndVibe = filterAndOrderProfiles(vibeFixture, { mode: 'Vibes', selectedVibes: ['Gaming', 'Travel'], query: 'beta', seed });
+const searchAndVibe = filterAndOrderProfiles(vibeFixture, { vibes: ['Gaming', 'Travel'], query: 'beta', seed });
 assert.deepEqual(searchAndVibe.map((profile) => profile.id), ['two']);
 
 const majorFiltered = filterAndOrderProfiles(vibeFixture, { majorGroups: ['engineering'], seed });
@@ -103,13 +110,13 @@ assert.equal(defaultSocial.length, vibeFixture.length, 'Missing levels remain el
 const styleOr = filterAndOrderProfiles(vibeFixture, { socialStyles: ['Introvert', 'Ambivert'], seed });
 assert.deepEqual(new Set(styleOr.map((profile) => profile.id)), new Set(['one', 'two']));
 const combinedAdvanced = filterAndOrderProfiles(vibeFixture, {
-  mode: 'Vibes', selectedVibes: ['Music'],
+  vibes: ['Music'],
   role: 'Big', years: ['third year'], majorGroups: ['engineering'],
   socialLevelMin: 3, socialLevelMax: 5, socialStyles: ['Extrovert'], query: 'anime', seed,
 });
 assert.deepEqual(combinedAdvanced.map((profile) => profile.id), ['four']);
 const unseenVibeBusiness = filterAndOrderProfiles(vibeFixture, {
-  mode: 'Unseen', seenIds: ['one'], selectedVibes: ['Music'],
+  unseen: true, seenIds: ['one'], vibes: ['Music'],
   majorGroups: ['business'], socialStyles: ['Ambivert'], seed,
 });
 assert.deepEqual(unseenVibeBusiness.map((profile) => profile.id), ['two']);
@@ -166,8 +173,24 @@ assert.deepEqual(options.majorGroups.map((option) => option.label), [
 ]);
 const legacyFilters = sanitizeFilters({ school: 'sjsu', program: 'big', hasDeck: true, hasPhoto: true });
 assert.deepEqual(legacyFilters, {
-  years: [], majorGroups: [], socialLevelMin: 1, socialLevelMax: 5, socialStyles: [],
+  vibes: [], years: [], majorGroups: [], socialLevelMin: 1, socialLevelMax: 5, socialStyles: [],
 }, 'Obsolete stored filter values must be ignored');
+const migratedUnseen = migrateDiscoveryState({
+  mode: 'Unseen', role: 'Big', selectedVibes: ['Music'], seed: 44,
+  activeProfileId: 'two', scrollTop: 120,
+});
+assert.equal(migratedUnseen.unseen, true);
+assert.equal(migratedUnseen.role, 'Big');
+assert.deepEqual(migratedUnseen.filters.vibes, ['Music']);
+assert.equal(migratedUnseen.seed, 44);
+const migratedVibes = migrateDiscoveryState({ mode: 'Vibes', selectedVibes: ['Gaming'] });
+assert.equal(migratedVibes.unseen, false);
+assert.deepEqual(migratedVibes.filters.vibes, ['Gaming']);
+const resetAdvanced = sanitizeFilters({ vibes: ['Music'], years: ['third year'], majorGroups: ['business'], socialLevelMin: 3, socialLevelMax: 4, socialStyles: ['Ambivert'] });
+assert.notDeepEqual(resetAdvanced, sanitizeFilters({}), 'Advanced filters can be active before reset');
+assert.deepEqual(sanitizeFilters({}), {
+  vibes: [], years: [], majorGroups: [], socialLevelMin: 1, socialLevelMax: 5, socialStyles: [],
+}, 'Advanced reset defaults are isolated from role/unseen state');
 assert.deepEqual(
   sanitizeFilters({ years: ['second', 'Fifth+'] }).years,
   ['second year', 'fourth year+'],
@@ -178,6 +201,12 @@ const filterSheetSource = await readFile(new URL('../components/FilterSheet.js',
 for (const removedLabel of ['>School<', '>Program<', '>Profile<', 'Has Deck', 'Has Instagram', 'Has Photo']) {
   assert.ok(!filterSheetSource.includes(removedLabel), `${removedLabel} must remain absent from advanced filters`);
 }
+assert.ok(filterSheetSource.indexOf('<legend>Vibes</legend>') < filterSheetSource.indexOf('<legend>Year</legend>'));
+assert.ok(filterSheetSource.indexOf('<legend>Year</legend>') < filterSheetSource.indexOf('<legend>Major Area</legend>'));
+const discoveryFeedSource = await readFile(new URL('../components/DiscoveryFeed.js', import.meta.url), 'utf8');
+assert.ok(!discoveryFeedSource.includes('onModeChange'));
+assert.ok(!discoveryFeedSource.includes('discovery.mode'));
+assert.ok(!discoveryFeedSource.includes('discovery.selectedVibes'));
 assert.deepEqual(seededShuffle([1, 2, 3, 4], 12), seededShuffle([1, 2, 3, 4], 12));
 
 console.log('Discovery search, filters, stable shuffle, and options tests passed.');

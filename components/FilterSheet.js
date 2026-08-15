@@ -7,10 +7,11 @@ import {
   DEFAULT_FILTERS,
   sanitizeFilters,
   SOCIAL_STYLE_OPTIONS,
+  VIBE_OPTIONS,
 } from '../lib/discovery';
 
 function emptyFilters() {
-  return { ...DEFAULT_FILTERS, years: [], majorGroups: [], socialStyles: [] };
+  return { ...DEFAULT_FILTERS, vibes: [], years: [], majorGroups: [], socialStyles: [] };
 }
 
 export default function FilterSheet({
@@ -131,6 +132,26 @@ export default function FilterSheet({
 
         <div className="sheet-scroll">
           <fieldset className="filter-fieldset">
+            <legend>Vibes</legend>
+            <div className="vibe-grid filter-vibe-grid">
+              {VIBE_OPTIONS.map((vibe) => {
+                const selected = draft.vibes.includes(vibe);
+                return (
+                  <button
+                    className={`vibe-option${selected ? ' is-selected' : ''}`}
+                    type="button"
+                    key={vibe}
+                    aria-pressed={selected}
+                    onClick={() => toggleArrayValue('vibes', vibe)}
+                  >
+                    {vibe}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <fieldset className="filter-fieldset">
             <legend>Year</legend>
             <div className="year-options">
               {options.years.map((option) => {
@@ -231,7 +252,6 @@ export default function FilterSheet({
               })}
             </div>
           </fieldset>
-
         </div>
 
         <div className="sheet-footer">

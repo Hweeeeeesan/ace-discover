@@ -11,6 +11,7 @@
     "test:importer": "python3 scripts/test-importer.py",
     "validate:data": "python3 scripts/validate-public-data.py",
     "test:drive": "node scripts/test-drive-route.mjs",
+    "test:e2e": "playwright test",
     "profiles:import": "node scripts/import-profiles.mjs",
     "images:migrate": "node scripts/migrate-drive-images-to-supabase.mjs"
   },
@@ -26,5 +27,8 @@
   },
   "allowScripts": {
     "sharp@0.34.5": true
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
   }
 }

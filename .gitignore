@@ -1,5 +1,12 @@
 node_modules
 .next
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+# Next.js-generated local agent guidance.
+AGENTS.md
+CLAUDE.md
 
 # Local environment files can contain Drive, Supabase, and deployment secrets.
 .env*
