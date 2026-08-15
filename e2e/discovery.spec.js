@@ -141,4 +141,59 @@ test.describe('ACE Discover discovery smoke tests', () => {
     expect(overflow.width).toBeLessThanOrEqual(overflow.viewport);
     expect(overflow.bodyWidth).toBeLessThanOrEqual(overflow.viewport);
   });
+
+  test('keeps filter spacing compact and anchors Unseen to the right', async ({ page }) => {
+    await openDiscovery(page);
+
+    const roleStrip = page.locator('.role-control-strip');
+    const roleScroll = roleStrip.locator('.role-chip-scroll');
+    const unseen = roleStrip.locator('.unseen-toggle');
+    const controlLayout = await Promise.all([
+      roleStrip.boundingBox(),
+      roleScroll.boundingBox(),
+      unseen.boundingBox(),
+    ]);
+    const [stripBox, rolesBox, unseenBox] = controlLayout;
+    expect(stripBox).not.toBeNull();
+    expect(rolesBox).not.toBeNull();
+    expect(unseenBox).not.toBeNull();
+    expect(unseenBox.x + unseenBox.width).toBeGreaterThanOrEqual(stripBox.x + stripBox.width - 2);
+    expect(unseenBox.x).toBeGreaterThan(rolesBox.x + rolesBox.width);
+
+    const dialog = await openFilters(page);
+    const sections = dialog.locator('.filter-fieldset');
+    const sectionLayout = await sections.evaluateAll((nodes) => nodes.map((node) => {
+      const legend = node.querySelector('legend').getBoundingClientRect();
+      const control = node.querySelector('button, .social-range-summary').getBoundingClientRect();
+      const box = node.getBoundingClientRect();
+      return { top: box.top, bottom: box.bottom, legendBottom: legend.bottom, controlTop: control.top };
+    }));
+    expect(sectionLayout).toHaveLength(5);
+    for (const section of sectionLayout) {
+      expect(section.controlTop - section.legendBottom).toBeGreaterThanOrEqual(4);
+      expect(section.controlTop - section.legendBottom).toBeLessThanOrEqual(40);
+    }
+    for (let index = 1; index < sectionLayout.length; index += 1) {
+      const gap = sectionLayout[index].top - sectionLayout[index - 1].bottom;
+      expect(gap).toBeGreaterThanOrEqual(16);
+      expect(gap).toBeLessThanOrEqual(32);
+    }
+
+    const sheetOverflow = await dialog.evaluate((node) => {
+      const scroll = node.querySelector('.sheet-scroll');
+      const footer = node.querySelector('.sheet-footer');
+      const scrollBox = scroll.getBoundingClientRect();
+      const footerBox = footer.getBoundingClientRect();
+      return {
+        scrollable: scroll.scrollHeight >= scroll.clientHeight,
+        footerTop: footerBox.y,
+        scrollBottom: scrollBox.y + scrollBox.height,
+        pageWidth: document.documentElement.scrollWidth,
+        viewport: window.innerWidth,
+      };
+    });
+    expect(sheetOverflow.scrollable).toBeTruthy();
+    expect(sheetOverflow.scrollBottom).toBeLessThanOrEqual(sheetOverflow.footerTop + 1);
+    expect(sheetOverflow.pageWidth).toBeLessThanOrEqual(sheetOverflow.viewport);
+  });
 });
