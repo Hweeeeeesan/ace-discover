@@ -25,6 +25,40 @@ function profileRouteParts(href) {
   return { datasetSlug: decodeURIComponent(match[1]), profileId: decodeURIComponent(match[2]) };
 }
 
+async function seedSavedIds(page, datasetSlug, profileIds) {
+  await page.evaluate(({ slug, ids }) => {
+    localStorage.setItem(`ace-discover:saved:${slug}`, JSON.stringify(ids));
+  }, { slug: datasetSlug, ids: profileIds });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('button', { name: 'All', exact: true })).toBeVisible();
+}
+
+async function openAndRestoreCard(page, card) {
+  const profileId = await card.getAttribute('data-profile-id');
+  const profileHref = await card.getByRole('link', { name: /View profile/ }).getAttribute('href');
+  const feed = page.locator('.feed');
+
+  await card.evaluate((node) => node.scrollIntoView({ block: 'start' }));
+  await expect.poll(async () => feed.evaluate((node, id) => {
+    const target = node.querySelector(`[data-profile-id="${CSS.escape(id)}"]`);
+    return target ? Math.abs(node.scrollTop - target.offsetTop) : Number.MAX_SAFE_INTEGER;
+  }, profileId)).toBeLessThanOrEqual(2);
+
+  await card.getByRole('link', { name: /View profile/ }).click();
+  await expect(page).toHaveURL(profileHref);
+  await page.getByRole('button', { name: 'Back to discovery feed' }).click();
+  await expect(page).toHaveURL(/\/$/);
+
+  const restoredCard = page.locator(`[data-profile-id="${profileId}"]`);
+  await expect(restoredCard).toBeInViewport({ ratio: 0.95 });
+  const restoredDistance = await feed.evaluate((node, id) => {
+    const target = node.querySelector(`[data-profile-id="${CSS.escape(id)}"]`);
+    return target ? Math.abs(node.scrollTop - target.offsetTop) : Number.MAX_SAFE_INTEGER;
+  }, profileId);
+  expect(restoredDistance).toBeLessThanOrEqual(2);
+  return { profileId, restoredCard };
+}
+
 test.describe('ACE Discover discovery smoke tests', () => {
   test('loads discovery and supports every role', async ({ page }) => {
     await openDiscovery(page);
@@ -40,6 +74,89 @@ test.describe('ACE Discover discovery smoke tests', () => {
         await expect(page.getByRole('button', { name: otherRole, exact: true })).toHaveAttribute('aria-pressed', 'false');
       }
     }
+  });
+
+  test('keeps one-line and two-line discovery name descenders inside the clamp', async ({ page }) => {
+    await openDiscovery(page);
+    const metrics = await page.locator('.profile-name-clamp').first().evaluate((clamp) => {
+      const heading = clamp.querySelector('h2');
+      const original = heading.textContent;
+      const measure = (text) => {
+        heading.textContent = text;
+        const headingBox = heading.getBoundingClientRect();
+        const clampBox = clamp.getBoundingClientRect();
+        const headingStyle = getComputedStyle(heading);
+        return {
+          lines: Math.round(headingBox.height / parseFloat(headingStyle.lineHeight)),
+          bottomPaintRoom: clampBox.bottom - headingBox.bottom,
+          headingOverflow: headingStyle.overflowY,
+          clampOverflow: getComputedStyle(clamp).overflowY,
+        };
+      };
+      const oneLine = measure('Logan Nguyen');
+      const twoLine = measure('Jocelyn Nguyen Phuong Ly');
+      heading.textContent = original;
+      return { oneLine, twoLine };
+    });
+
+    expect(metrics.oneLine.lines).toBe(1);
+    expect(metrics.twoLine.lines).toBe(2);
+    for (const measurement of [metrics.oneLine, metrics.twoLine]) {
+      expect(measurement.headingOverflow).toBe('visible');
+      expect(measurement.clampOverflow).toBe('hidden');
+      expect(measurement.bottomPaintRoom).toBeGreaterThanOrEqual(3.5);
+    }
+  });
+
+  test('restores the same non-Saved profile after returning from detail', async ({ page }) => {
+    await openDiscovery(page);
+    const target = page.locator('.profile-card').nth(5);
+    await expect(target).toBeAttached();
+    await openAndRestoreCard(page, target);
+  });
+
+  test('restores the same saved profile and bookmark state after returning from detail', async ({ page }) => {
+    await openDiscovery(page);
+    const cards = page.locator('.profile-card');
+    const firstHref = await cards.first().getByRole('link', { name: /View profile/ }).getAttribute('href');
+    const { datasetSlug } = profileRouteParts(firstHref);
+    const savedIds = await cards.evaluateAll((nodes) => nodes.slice(0, 8).map((node) => node.dataset.profileId));
+    await seedSavedIds(page, datasetSlug, savedIds);
+
+    const savedToggle = page.getByRole('button', { name: 'Show saved profiles only' });
+    await savedToggle.click();
+    await expect(savedToggle).toHaveAttribute('aria-pressed', 'true');
+    const target = page.locator('.profile-card').nth(5);
+    const { restoredCard } = await openAndRestoreCard(page, target);
+
+    await expect(savedToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(restoredCard.getByRole('button', { name: 'Remove from saved' })).toBeVisible();
+  });
+
+  test('restores the same profile with Saved and role filters active', async ({ page }) => {
+    await openDiscovery(page);
+    const cards = page.locator('.profile-card');
+    const firstHref = await cards.first().getByRole('link', { name: /View profile/ }).getAttribute('href');
+    const { datasetSlug } = profileRouteParts(firstHref);
+    const records = await cards.evaluateAll((nodes) => nodes.map((node) => ({
+      id: node.dataset.profileId,
+      role: node.querySelector('.brand-pill')?.textContent?.trim(),
+    })));
+    const role = ['Little', 'Big', 'Family'].find((candidate) => records.filter((record) => record.role === candidate.toUpperCase()).length >= 3);
+    expect(role).toBeTruthy();
+    const savedIds = records.filter((record) => record.role === role.toUpperCase()).slice(0, 6).map((record) => record.id);
+    await seedSavedIds(page, datasetSlug, savedIds);
+
+    const savedToggle = page.getByRole('button', { name: 'Show saved profiles only' });
+    const roleToggle = page.getByRole('button', { name: role, exact: true });
+    await savedToggle.click();
+    await roleToggle.click();
+    const target = page.locator('.profile-card').nth(2);
+    const { restoredCard } = await openAndRestoreCard(page, target);
+
+    await expect(savedToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(roleToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(restoredCard.getByRole('button', { name: 'Remove from saved' })).toBeVisible();
   });
 
   test('combines independent Unseen with every role', async ({ page }) => {

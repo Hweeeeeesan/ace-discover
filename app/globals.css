@@ -294,10 +294,16 @@ select:focus-visible {
   padding: 24px 20px calc(58px + env(safe-area-inset-bottom));
 }
 .eyebrow { color: rgba(255,255,255,.82); font-size: 12px; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; }
+.profile-name-clamp {
+  max-width: 100%;
+  margin: 8px 0 -4px;
+  padding-bottom: 4px;
+  overflow: hidden;
+}
 .profile-copy h2 {
   max-width: 100%;
-  margin: 8px 0 0;
-  overflow: hidden;
+  margin: 0;
+  overflow: visible;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -622,7 +628,8 @@ select:focus-visible {
   .toolbar-icon-button { width: 39px; height: 39px; flex-basis: 39px; }
   .filter-chip { min-height: 33px; }
   .profile-copy { padding-bottom: calc(45px + env(safe-area-inset-bottom)); }
-  .profile-copy h2 { margin-top: 6px; font-size: clamp(34px, 9.5vw, 52px); }
+  .profile-name-clamp { margin-top: 6px; }
+  .profile-copy h2 { font-size: clamp(34px, 9.5vw, 52px); }
   .tag-row { margin-top: 12px; }
   .tag { padding: 7px 10px; }
   .card-actions { margin-top: 14px; }

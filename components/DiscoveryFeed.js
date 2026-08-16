@@ -132,9 +132,13 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
       }
     }
 
+    const initialSeenIds = readSeenIds(datasetSlug);
+    const initialSavedIds = readSavedIds(datasetSlug);
     stateRef.current = initial;
     scrollTopRef.current = initial.scrollTop;
     setDiscovery(initial);
+    setSeenIds(initialSeenIds);
+    setSavedIds(initialSavedIds);
     setSearchOpen(Boolean(initial.query));
     setReady(true);
   }, [datasetSlug]);

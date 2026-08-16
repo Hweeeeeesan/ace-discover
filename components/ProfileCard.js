@@ -41,7 +41,9 @@ export default function ProfileCard({
 
       <div className="profile-copy">
         <div className="eyebrow">{profile.major} · {profile.year}</div>
-        <h2>{profile.name}</h2>
+        <div className="profile-name-clamp">
+          <h2>{profile.name}</h2>
+        </div>
 
         {interests.length > 0 && (
           <div className="tag-row">
