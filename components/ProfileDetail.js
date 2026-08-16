@@ -3,6 +3,7 @@ import { ExternalLink, Instagram, Presentation } from 'lucide-react';
 import DiscoveryBackButton from './DiscoveryBackButton';
 import ProfileImage from './ProfileImage';
 import SeenProfileMarker from './SeenProfileMarker';
+import SavedProfileButton from './SavedProfileButton';
 
 function InfoSection({ title, children }) {
   if (!children) return null;
@@ -31,6 +32,7 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
         <div className="detail-content">
           <div className="eyebrow dark">{profile.major} · {profile.year}</div>
           <h1>{profile.name}</h1>
+          {!adminPreview && <SavedProfileButton profileId={profile.id} datasetSlug={datasetSlug} className="detail-save-button" />}
           <p className="detail-bio">{profile.bio}</p>
           <div className="tag-row detail-tags">
             {profile.interests.map((interest) => <span className="tag light" key={interest}>{interest}</span>)}

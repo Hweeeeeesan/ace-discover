@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { ArrowUpRight, Presentation } from 'lucide-react';
 import ProfileImage from './ProfileImage';
+import SavedProfileButton from './SavedProfileButton';
 
 export default function ProfileCard({
   profile,
@@ -71,6 +72,7 @@ export default function ProfileCard({
               <Presentation size={20} />
             </a>
           )}
+          <SavedProfileButton profileId={profile.id} datasetSlug={datasetSlug} />
         </div>
       </div>
 

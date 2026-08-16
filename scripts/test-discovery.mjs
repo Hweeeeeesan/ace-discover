@@ -14,6 +14,7 @@ import {
   seededShuffle,
 } from '../lib/discovery.js';
 import { markProfileSeen, readSeenIds, resetSeenIds, SEEN_PROFILES_KEY } from '../lib/seen-profiles.js';
+import { isProfileSaved, readSavedIds, saveProfile, toggleSavedProfile } from '../lib/saved-profiles.js';
 
 assert.equal(profiles.length, 210, 'Expected all imported profiles');
 assert.equal(canonicalYear('2nd Year'), 'Second year');
@@ -93,6 +94,24 @@ const vibeFixture = [
   { id: 'three', role: 'Little', vibes: ['Music'], major: 'Mechanical Engineering', majorGroup: 'Engineering', year: 'First', normalizedYear: 'First year', socialLevel: null, socialStyle: '', bio: 'gamma' },
   { id: 'four', role: 'Big', vibes: ['Music'], major: 'Electrical Engineering', majorGroup: 'Engineering', year: 'Third', normalizedYear: 'Third year', socialLevel: 5, socialStyle: 'Extrovert', bio: 'delta anime' },
 ];
+const savedStorage = {
+  values: new Map([['ace-discover:saved:fall-2025', JSON.stringify(['one', 'one', 7])]]),
+  getItem(key) { return this.values.has(key) ? this.values.get(key) : null; },
+  setItem(key, value) { this.values.set(key, value); },
+  removeItem(key) { this.values.delete(key); },
+};
+assert.deepEqual(readSavedIds('fall-2025', savedStorage), ['one'], 'saved IDs should sanitize malformed entries');
+assert.deepEqual(readSavedIds('spring-2026', savedStorage), [], 'saved IDs must be dataset-specific');
+savedStorage.values.set('ace-discover:saved:broken', '{not-json');
+assert.deepEqual(readSavedIds('broken', savedStorage), [], 'malformed saved storage should recover empty');
+assert.equal(isProfileSaved('one', 'fall-2025', savedStorage), true);
+assert.deepEqual(toggleSavedProfile('one', 'fall-2025', savedStorage), []);
+assert.deepEqual(saveProfile('one', 'spring-2026', savedStorage), ['one']);
+assert.deepEqual(readSavedIds('fall-2025', savedStorage), []);
+assert.deepEqual(readSavedIds('spring-2026', savedStorage), ['one']);
+assert.deepEqual(filterAndOrderProfiles(vibeFixture, { saved: true, savedIds: ['one'], seed }).map((profile) => profile.id), ['one']);
+assert.deepEqual(filterAndOrderProfiles(vibeFixture, { saved: true, savedIds: ['one', 'two'], role: 'Big', seed }).map((profile) => profile.id), ['two']);
+assert.deepEqual(filterAndOrderProfiles(vibeFixture, { saved: true, savedIds: ['one', 'two'], vibes: ['Gaming'], unseen: true, seenIds: ['one'], seed }), []);
 const multiVibe = filterAndOrderProfiles(vibeFixture, { vibes: ['Gaming', 'Travel'], seed });
 assert.deepEqual(new Set(multiVibe.map((profile) => profile.id)), new Set(['one', 'two']), 'Vibes use OR matching');
 const roleAndVibe = filterAndOrderProfiles(vibeFixture, { vibes: ['Gaming', 'Travel'], role: 'Little', seed });

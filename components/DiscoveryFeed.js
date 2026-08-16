@@ -19,6 +19,7 @@ import {
   sanitizeFilters,
 } from '../lib/discovery';
 import { readSeenIds, SEEN_CHANGE_EVENT } from '../lib/seen-profiles';
+import { readSavedIds, SAVED_CHANGE_EVENT } from '../lib/saved-profiles';
 
 function emptyFilters() {
   return { ...DEFAULT_FILTERS, vibes: [], years: [], majorGroups: [], socialStyles: [] };
@@ -27,6 +28,7 @@ function emptyFilters() {
 const INITIAL_STATE = {
   query: '',
   role: 'All',
+  saved: false,
   unseen: false,
   filters: emptyFilters(),
   seed: 1,
@@ -46,6 +48,7 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [seenIds, setSeenIds] = useState([]);
+  const [savedIds, setSavedIds] = useState([]);
   const [toast, setToast] = useState('');
 
   stateRef.current = discovery;
@@ -59,12 +62,14 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
     () => filterAndOrderProfiles(profiles, {
       query: discovery.query,
       role: effectiveRole,
+      saved: discovery.saved,
       unseen: discovery.unseen,
       seenIds,
+      savedIds,
       ...discovery.filters,
       seed: discovery.seed,
     }),
-    [profiles, discovery.query, effectiveRole, discovery.unseen, discovery.filters, discovery.seed, seenIds],
+    [profiles, discovery.query, effectiveRole, discovery.saved, discovery.unseen, discovery.filters, discovery.seed, seenIds, savedIds],
   );
   const visibleKey = useMemo(
     () => visibleProfiles.map((profile) => profile.id).join('|'),
@@ -75,6 +80,7 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
   const sheetFilterCount = advancedFilterCount;
   const totalActiveControls = advancedFilterCount
     + Number(discovery.unseen)
+    + Number(discovery.saved)
     + Number(effectiveRole !== 'All')
     + Number(Boolean(discovery.query));
   const activeProfileId = visibleProfiles.some((profile) => profile.id === discovery.activeProfileId)
@@ -148,6 +154,21 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
       window.removeEventListener('pageshow', refreshSeen);
       window.removeEventListener('focus', refreshSeen);
       window.removeEventListener(SEEN_CHANGE_EVENT, refreshSeen);
+    };
+  }, [datasetSlug]);
+
+  useEffect(() => {
+    function refreshSaved(event) {
+      if (!event?.detail?.datasetSlug || event.detail.datasetSlug === datasetSlug) {
+        setSavedIds(readSavedIds(datasetSlug));
+      }
+    }
+    refreshSaved();
+    window.addEventListener(SAVED_CHANGE_EVENT, refreshSaved);
+    window.addEventListener('storage', refreshSaved);
+    return () => {
+      window.removeEventListener(SAVED_CHANGE_EVENT, refreshSaved);
+      window.removeEventListener('storage', refreshSaved);
     };
   }, [datasetSlug]);
 
@@ -300,6 +321,10 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
     updateControls((current) => ({ ...current, unseen }));
   }
 
+  function handleSavedChange(saved) {
+    updateControls((current) => ({ ...current, saved }));
+  }
+
   function handleApplyFilters(filters) {
     updateControls((current) => ({ ...current, filters: sanitizeFilters(filters) }));
     setFiltersOpen(false);
@@ -355,6 +380,8 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
         onRoleChange={handleRoleChange}
         unseen={discovery.unseen}
         onUnseenChange={handleUnseenChange}
+        saved={discovery.saved}
+        onSavedChange={handleSavedChange}
         onShuffle={handleShuffle}
         onOpenFilters={() => {
           setSearchOpen(false);
@@ -393,8 +420,8 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
         ) : (
           <section className="empty-results" role="status">
             <div className="empty-icon"><SearchX size={28} /></div>
-            <p>No profiles found</p>
-            <h1>Try a different search or broaden your filters.</h1>
+            <p>{discovery.saved ? (savedIds.length ? 'No saved profiles match these filters.' : 'No saved profiles yet. Bookmark profiles you want to revisit.') : 'No profiles found'}</p>
+            <h1>{discovery.saved ? 'Save profiles with the bookmark icon to build your personal list.' : 'Try a different search or broaden your filters.'}</h1>
             <div className="empty-actions">
               {discovery.query && (
                 <button type="button" onClick={() => handleQueryChange('')}>Clear search</button>

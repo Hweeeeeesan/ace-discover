@@ -207,7 +207,7 @@ select:focus-visible {
   margin-top: 7px;
   padding-right: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
   overflow: visible;
 }
@@ -220,6 +220,9 @@ select:focus-visible {
 .unseen-toggle input:checked + .toggle-track { border-color: white; background: #b9dcff; }
 .unseen-toggle input:checked + .toggle-track span { transform: translateX(17px); background: #111; }
 .unseen-toggle input:focus-visible + .toggle-track { outline: 3px solid rgba(255,255,255,.32); outline-offset: 3px; }
+.saved-toggle { min-height: 40px; padding: 0 2px 0 8px; border: 0; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: rgba(255,255,255,.82); background: transparent; font-size: 12px; font-weight: 850; white-space: nowrap; }
+.saved-toggle:hover, .saved-toggle.is-active { color: white; }
+.saved-toggle.is-active svg { color: #b9dcff; }
 .filter-chip {
   min-height: 36px;
   padding: 0 13px;
@@ -348,6 +351,9 @@ select:focus-visible {
   backdrop-filter: blur(13px);
   -webkit-backdrop-filter: blur(13px);
 }
+.saved-profile-button { width: 50px; height: 50px; padding: 0; border: 1px solid rgba(255,255,255,.3); border-radius: 17px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: white; background: rgba(255,255,255,.14); backdrop-filter: blur(13px); -webkit-backdrop-filter: blur(13px); }
+.saved-profile-button:hover, .saved-profile-button.is-saved { color: #111; background: #b9dcff; border-color: #b9dcff; }
+.saved-profile-button:focus-visible, .saved-toggle:focus-visible { outline: 3px solid rgba(185,220,255,.8); outline-offset: 3px; }
 .scroll-hint {
   position: absolute;
   z-index: 3;
@@ -491,6 +497,8 @@ select:focus-visible {
 .detail-content { min-width: 0; padding: 28px 22px calc(32px + env(safe-area-inset-bottom)); }
 .eyebrow.dark { color: #6d6a63; opacity: 1; }
 .detail-content h1 { max-width: 100%; margin: 8px 0 12px; overflow-wrap: anywhere; color: #111; font-size: clamp(40px, 11vw, 64px); line-height: .98; letter-spacing: -.045em; }
+.detail-save-button { color: #111; border-color: #d8d4cb; background: #f4f2ed; }
+.detail-save-button:hover, .detail-save-button.is-saved { color: #111; background: #b9dcff; border-color: #b9dcff; }
 .detail-bio { max-width: 100%; margin: 0; overflow-wrap: anywhere; color: #5b5954; font-size: 16px; line-height: 1.65; }
 .detail-tags { margin-top: 20px; }
 .tag.light { border-color: #dedbd2; color: #3d3b37; background: #f5f3ee; }
@@ -619,7 +627,7 @@ select:focus-visible {
   .tag-row { margin-top: 12px; }
   .tag { padding: 7px 10px; }
   .card-actions { margin-top: 14px; }
-  .primary-button, .icon-button { min-height: 46px; height: 46px; }
+  .primary-button, .icon-button, .saved-profile-button { min-height: 46px; height: 46px; }
 }
 
 @media (max-width: 360px) {

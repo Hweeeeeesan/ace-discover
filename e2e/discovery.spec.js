@@ -1,7 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { profiles } from '../lib/profiles.js';
-
-const roleNames = ['All', 'Little', 'Big', 'Family'];
+const knownRoles = ['All', 'Little', 'Big', 'Family'];
 
 async function openDiscovery(page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
@@ -16,10 +14,24 @@ async function openFilters(page) {
   return dialog;
 }
 
+async function availableRoleNames(page) {
+  const labels = await page.locator('.role-chip-scroll .filter-chip').allTextContents();
+  return labels.map((label) => label.trim()).filter((label) => knownRoles.includes(label));
+}
+
+function profileRouteParts(href) {
+  const match = String(href || '').match(/^\/profile\/([^/]+)\/([^/]+)$/);
+  if (!match) throw new Error(`Expected a dataset-aware profile route, received ${href}`);
+  return { datasetSlug: decodeURIComponent(match[1]), profileId: decodeURIComponent(match[2]) };
+}
+
 test.describe('ACE Discover discovery smoke tests', () => {
   test('loads discovery and supports every role', async ({ page }) => {
     await openDiscovery(page);
 
+    const roleNames = await availableRoleNames(page);
+    expect(roleNames).toContain('All');
+    expect(roleNames.length).toBeGreaterThan(1);
     for (const role of roleNames) {
       const button = page.getByRole('button', { name: role, exact: true });
       await button.click();
@@ -34,6 +46,7 @@ test.describe('ACE Discover discovery smoke tests', () => {
     await openDiscovery(page);
     const unseen = page.getByRole('checkbox', { name: 'Show unseen profiles only' });
 
+    const roleNames = await availableRoleNames(page);
     for (const role of roleNames) {
       await page.getByRole('button', { name: role, exact: true }).click();
       await unseen.check();
@@ -42,6 +55,29 @@ test.describe('ACE Discover discovery smoke tests', () => {
       await unseen.uncheck();
       await expect(unseen).not.toBeChecked();
     }
+  });
+
+  test('bookmarks locally without opening the profile and syncs on detail', async ({ page }) => {
+    await openDiscovery(page);
+    const firstCard = page.locator('.profile-card').first();
+    const profileId = await firstCard.getAttribute('data-profile-id');
+    const profileHref = await firstCard.getByRole('link', { name: /View profile/ }).getAttribute('href');
+    const { datasetSlug } = profileRouteParts(profileHref);
+    const bookmark = firstCard.getByRole('button', { name: 'Save profile' });
+    await expect(bookmark).toBeVisible();
+    const feedUrl = page.url();
+    await bookmark.click();
+    await expect(page).toHaveURL(feedUrl);
+    await expect(firstCard.getByRole('button', { name: 'Remove from saved' })).toBeVisible();
+    await page.getByRole('button', { name: 'Show saved profiles only' }).click();
+    await expect(page.locator('.result-announcer')).toContainText('1 profiles available');
+    const stored = await page.evaluate(({ id, slug }) => ({
+      ids: JSON.parse(localStorage.getItem(`ace-discover:saved:${slug}`) || '[]'),
+      id,
+    }), { id: profileId, slug: datasetSlug });
+    expect(stored.ids).toContain(profileId);
+    await firstCard.getByRole('link', { name: /View profile/ }).click();
+    await expect(page.getByRole('button', { name: 'Remove from saved' })).toBeVisible();
   });
 
   test('opens and closes the advanced Filters sheet', async ({ page }) => {
@@ -121,31 +157,49 @@ test.describe('ACE Discover discovery smoke tests', () => {
     await expect(page.getByRole('heading', { name: /Admin setup required|Organizer access/ })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible();
 
-    const instagramProfile = profiles.find((profile) => profile.instagram);
-    const deckProfile = profiles.find((profile) => profile.slideDeckUrl);
-    await page.goto(`/profile/${instagramProfile.id}`);
-    const instagram = page.getByRole('link', { name: /View Instagram/ });
+    await openDiscovery(page);
+    const profileHrefs = await page.getByRole('link', { name: /View profile/ }).evaluateAll((links) => links.map((link) => link.getAttribute('href')));
+    let instagram = null;
+    for (const href of profileHrefs.slice(0, 20)) {
+      await page.goto(href, { waitUntil: 'domcontentloaded' });
+      const candidate = page.getByRole('link', { name: /View Instagram/ });
+      if (await candidate.count()) {
+        instagram = candidate;
+        break;
+      }
+    }
+    expect(instagram).not.toBeNull();
     await expect(instagram).toHaveAttribute('target', '_blank');
     await expect(instagram).toHaveAttribute('rel', /noopener/);
-    await page.goto(`/profile/${deckProfile.id}`);
+
+    await openDiscovery(page);
+    const deckCard = page.locator('.profile-card').filter({ has: page.getByRole('link', { name: /slide deck/i }) }).first();
+    const deckProfileHref = await deckCard.getByRole('link', { name: /View profile/ }).getAttribute('href');
+    await page.goto(deckProfileHref);
     await expect(page.getByRole('link', { name: /View slide deck/ })).toHaveAttribute('target', '_blank');
   });
 
   test('uses collision-safe profile routes and dataset-specific browser state', async ({ page }) => {
-    await page.goto('/profile/fall-2025/ashley-kiang');
-    await expect(page.getByRole('heading', { name: 'Ashley Kiang' })).toBeVisible();
-    await expect(page).toHaveURL(/\/profile\/fall-2025\/ashley-kiang$/);
+    await openDiscovery(page);
+    const firstCard = page.locator('.profile-card').first();
+    const name = await firstCard.locator('h2').textContent();
+    const href = await firstCard.getByRole('link', { name: /View profile/ }).getAttribute('href');
+    const { datasetSlug, profileId } = profileRouteParts(href);
+    const otherDataset = datasetSlug === 'fall-2025' ? 'spring-2026' : 'fall-2025';
+    await firstCard.getByRole('link', { name: /View profile/ }).click();
+    await expect(page.getByRole('heading', { name: name.trim() })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/profile/${datasetSlug}/${profileId}$`));
 
-    const state = await page.evaluate(() => ({
-      fallSeen: localStorage.getItem('ace-discover:seen:fall-2025'),
-      springSeen: localStorage.getItem('ace-discover:seen:spring-2026'),
-      fallSession: sessionStorage.getItem('profile-gallery:discovery-v2:fall-2025'),
-      springSession: sessionStorage.getItem('profile-gallery:discovery-v2:spring-2026'),
-    }));
-    expect(JSON.parse(state.fallSeen)).toContain('ashley-kiang');
-    expect(state.springSeen).toBeNull();
-    expect(state.springSession).toBeNull();
-    expect(state.fallSession).toBeNull();
+    const state = await page.evaluate(({ slug, other }) => ({
+      currentSeen: localStorage.getItem(`ace-discover:seen:${slug}`),
+      otherSeen: localStorage.getItem(`ace-discover:seen:${other}`),
+      currentSession: sessionStorage.getItem(`profile-gallery:discovery-v2:${slug}`),
+      otherSession: sessionStorage.getItem(`profile-gallery:discovery-v2:${other}`),
+    }), { slug: datasetSlug, other: otherDataset });
+    expect(JSON.parse(state.currentSeen)).toContain(profileId);
+    expect(state.otherSeen).toBeNull();
+    expect(state.currentSession).not.toBeNull();
+    expect(state.otherSession).toBeNull();
   });
 
   test('does not expose Admin dataset previews without authorization', async ({ page }) => {
