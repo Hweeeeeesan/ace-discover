@@ -6,6 +6,7 @@ import {
   canonicalYear,
   filterAndOrderProfiles,
   getDiscoveryOptions,
+  getAvailableRoles,
   migrateDiscoveryState,
   normalizeText,
   scoreProfile,
@@ -166,6 +167,16 @@ assert.ok(secondYears.length > 0);
 assert.ok(secondYears.every((profile) => profile.normalizedYear === 'Second year'));
 
 const options = getDiscoveryOptions(profiles);
+assert.deepEqual(getAvailableRoles([
+  { role: 'Little' }, { role: 'Big' }, { role: 'Family' }, { role: 'Little' },
+]), ['Little', 'Big', 'Family']);
+assert.deepEqual(getAvailableRoles([
+  { role: 'Little' }, { role: 'Big' }, { role: 'Little' },
+]), ['Little', 'Big'], 'zero-count Family must be hidden');
+assert.deepEqual(getAvailableRoles([
+  { role: 'Family' },
+]), ['Family'], 'role availability must be derived from normalized roles');
+assert.equal(options.roleCounts.Family > 0, true);
 assert.ok(options.years.some((option) => option.label === 'Second year'));
 assert.deepEqual(options.majorGroups.map((option) => option.label), [
   'Computing & Data', 'Engineering', 'Business', 'Health & Life Sciences',

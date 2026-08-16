@@ -14,6 +14,7 @@ import {
   discoveryStorageKey,
   filterAndOrderProfiles,
   getDiscoveryOptions,
+  getAvailableRoles,
   migrateDiscoveryState,
   sanitizeFilters,
 } from '../lib/discovery';
@@ -50,16 +51,20 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
   stateRef.current = discovery;
 
   const options = useMemo(() => getDiscoveryOptions(profiles), [profiles]);
+  const availableRoles = useMemo(() => getAvailableRoles(profiles), [profiles]);
+  const effectiveRole = discovery.role === 'All' || availableRoles.includes(discovery.role)
+    ? discovery.role
+    : 'All';
   const visibleProfiles = useMemo(
     () => filterAndOrderProfiles(profiles, {
       query: discovery.query,
-      role: discovery.role,
+      role: effectiveRole,
       unseen: discovery.unseen,
       seenIds,
       ...discovery.filters,
       seed: discovery.seed,
     }),
-    [profiles, discovery.query, discovery.role, discovery.unseen, discovery.filters, discovery.seed, seenIds],
+    [profiles, discovery.query, effectiveRole, discovery.unseen, discovery.filters, discovery.seed, seenIds],
   );
   const visibleKey = useMemo(
     () => visibleProfiles.map((profile) => profile.id).join('|'),
@@ -70,7 +75,7 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
   const sheetFilterCount = advancedFilterCount;
   const totalActiveControls = advancedFilterCount
     + Number(discovery.unseen)
-    + Number(discovery.role !== 'All')
+    + Number(effectiveRole !== 'All')
     + Number(Boolean(discovery.query));
   const activeProfileId = visibleProfiles.some((profile) => profile.id === discovery.activeProfileId)
     ? discovery.activeProfileId
@@ -127,6 +132,11 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
     setSearchOpen(Boolean(initial.query));
     setReady(true);
   }, [datasetSlug]);
+
+  useEffect(() => {
+    if (!ready || discovery.role === 'All' || availableRoles.includes(discovery.role)) return;
+    setDiscovery((current) => ({ ...current, role: 'All', activeProfileId: '', scrollTop: 0 }));
+  }, [availableRoles, discovery.role, ready]);
 
   useEffect(() => {
     function refreshSeen() { setSeenIds(readSeenIds(datasetSlug)); }
@@ -341,7 +351,7 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
         searchOpen={searchOpen}
         onSearchOpen={handleSearchOpen}
         onSearchClose={() => setSearchOpen(false)}
-        role={discovery.role}
+        role={effectiveRole}
         onRoleChange={handleRoleChange}
         unseen={discovery.unseen}
         onUnseenChange={handleUnseenChange}
@@ -352,6 +362,7 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
         }}
         activeFilterCount={sheetFilterCount}
         resultCount={visibleProfiles.length}
+        availableRoles={availableRoles}
       />
 
       <div className="result-announcer" aria-live="polite" aria-atomic="true">

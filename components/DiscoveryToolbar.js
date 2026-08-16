@@ -30,6 +30,7 @@ export default function DiscoveryToolbar({
   onOpenFilters,
   activeFilterCount,
   resultCount,
+  availableRoles = [],
 }) {
   const inputRef = useRef(null);
 
@@ -134,7 +135,7 @@ export default function DiscoveryToolbar({
 
         <nav className="filter-strip role-control-strip" aria-label="Profile role and seen filters">
           <div className="role-chip-scroll">
-            {ROLE_FILTERS.map((filter) => {
+            {ROLE_FILTERS.filter((filter) => filter.value === 'All' || availableRoles.includes(filter.value)).map((filter) => {
               const selected = role === filter.value;
               return (
                 <button
