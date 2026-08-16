@@ -31,8 +31,10 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
         </div>
         <div className="detail-content">
           <div className="eyebrow dark">{profile.major} · {profile.year}</div>
-          <h1>{profile.name}</h1>
-          {!adminPreview && <SavedProfileButton profileId={profile.id} datasetSlug={datasetSlug} className="detail-save-button" />}
+          <div className="detail-name-row">
+            <h1>{profile.name}</h1>
+            {!adminPreview && <SavedProfileButton profileId={profile.id} datasetSlug={datasetSlug} className="detail-save-button" />}
+          </div>
           <p className="detail-bio">{profile.bio}</p>
           <div className="tag-row detail-tags">
             {profile.interests.map((interest) => <span className="tag light" key={interest}>{interest}</span>)}

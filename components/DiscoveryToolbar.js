@@ -123,6 +123,16 @@ export default function DiscoveryToolbar({
                 <Shuffle size={19} />
               </button>
               <button
+                className={`toolbar-icon-button${saved ? ' is-active' : ''}`}
+                type="button"
+                onClick={() => onSavedChange?.(!saved)}
+                aria-pressed={saved}
+                aria-label="Show saved profiles only"
+                title="Saved profiles"
+              >
+                <Bookmark size={19} fill={saved ? 'currentColor' : 'none'} />
+              </button>
+              <button
                 className={`toolbar-icon-button${activeFilterCount ? ' has-filters' : ''}`}
                 type="button"
                 onClick={onOpenFilters}
@@ -153,16 +163,6 @@ export default function DiscoveryToolbar({
               );
             })}
           </div>
-          <button
-            className={`saved-toggle${saved ? ' is-active' : ''}`}
-            type="button"
-            onClick={() => onSavedChange?.(!saved)}
-            aria-pressed={saved}
-            aria-label="Show saved profiles only"
-          >
-            <Bookmark size={17} fill={saved ? 'currentColor' : 'none'} />
-            <span>Saved</span>
-          </button>
           <label className="unseen-toggle">
             <span>Unseen</span>
             <input

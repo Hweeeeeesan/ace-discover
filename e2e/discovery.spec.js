@@ -66,10 +66,15 @@ test.describe('ACE Discover discovery smoke tests', () => {
     const bookmark = firstCard.getByRole('button', { name: 'Save profile' });
     await expect(bookmark).toBeVisible();
     const feedUrl = page.url();
+    const utilitySaved = page.locator('.toolbar-actions').getByRole('button', { name: 'Show saved profiles only' });
+    await expect(utilitySaved).toBeVisible();
+    await expect(utilitySaved).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('.role-control-strip').getByRole('button', { name: 'Show saved profiles only' })).toHaveCount(0);
     await bookmark.click();
     await expect(page).toHaveURL(feedUrl);
     await expect(firstCard.getByRole('button', { name: 'Remove from saved' })).toBeVisible();
-    await page.getByRole('button', { name: 'Show saved profiles only' }).click();
+    await utilitySaved.click();
+    await expect(utilitySaved).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('.result-announcer')).toContainText('1 profiles available');
     const stored = await page.evaluate(({ id, slug }) => ({
       ids: JSON.parse(localStorage.getItem(`ace-discover:saved:${slug}`) || '[]'),
@@ -77,7 +82,8 @@ test.describe('ACE Discover discovery smoke tests', () => {
     }), { id: profileId, slug: datasetSlug });
     expect(stored.ids).toContain(profileId);
     await firstCard.getByRole('link', { name: /View profile/ }).click();
-    await expect(page.getByRole('button', { name: 'Remove from saved' })).toBeVisible();
+    await expect(page).toHaveURL(profileHref);
+    await expect(page.locator('.detail-name-row').getByRole('button', { name: 'Remove from saved' })).toBeVisible();
   });
 
   test('opens and closes the advanced Filters sheet', async ({ page }) => {
