@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import importlib.util
+import tempfile
 import pathlib
 import unittest
+import zipfile
+import xml.etree.ElementTree as ET
 
 MODULE_PATH = pathlib.Path(__file__).with_name('import-master-apps.py')
 SPEC = importlib.util.spec_from_file_location('profile_importer', MODULE_PATH)
@@ -81,6 +84,111 @@ class ImageClassificationTests(unittest.TestCase):
 
 
 class PublicProfileTests(unittest.TestCase):
+    @staticmethod
+    def _workbook(sheet_definitions):
+        workbook_sheets = []
+        relationships = []
+        files = {}
+        for index, (name, path) in enumerate(sheet_definitions, start=1):
+            relationship_id = f'rId{index}'
+            workbook_sheets.append(
+                f'<sheet name="{name}" sheetId="{index}" r:id="{relationship_id}"/>'
+            )
+            relationships.append(
+                f'<Relationship Id="{relationship_id}" '
+                'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                f'Target="{path.removeprefix("xl/")}"/>'
+            )
+            files[path] = b'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>'
+        files['xl/workbook.xml'] = (
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'
+            + ''.join(workbook_sheets) + '</sheets></workbook>'
+        ).encode()
+        files['xl/_rels/workbook.xml.rels'] = (
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            + ''.join(relationships) + '</Relationships>'
+        ).encode()
+        return files
+
+    def test_resolves_fall_workbook_style_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / 'fall.xlsx'
+            with zipfile.ZipFile(path, 'w') as archive:
+                for name, content in self._workbook([
+                    ('LITTLES', 'xl/worksheets/sheet1.xml'),
+                    ('BIGS', 'xl/worksheets/sheet2.xml'),
+                    ('FAMS', 'xl/worksheets/sheet3.xml'),
+                ]).items():
+                    archive.writestr(name, content)
+            with zipfile.ZipFile(path) as archive:
+                self.assertEqual(
+                    IMPORTER.resolve_worksheet_paths(archive),
+                    {
+                        'LITTLES': 'xl/worksheets/sheet1.xml',
+                        'BIGS': 'xl/worksheets/sheet2.xml',
+                        'FAMS': 'xl/worksheets/sheet3.xml',
+                    },
+                )
+
+    def test_resolves_spring_aliases_to_nonstandard_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / 'spring.xlsx'
+            with zipfile.ZipFile(path, 'w') as archive:
+                for name, content in self._workbook([
+                    ('Family Applications', 'xl/worksheets/sheet7.xml'),
+                    ('Little Applications', 'xl/worksheets/sheet4.xml'),
+                    ('Big Applications', 'xl/worksheets/sheet9.xml'),
+                ]).items():
+                    archive.writestr(name, content)
+            with zipfile.ZipFile(path) as archive:
+                self.assertEqual(
+                    IMPORTER.resolve_worksheet_paths(archive),
+                    {
+                        'LITTLES': 'xl/worksheets/sheet4.xml',
+                        'BIGS': 'xl/worksheets/sheet9.xml',
+                        'FAMS': 'xl/worksheets/sheet7.xml',
+                    },
+                )
+
+    def test_missing_logical_sheet_reports_detected_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / 'missing.xlsx'
+            with zipfile.ZipFile(path, 'w') as archive:
+                for name, content in self._workbook([
+                    ('LITTLES', 'xl/worksheets/sheet1.xml'),
+                ]).items():
+                    archive.writestr(name, content)
+            with zipfile.ZipFile(path) as archive:
+                with self.assertRaisesRegex(ValueError, 'BIGS.*Detected logical sheets'):
+                    IMPORTER.resolve_worksheet_paths(archive)
+
+    def test_real_spring_workbook_uses_spring_layout_when_available(self):
+        spring = pathlib.Path(__file__).parents[1] / 'Spring 26 Master Apps.xlsx'
+        if not spring.exists():
+            self.skipTest('Spring 2026 workbook is not present in this checkout')
+        with zipfile.ZipFile(spring) as archive:
+            paths = IMPORTER.resolve_worksheet_paths(archive)
+            root = ET.fromstring(archive.read('xl/sharedStrings.xml'))
+            shared = [
+                ''.join(node.text or '' for node in item.iter('{%s}t' % IMPORTER.MAIN))
+                for item in root.findall('{%s}si' % IMPORTER.MAIN)
+            ]
+            configs = IMPORTER.select_sheet_configs(archive, shared, paths)
+            self.assertNotIn('FAMS', paths)
+            self.assertEqual(configs['LITTLES']['instagram'], 'BC')
+            self.assertEqual(configs['LITTLES']['image'], 'BD')
+            self.assertEqual(configs['BIGS']['instagram'], 'DN')
+            self.assertEqual(configs['BIGS']['image'], 'DO')
+            self.assertEqual(configs['BIGS']['deck'], 'DQ')
+
+    def test_invalid_workbook_archive_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / 'invalid.xlsx'
+            path.write_text('not an xlsx', encoding='utf-8')
+            with self.assertRaises(Exception):
+                IMPORTER.build_profiles(path)
+
     def test_normalizes_representative_year_values(self):
         cases = {
             '1st year': 'First year', 'first': 'First year', 'Freshman': 'First year',
@@ -258,6 +366,41 @@ class PublicProfileTests(unittest.TestCase):
         self.assertNotIn('driveFileId', public)
         self.assertNotIn('imageIssue', public)
         self.assertNotIn('sourceRow', public)
+
+    def test_dataset_payload_contains_only_safe_profile_and_drive_ids(self):
+        profile = {
+            'id': 'example', 'name': 'Example Person', 'role': 'Little',
+            'major': 'MIS', 'majorGroup': 'Business', 'year': 'Second',
+            'normalizedYear': 'Second year', 'socialLevel': 3, 'socialStyle': 'Ambivert',
+            'school': 'SJSU', 'program': '', 'family': '', 'bio': 'A safe public bio ' * 4,
+            'interests': ['Gaming'], 'vibes': ['Gaming'], 'hobbies': 'Gaming',
+            'music': '', 'movies': '', 'perfectDay': '', 'instagram': '',
+            'image': '/api/drive-image?fileId=1AbCdEfGhIjKlMnOpQrStUv',
+            'imageCandidates': ['/api/drive-image?fileId=1AbCdEfGhIjKlMnOpQrStUv'],
+            'imageKind': 'drive-file', 'imageIssue': '',
+            'imageSourceUrl': 'https://private.example/source',
+            'driveFileId': '1AbCdEfGhIjKlMnOpQrStUv', 'driveFolderId': '',
+            'slideDeckUrl': '', 'sourceGroup': 'LITTLES', 'sourceRow': 2,
+        }
+        payload = IMPORTER.build_dataset_payload([profile])
+        staged = payload['profiles'][0]
+        self.assertEqual(staged['driveFileId'], profile['driveFileId'])
+        self.assertEqual(staged['imageKind'], 'drive-file')
+        self.assertNotIn('imageSourceUrl', staged['public'])
+        self.assertNotIn('sourceRow', staged['public'])
+        self.assertEqual(payload['safeIssues']['missingInstagram'][0]['name'], 'Example Person')
+
+    def test_dataset_payload_blocks_surviving_private_values(self):
+        profile = {
+            'id': 'example', 'name': 'Example', 'role': 'Little',
+            'instagram': '', 'major': 'Computer Science', 'majorGroup': 'Computing & Data',
+            'year': 'First', 'normalizedYear': 'First year', 'socialLevel': 2,
+            'socialStyle': 'Introvert', 'bio': 'Contact leaked@example.com',
+            'hobbies': '', 'music': '', 'movies': '', 'perfectDay': '',
+            'imageKind': 'missing', 'vibes': [], 'slideDeckUrl': '',
+        }
+        with self.assertRaisesRegex(ValueError, 'Privacy validation blocked'):
+            IMPORTER.build_dataset_payload([profile])
 
 
 if __name__ == '__main__':

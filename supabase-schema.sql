@@ -1,19 +1,7 @@
--- Optional database table for a future live-data version. The current app still
--- reads the generated lib/profiles.js snapshot.
-create table if not exists public.profiles (
-  id text primary key,
-  name text not null,
-  role text,
-  major text,
-  year text,
-  school text,
-  bio text,
-  interests text[] default '{}',
-  image_url text,
-  image_source_kind text,
-  slide_deck_url text,
-  source_group text,
-  source_row integer,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
+-- ACE Discover v4 database schema moved to the versioned migrations below:
+-- supabase/migrations/202608150001_ace_discover_v4_datasets.sql
+-- supabase/migrations/202608150002_ace_discover_v4_hardening.sql
+--
+-- Run that complete migration in the Supabase SQL editor or with the Supabase
+-- CLI. This compatibility pointer intentionally contains no partial/legacy
+-- profile table, which could otherwise be mistaken for the v4 dataset model.

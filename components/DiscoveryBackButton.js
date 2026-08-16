@@ -2,12 +2,13 @@
 
 import { useRouter } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
-import { DISCOVERY_NAV_KEY, DISCOVERY_STORAGE_KEY } from '../lib/discovery';
+import { discoveryNavigationKey, discoveryStorageKey } from '../lib/discovery';
 
 export default function DiscoveryBackButton({
   className = '',
   iconOnly = false,
   profileId = '',
+  datasetSlug = 'fall-2025',
   children = 'Back to discovery',
 }) {
   const router = useRouter();
@@ -16,8 +17,8 @@ export default function DiscoveryBackButton({
     let canUseHistory = false;
 
     try {
-      const stateExists = Boolean(window.sessionStorage.getItem(DISCOVERY_STORAGE_KEY));
-      const navigation = JSON.parse(window.sessionStorage.getItem(DISCOVERY_NAV_KEY) || 'null');
+      const stateExists = Boolean(window.sessionStorage.getItem(discoveryStorageKey(datasetSlug)));
+      const navigation = JSON.parse(window.sessionStorage.getItem(discoveryNavigationKey(datasetSlug)) || 'null');
       const recent = navigation?.at && Date.now() - navigation.at < 4 * 60 * 60 * 1000;
       const sameProfile = !profileId || navigation?.profileId === profileId;
       canUseHistory = stateExists && recent && sameProfile && window.history.length > 1;

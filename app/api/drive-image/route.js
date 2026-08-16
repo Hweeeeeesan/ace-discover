@@ -8,6 +8,7 @@ import {
   allowedDriveFileIds,
   allowedDriveFolderIds,
 } from '../../../lib/drive-image-allowlist.js';
+import { createSupabasePublicClient } from '../../../lib/supabase/public.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,7 +20,15 @@ function readDriveId(searchParams, key) {
   return VALID_DRIVE_ID.test(value) ? value : '';
 }
 
-function isImportedSource(fileId, folderId) {
+async function isImportedSource(fileId, folderId) {
+  const supabase = createSupabasePublicClient();
+  if (supabase) {
+    const { data, error } = await supabase.rpc('is_allowed_drive_source', {
+      requested_file_id: fileId || null,
+      requested_folder_id: folderId || null,
+    });
+    return !error && data === true;
+  }
   if (fileId) return allowedDriveFileIds.has(fileId);
   if (folderId) return allowedDriveFolderIds.has(folderId);
   return false;
@@ -40,7 +49,7 @@ export async function GET(request) {
   // Do not turn this endpoint into a general-purpose proxy for every file the
   // configured Google account can access. Only sources imported into a profile
   // are eligible.
-  if (!isImportedSource(fileId, folderId)) {
+  if (!(await isImportedSource(fileId, folderId))) {
     return new Response('Image source not found.', {
       status: 404,
       headers: { 'Cache-Control': 'no-store' },

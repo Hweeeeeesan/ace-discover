@@ -1,12 +1,7 @@
 import DiscoveryFeed from '../components/DiscoveryFeed';
-import { profiles } from '../lib/profiles';
+import { getActiveDataset } from '../lib/datasets/public';
 
-export default function Home() {
-  const discoveryProfiles = profiles.map((profile) => {
-    const discoveryProfile = { ...profile };
-    delete discoveryProfile.instagram;
-    return discoveryProfile;
-  });
-
-  return <DiscoveryFeed profiles={discoveryProfiles} />;
+export default async function Home() {
+  const dataset = await getActiveDataset();
+  return <DiscoveryFeed key={dataset.slug} profiles={dataset.profiles} datasetSlug={dataset.slug} />;
 }

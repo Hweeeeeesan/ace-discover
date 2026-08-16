@@ -115,11 +115,11 @@ test.describe('ACE Discover discovery smoke tests', () => {
     await expect(page.getByRole('searchbox', { name: 'Search profiles' })).toHaveValue('Ashley Kiang');
   });
 
-  test('loads Admin and detail-page social/deck links', async ({ page }) => {
+  test('protects Admin and keeps detail-page social/deck links', async ({ page }) => {
     await page.goto('/admin');
-    await expect(page.getByRole('heading', { name: 'ACE Discover health' })).toBeVisible();
-    await expect(page.getByText('Major Area distribution', { exact: true })).toBeVisible();
-    await expect(page.getByText('Social Level distribution', { exact: true })).toBeVisible();
+    await expect(page.getByText('ACE Discover Admin', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Admin setup required|Organizer access/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible();
 
     const instagramProfile = profiles.find((profile) => profile.instagram);
     const deckProfile = profiles.find((profile) => profile.slideDeckUrl);
@@ -129,6 +129,29 @@ test.describe('ACE Discover discovery smoke tests', () => {
     await expect(instagram).toHaveAttribute('rel', /noopener/);
     await page.goto(`/profile/${deckProfile.id}`);
     await expect(page.getByRole('link', { name: /View slide deck/ })).toHaveAttribute('target', '_blank');
+  });
+
+  test('uses collision-safe profile routes and dataset-specific browser state', async ({ page }) => {
+    await page.goto('/profile/fall-2025/ashley-kiang');
+    await expect(page.getByRole('heading', { name: 'Ashley Kiang' })).toBeVisible();
+    await expect(page).toHaveURL(/\/profile\/fall-2025\/ashley-kiang$/);
+
+    const state = await page.evaluate(() => ({
+      fallSeen: localStorage.getItem('ace-discover:seen:fall-2025'),
+      springSeen: localStorage.getItem('ace-discover:seen:spring-2026'),
+      fallSession: sessionStorage.getItem('profile-gallery:discovery-v2:fall-2025'),
+      springSession: sessionStorage.getItem('profile-gallery:discovery-v2:spring-2026'),
+    }));
+    expect(JSON.parse(state.fallSeen)).toContain('ashley-kiang');
+    expect(state.springSeen).toBeNull();
+    expect(state.springSession).toBeNull();
+    expect(state.fallSession).toBeNull();
+  });
+
+  test('does not expose Admin dataset previews without authorization', async ({ page }) => {
+    await page.goto('/admin/preview/00000000-0000-0000-0000-000000000000/ashley-kiang');
+    await expect(page).toHaveURL(/\/admin$/);
+    await expect(page.getByRole('heading', { name: /Admin setup required|Organizer access/ })).toBeVisible();
   });
 
   test('has no document-level horizontal overflow', async ({ page }) => {

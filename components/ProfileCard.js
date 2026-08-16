@@ -11,6 +11,7 @@ export default function ProfileCard({
   active = false,
   showHint = false,
   onOpenProfile,
+  datasetSlug = 'fall-2025',
 }) {
   const interests = Array.isArray(profile.interests) ? profile.interests.slice(0, 3) : [];
 
@@ -52,7 +53,7 @@ export default function ProfileCard({
         <div className="card-actions">
           <Link
             className="primary-button"
-            href={`/profile/${profile.id}`}
+            href={`/profile/${encodeURIComponent(datasetSlug)}/${encodeURIComponent(profile.id)}`}
             prefetch={false}
             onClick={() => onOpenProfile?.(profile.id)}
           >

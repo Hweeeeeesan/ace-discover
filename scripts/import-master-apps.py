@@ -15,10 +15,13 @@ import zipfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
+import posixpath
 from urllib.parse import parse_qs, quote, urlparse
 
 MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 NS = {'m': MAIN}
+REL_NS = 'http://schemas.openxmlformats.org/package/2006/relationships'
+DOC_REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 PLACEHOLDER_IMAGE = '/profile-placeholder.svg'
 VIBE_ORDER = [
     'Foodie', 'Outdoors', 'Gaming', 'Music', 'Creative', 'Fitness', 'Sports',
@@ -125,21 +128,21 @@ MAJOR_PHRASE_RULES = [
 
 SHEETS = {
     'LITTLES': {
-        'sheet': 'xl/worksheets/sheet1.xml', 'role': 'Little',
+        'aliases': ('littles', 'little', 'little apps', 'little applications'), 'required': True, 'role': 'Little',
         'name': ('E', 'F'), 'year': 'M', 'school': 'O', 'major': 'P', 'program': 'R',
         'hobbies': ('AA', 'S'), 'music': 'AG', 'movies': 'AH', 'perfectDay': 'AJ', 'story': 'BA',
         'instagram': 'BD', 'image': 'BE', 'deck': 'BG', 'family': ('BH', 'U'),
         'socialLevel': ('AU', 'BN'), 'socialStyle': ('AW', 'BP'),
     },
     'BIGS': {
-        'sheet': 'xl/worksheets/sheet2.xml', 'role': 'Big',
+        'aliases': ('bigs', 'big', 'big apps', 'big applications'), 'required': True, 'role': 'Big',
         'name': ('E', 'F'), 'year': 'M', 'school': 'O', 'major': 'P', 'program': 'R',
         'hobbies': ('AE', 'S'), 'music': 'AK', 'movies': 'AL', 'perfectDay': 'AN', 'story': 'BD',
         'instagram': 'BG', 'image': 'BH', 'deck': 'BJ', 'family': ('T',),
         'socialLevel': ('AY',), 'socialStyle': ('BA',),
     },
     'FAMS': {
-        'sheet': 'xl/worksheets/sheet3.xml', 'role': 'Family',
+        'aliases': ('fams', 'fam', 'family', 'families', 'family apps', 'family applications'), 'required': False, 'role': 'Family',
         'name': ('E', 'F'), 'year': 'M', 'school': 'O', 'major': 'P', 'program': 'R',
         'hobbies': ('S', 'AT'), 'music': 'U', 'movies': 'V', 'perfectDay': 'W', 'story': None,
         'instagram': ('AK', 'BW', 'DN'), 'image': ('AL', 'BX', 'DO'),
@@ -206,6 +209,98 @@ def cell_value(cell, shared):
         return ''.join((node.text or '') for node in inline.iter(f'{{{MAIN}}}t'))
 
     return (value.text or '') if value is not None else ''
+
+
+def _sheet_name_key(value):
+    return re.sub(r'[^a-z0-9]+', ' ', (value or '').strip().lower()).strip()
+
+
+def resolve_worksheet_paths(archive):
+    """Resolve logical worksheet names through workbook relationships.
+
+    XLSX worksheet filenames are package implementation details and may be
+    renumbered independently of the logical sheet names shown in Excel.
+    """
+    try:
+        workbook = ET.fromstring(archive.read('xl/workbook.xml'))
+        relationships = ET.fromstring(archive.read('xl/_rels/workbook.xml.rels'))
+    except KeyError as error:
+        raise ValueError(f'Workbook is missing required XLSX metadata: {error.args[0]}') from error
+
+    targets = {}
+    for relationship in relationships.findall(f'{{{REL_NS}}}Relationship'):
+        if relationship.attrib.get('Type') != f'{DOC_REL_NS}/worksheet':
+            continue
+        target = relationship.attrib.get('Target', '')
+        if target.startswith('/'):
+            path = target.lstrip('/')
+        else:
+            path = posixpath.normpath(posixpath.join('xl', target))
+        targets[relationship.attrib.get('Id', '')] = path
+
+    resolved = {}
+    sheets = workbook.find('m:sheets', NS)
+    for sheet in sheets.findall('m:sheet', NS) if sheets is not None else []:
+        logical_name = sheet.attrib.get('name', '')
+        relationship_id = sheet.attrib.get(f'{{{DOC_REL_NS}}}id', '')
+        path = targets.get(relationship_id)
+        if path:
+            resolved[_sheet_name_key(logical_name)] = path
+
+    missing = []
+    selected = {}
+    for logical_key, config in SHEETS.items():
+        aliases = {_sheet_name_key(alias) for alias in config['aliases']}
+        path = next((resolved[name] for name in aliases if name in resolved), None)
+        if not path or path not in archive.namelist():
+            if not config.get('required', True):
+                continue
+            missing.append(logical_key)
+        else:
+            selected[logical_key] = path
+    if missing:
+        detected = sorted(name for name in resolved if name)
+        raise ValueError(
+            'Workbook is missing required logical worksheet(s): '
+            f"{missing}. Detected logical sheets: {detected}"
+        )
+    return selected
+
+
+def _header_values(archive, path, shared):
+    root = ET.fromstring(archive.read(path))
+    header_row = root.find('.//m:sheetData/m:row', NS)
+    headers = {}
+    for cell in header_row.findall('m:c', NS) if header_row is not None else []:
+        match = re.match(r'([A-Z]+)', cell.attrib.get('r', ''))
+        if match:
+            headers[match.group(1)] = cell_value(cell, shared).lower()
+    return headers
+
+
+def select_sheet_configs(archive, shared, worksheet_paths):
+    """Choose verified column layouts without changing the Fall defaults."""
+    configs = {}
+    for sheet_name, base in SHEETS.items():
+        if sheet_name not in worksheet_paths:
+            continue
+        config = dict(base)
+        headers = _header_values(archive, worksheet_paths[sheet_name], shared)
+        if sheet_name == 'LITTLES' and 'instagram' in headers.get('BC', ''):
+            config.update({
+                'family': ('S',), 'hobbies': ('Y',), 'music': 'AE', 'movies': 'AF',
+                'perfectDay': 'AH', 'story': 'AZ', 'instagram': 'BC', 'image': 'BD',
+                'deck': None, 'socialLevel': ('AT',), 'socialStyle': ('AV',),
+            })
+        elif sheet_name == 'BIGS' and 'instagram' in headers.get('DN', ''):
+            config.update({
+                'family': ('CA', 'AN'), 'hobbies': ('CL', 'AT'), 'music': 'CR',
+                'movies': 'CS', 'perfectDay': 'CU', 'story': 'DK', 'instagram': 'DN',
+                'image': 'DO', 'deck': 'DQ', 'socialLevel': ('DF', 'AH'),
+                'socialStyle': ('DH', 'AV'),
+            })
+        configs[sheet_name] = config
+    return configs
 
 
 def read_sheet(archive, path, shared):
@@ -670,7 +765,7 @@ def infer_vibes(*values):
     ]
 
 
-def validate_workbook_schema(archive, shared):
+def validate_workbook_schema(archive, shared, worksheet_paths=None, configs=None):
     expected = {
         'LITTLES': {
             'E': 'first', 'F': 'last', 'BD': 'instagram',
@@ -685,19 +780,25 @@ def validate_workbook_schema(archive, shared):
             'AH': 'social setting', 'BP': 'introvert',
         },
     }
-    missing_sheets = [config['sheet'] for config in SHEETS.values() if config['sheet'] not in archive.namelist()]
-    if missing_sheets:
-        raise ValueError(f'Workbook is missing expected worksheet data: {missing_sheets}')
-    for sheet_name, config in SHEETS.items():
-        root = ET.fromstring(archive.read(config['sheet']))
+    worksheet_paths = worksheet_paths or resolve_worksheet_paths(archive)
+    configs = configs or select_sheet_configs(archive, shared, worksheet_paths)
+    for sheet_name, config in configs.items():
+        expected_fields = {
+            'E': 'first', 'F': 'last',
+            re.match(r'[A-Z]+', config['instagram'][0] if isinstance(config['instagram'], (tuple, list)) else config['instagram']).group(): 'instagram',
+            re.match(r'[A-Z]+', config['socialLevel'][0] if isinstance(config['socialLevel'], (tuple, list)) else config['socialLevel']).group(): 'social setting',
+            re.match(r'[A-Z]+', config['socialStyle'][0] if isinstance(config['socialStyle'], (tuple, list)) else config['socialStyle']).group(): ('introvert', 'mbti'),
+        }
+        root = ET.fromstring(archive.read(worksheet_paths[sheet_name]))
         header_row = root.find('.//m:sheetData/m:row', NS)
         headers = {}
         for cell in header_row.findall('m:c', NS) if header_row is not None else []:
             match = re.match(r'([A-Z]+)', cell.attrib.get('r', ''))
             if match:
                 headers[match.group(1)] = cell_value(cell, shared).lower()
-        for column, token in expected[sheet_name].items():
-            if token not in headers.get(column, ''):
+        for column, token in expected_fields.items():
+            tokens = token if isinstance(token, (tuple, list)) else (token,)
+            if not any(candidate in headers.get(column, '') for candidate in tokens):
                 raise ValueError(
                     f'{sheet_name} schema mismatch: expected {token!r} in column {column} header.'
                 )
@@ -715,10 +816,12 @@ def build_profiles(xlsx_path):
             for shared_item in root.findall('m:si', NS):
                 shared.append(''.join((node.text or '') for node in shared_item.iter(f'{{{MAIN}}}t')))
 
-        validate_workbook_schema(archive, shared)
+        worksheet_paths = resolve_worksheet_paths(archive)
+        configs = select_sheet_configs(archive, shared, worksheet_paths)
+        validate_workbook_schema(archive, shared, worksheet_paths, configs)
 
-        for sheet_name, config in SHEETS.items():
-            for row_number, row in enumerate(read_sheet(archive, config['sheet'], shared), start=2):
+        for sheet_name, config in configs.items():
+            for row_number, row in enumerate(read_sheet(archive, worksheet_paths[sheet_name], shared), start=2):
                 if sheet_name == 'BIGS' and is_legacy_big_compact_row(row):
                     # This response came from an older version of the form. Its
                     # name starts in B/C, while the current E/F cells contain
@@ -847,6 +950,65 @@ def public_profiles(profiles):
         {key: value for key, value in profile.items() if key not in PUBLIC_EXCLUDED_KEYS}
         for profile in profiles
     ]
+
+
+def validate_public_profile_privacy(profiles):
+    """Reject a normalized payload if a private token/contact value survived redaction."""
+    violations = []
+    for profile in public_profiles(profiles):
+        for key, value in profile.items():
+            values = value if isinstance(value, list) else [value]
+            for item in values:
+                if not isinstance(item, str):
+                    continue
+                if (
+                    EMAIL_RE.search(item)
+                    or PHONE_RE.search(item)
+                    or SCIENTIFIC_PHONE_RE.search(item)
+                    or PRIVATE_KEY_RE.search(item)
+                    or SENSITIVE_PARAMETER_RE.search(item)
+                ):
+                    violations.append({'profileId': profile.get('id', ''), 'field': key})
+    if violations:
+        raise ValueError(
+            'Privacy validation blocked this import because sensitive data remained '
+            f'in public fields: {violations[:5]}'
+        )
+
+
+def build_dataset_payload(profiles):
+    """Build the sanitized staging payload used by the Admin semester importer."""
+    validate_public_profile_privacy(profiles)
+    health = build_import_health(profiles)
+    by_id = {profile['id']: profile for profile in profiles}
+    safe_issues = {
+        key: [
+            {
+                'id': profile_id,
+                'name': by_id[profile_id]['name'],
+                'role': by_id[profile_id]['role'],
+            }
+            for profile_id in profile_ids
+            if profile_id in by_id
+        ]
+        for key, profile_ids in health['issues'].items()
+    }
+    public_by_id = {profile['id']: profile for profile in public_profiles(profiles)}
+    return {
+        'profiles': [
+            {
+                'public': public_by_id[profile['id']],
+                'driveFileId': profile.get('driveFileId', ''),
+                'driveFolderId': profile.get('driveFolderId', ''),
+                'imageKind': profile.get('imageKind', ''),
+                'imageIssue': profile.get('imageIssue', ''),
+            }
+            for profile in profiles
+        ],
+        'health': health,
+        'safeIssues': safe_issues,
+        'criticalErrors': [],
+    }
 
 
 def write_profiles(output_path, profiles):

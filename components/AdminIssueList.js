@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
-export default function AdminIssueList({ title, description, profiles }) {
+export default function AdminIssueList({ title, description, profiles, datasetId }) {
   const [query, setQuery] = useState('');
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -17,7 +17,7 @@ export default function AdminIssueList({ title, description, profiles }) {
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter by name, role, program, or ID" aria-label={`Filter ${title}`} />
         <div className="admin-issue-list">
           {filtered.map((profile) => (
-            <Link href={`/profile/${profile.id}`} key={profile.id}>
+            <Link href={`/admin/preview/${encodeURIComponent(datasetId)}/${encodeURIComponent(profile.id)}`} key={profile.id}>
               <strong>{profile.name}</strong><span>{profile.role}{profile.program ? ` · ${profile.program}` : ''} · {profile.id}</span>
             </Link>
           ))}

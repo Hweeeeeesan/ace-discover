@@ -3,10 +3,10 @@
 import { useEffect } from 'react';
 import { markProfileSeen, SEEN_CHANGE_EVENT } from '../lib/seen-profiles';
 
-export default function SeenProfileMarker({ profileId }) {
+export default function SeenProfileMarker({ profileId, datasetSlug = 'fall-2025' }) {
   useEffect(() => {
-    markProfileSeen(profileId);
+    markProfileSeen(profileId, datasetSlug);
     window.dispatchEvent(new Event(SEEN_CHANGE_EVENT));
-  }, [profileId]);
+  }, [datasetSlug, profileId]);
   return null;
 }

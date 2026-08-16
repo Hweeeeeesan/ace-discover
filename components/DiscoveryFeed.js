@@ -9,8 +9,9 @@ import {
   countAdvancedFilters,
   createSeed,
   DEFAULT_FILTERS,
-  DISCOVERY_NAV_KEY,
   DISCOVERY_STORAGE_KEY,
+  discoveryNavigationKey,
+  discoveryStorageKey,
   filterAndOrderProfiles,
   getDiscoveryOptions,
   migrateDiscoveryState,
@@ -32,7 +33,7 @@ const INITIAL_STATE = {
   scrollTop: 0,
 };
 
-export default function DiscoveryFeed({ profiles }) {
+export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
   const feedRef = useRef(null);
   const stateRef = useRef(INITIAL_STATE);
   const scrollTopRef = useRef(0);
@@ -91,11 +92,11 @@ export default function DiscoveryFeed({ profiles }) {
     scrollTopRef.current = snapshot.scrollTop;
 
     try {
-      window.sessionStorage.setItem(DISCOVERY_STORAGE_KEY, JSON.stringify(snapshot));
+      window.sessionStorage.setItem(discoveryStorageKey(datasetSlug), JSON.stringify(snapshot));
     } catch {
       // The gallery remains usable when storage is blocked.
     }
-  }, []);
+  }, [datasetSlug]);
 
   useEffect(() => {
     let initial = {
@@ -105,11 +106,16 @@ export default function DiscoveryFeed({ profiles }) {
     };
 
     try {
-      const stored = window.sessionStorage.getItem(DISCOVERY_STORAGE_KEY);
+      const datasetKey = discoveryStorageKey(datasetSlug);
+      let stored = window.sessionStorage.getItem(datasetKey);
+      if (!stored && datasetSlug === 'fall-2025') {
+        stored = window.sessionStorage.getItem(DISCOVERY_STORAGE_KEY);
+        if (stored) window.sessionStorage.setItem(datasetKey, stored);
+      }
       if (stored) initial = migrateDiscoveryState(JSON.parse(stored));
     } catch {
       try {
-        window.sessionStorage.removeItem(DISCOVERY_STORAGE_KEY);
+        window.sessionStorage.removeItem(discoveryStorageKey(datasetSlug));
       } catch {
         // Ignore unavailable storage.
       }
@@ -120,10 +126,10 @@ export default function DiscoveryFeed({ profiles }) {
     setDiscovery(initial);
     setSearchOpen(Boolean(initial.query));
     setReady(true);
-  }, []);
+  }, [datasetSlug]);
 
   useEffect(() => {
-    function refreshSeen() { setSeenIds(readSeenIds()); }
+    function refreshSeen() { setSeenIds(readSeenIds(datasetSlug)); }
     refreshSeen();
     window.addEventListener('pageshow', refreshSeen);
     window.addEventListener('focus', refreshSeen);
@@ -133,7 +139,7 @@ export default function DiscoveryFeed({ profiles }) {
       window.removeEventListener('focus', refreshSeen);
       window.removeEventListener(SEEN_CHANGE_EVENT, refreshSeen);
     };
-  }, []);
+  }, [datasetSlug]);
 
   useEffect(() => {
     if (!ready || restored) return undefined;
@@ -308,7 +314,7 @@ export default function DiscoveryFeed({ profiles }) {
     });
 
     try {
-      window.sessionStorage.setItem(DISCOVERY_NAV_KEY, JSON.stringify({
+      window.sessionStorage.setItem(discoveryNavigationKey(datasetSlug), JSON.stringify({
         profileId,
         at: Date.now(),
       }));
@@ -370,6 +376,7 @@ export default function DiscoveryFeed({ profiles }) {
               active={profile.id === activeProfileId}
               showHint={index === 0 && totalActiveControls === 0}
               onOpenProfile={handleOpenProfile}
+              datasetSlug={datasetSlug}
             />
           ))
         ) : (
