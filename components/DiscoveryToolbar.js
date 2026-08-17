@@ -34,14 +34,15 @@ export default function DiscoveryToolbar({
   availableRoles = [],
   saved = false,
   onSavedChange,
+  desktopRail = false,
 }) {
   const inputRef = useRef(null);
 
   useEffect(() => {
-    if (!searchOpen) return;
+    if (!searchOpen || desktopRail) return;
     const frame = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(frame);
-  }, [searchOpen]);
+  }, [desktopRail, searchOpen]);
 
   useEffect(() => {
     function handleKeyDown(event) {
@@ -103,7 +104,7 @@ export default function DiscoveryToolbar({
             </div>
             <div className="toolbar-actions">
               <button
-                className={`toolbar-icon-button${query ? ' is-active' : ''}`}
+                className={`toolbar-icon-button toolbar-search-button${query ? ' is-active' : ''}`}
                 type="button"
                 onClick={onSearchOpen}
                 aria-label={query ? `Edit search for ${query}` : 'Search profiles'}
@@ -113,7 +114,7 @@ export default function DiscoveryToolbar({
                 {query && <span className="control-dot" aria-hidden="true" />}
               </button>
               <button
-                className="toolbar-icon-button"
+                className="toolbar-icon-button toolbar-shuffle-button"
                 type="button"
                 onClick={onShuffle}
                 aria-label="Shuffle profiles"
@@ -133,7 +134,7 @@ export default function DiscoveryToolbar({
                 <Bookmark size={19} fill={saved ? 'currentColor' : 'none'} />
               </button>
               <button
-                className={`toolbar-icon-button${activeFilterCount ? ' has-filters' : ''}`}
+                className={`toolbar-icon-button toolbar-filters-button${activeFilterCount ? ' has-filters' : ''}`}
                 type="button"
                 onClick={onOpenFilters}
                 aria-label={`Open filters${activeFilterCount ? `, ${activeFilterCount} active` : ''}`}

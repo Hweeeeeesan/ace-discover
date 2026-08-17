@@ -46,6 +46,8 @@ select:focus-visible {
   background: #090909;
 }
 
+.discovery-rail { display: none; }
+
 .feed {
   height: 100%;
   overflow-y: auto;
@@ -673,6 +675,189 @@ select:focus-visible {
   .detail-shell { padding: 40px; }
   .detail-card { max-width: var(--shell-width); min-height: auto; border-radius: 28px; box-shadow: 0 20px 70px rgba(0,0,0,.1); }
   .detail-photo-wrap { height: 500px; border-radius: 28px 28px 0 0; }
+}
+
+/* Desktop keeps the same one-profile feed, but gives it a deliberate frame. */
+@media (min-width: 900px) {
+  :root { --shell-width: 680px; }
+
+  .discovery-shell {
+    max-width: min(var(--shell-width), calc(100vw - 96px));
+    box-shadow: 0 0 110px rgba(0,0,0,.48);
+  }
+
+  .discovery-toolbar {
+    min-height: calc(env(safe-area-inset-top) + 172px);
+    padding: max(20px, env(safe-area-inset-top)) 28px 22px;
+  }
+
+  .toolbar-row, .search-row { gap: 12px; }
+  .toolbar-actions { gap: 10px; }
+  .role-control-strip { margin-top: 10px; gap: 14px; }
+  .filter-chip { min-height: 38px; padding-inline: 15px; }
+  .unseen-toggle { min-height: 38px; }
+
+  .card-status-bar { padding-inline: 34px; }
+  .profile-copy {
+    max-width: 640px;
+    padding: 30px 34px calc(52px + env(safe-area-inset-bottom));
+  }
+  .profile-copy h2 { font-size: clamp(50px, 5.4vw, 72px); }
+  .tag-row { margin-top: 18px; }
+  .card-actions { margin-top: 21px; }
+
+  .filter-layer { display: grid; place-items: center; padding: 32px; }
+  .filter-sheet {
+    position: relative;
+    inset: auto;
+    width: min(100%, 620px);
+    max-height: min(82svh, 780px);
+    border-radius: 28px;
+    box-shadow: 0 24px 90px rgba(0,0,0,.4);
+  }
+
+  .detail-shell { padding: 48px; }
+  .detail-card {
+    width: min(100%, 980px);
+    max-width: 980px;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(360px, .92fr);
+    overflow: hidden;
+    border-radius: 30px;
+  }
+  .detail-photo-wrap {
+    height: min(760px, calc(100svh - 96px));
+    min-height: 560px;
+    border-radius: 0;
+  }
+  .detail-content {
+    max-height: min(760px, calc(100svh - 96px));
+    overflow-y: auto;
+    padding: 48px 44px;
+  }
+  .detail-content h1 { font-size: clamp(46px, 5vw, 68px); }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .toolbar-icon-button:hover,
+  .filter-chip:hover,
+  .unseen-toggle:hover .toggle-track,
+  .saved-profile-button:hover,
+  .icon-button:hover,
+  .primary-button:hover,
+  .back-button:hover,
+  .secondary-link:hover {
+    transform: translateY(-1px);
+  }
+
+  .filter-chip:hover { border-color: rgba(255,255,255,.68); }
+  .unseen-toggle:hover .toggle-track { border-color: rgba(255,255,255,.72); }
+}
+
+@media (min-width: 1200px) {
+  .discovery-shell {
+    width: min(calc(100vw - 64px), 1440px);
+    max-width: none;
+    height: min(calc(100svh - 48px), 920px);
+    display: grid;
+    grid-template-columns: 286px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    border-radius: 30px;
+    box-shadow: 0 24px 110px rgba(0,0,0,.52);
+  }
+
+  .discovery-rail {
+    position: relative;
+    z-index: 50;
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    padding: 30px 22px 26px;
+    overflow-y: auto;
+    color: white;
+    background: #111;
+    border-right: 1px solid rgba(255,255,255,.1);
+  }
+  .rail-heading { display: flex; flex-direction: column; gap: 3px; }
+  .rail-heading span, .rail-label { color: rgba(255,255,255,.52); font-size: 10px; font-weight: 850; letter-spacing: .14em; text-transform: uppercase; }
+  .rail-heading strong { font-size: 28px; line-height: 1; letter-spacing: -.05em; }
+  .rail-shuffle-button { min-height: 38px; padding: 0 12px; border: 1px solid rgba(255,255,255,.2); border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; color: #111; background: white; font-size: 12px; font-weight: 850; }
+  .rail-section { display: grid; gap: 10px; }
+  .rail-role-list { display: flex; flex-wrap: wrap; gap: 7px; }
+  .rail-role-button {
+    min-height: 35px;
+    padding: 0 12px;
+    border: 1px solid rgba(255,255,255,.2);
+    border-radius: 999px;
+    cursor: pointer;
+    color: rgba(255,255,255,.82);
+    background: rgba(255,255,255,.06);
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .rail-role-button.is-selected { color: #111; border-color: white; background: white; }
+  .rail-toggle-group { display: grid; gap: 9px; }
+  .rail-toggle-row {
+    min-height: 40px;
+    width: 100%;
+    padding: 0 11px;
+    border: 1px solid rgba(255,255,255,.13);
+    border-radius: 13px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: rgba(255,255,255,.86);
+    background: rgba(255,255,255,.05);
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .rail-toggle-row { cursor: pointer; }
+  .rail-toggle-row > span:first-child, .rail-saved-button > span { min-width: 0; flex: 1; }
+  .rail-toggle-row input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .rail-toggle-row input:checked + .toggle-track { border-color: white; background: #b9dcff; }
+  .rail-toggle-row input:checked + .toggle-track span { transform: translateX(17px); background: #111; }
+  .rail-toggle-row input:focus-visible + .toggle-track { outline: 3px solid rgba(185,220,255,.55); outline-offset: 3px; }
+  .rail-saved-button { min-height: 40px; width: 100%; padding: 0 11px; border: 1px solid rgba(255,255,255,.13); border-radius: 13px; display: flex; align-items: center; gap: 9px; cursor: pointer; color: rgba(255,255,255,.86); background: rgba(255,255,255,.05); font-size: 12px; font-weight: 800; }
+  .rail-saved-button.is-active { color: #111; border-color: #b9dcff; background: #b9dcff; }
+  .rail-search-section { margin-top: 1px; }
+  .rail-search-box { min-width: 0; min-height: 42px; padding: 0 10px; border: 1px solid rgba(255,255,255,.2); border-radius: 13px; display: flex; align-items: center; gap: 8px; color: rgba(255,255,255,.65); background: rgba(255,255,255,.06); }
+  .rail-search-box:focus-within { border-color: rgba(185,220,255,.9); background: rgba(255,255,255,.1); }
+  .rail-search-box input { min-width: 0; flex: 1; height: 40px; padding: 0; border: 0; outline: 0; color: white; background: transparent; font-size: 12px; }
+  .rail-search-box input::placeholder { color: rgba(255,255,255,.43); }
+  .rail-search-box input::-webkit-search-cancel-button { display: none; }
+  .rail-search-box button { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 8px; display: grid; place-items: center; cursor: pointer; color: rgba(255,255,255,.7); background: transparent; }
+  .rail-section-heading { display: flex; align-items: center; justify-content: space-between; }
+  .rail-filter-heading-actions { display: flex; align-items: center; gap: 7px; }
+  .rail-count { min-width: 21px; height: 21px; padding: 0 6px; border-radius: 999px; display: grid; place-items: center; color: #111; background: #b9dcff; font-size: 10px; font-weight: 900; }
+  .rail-open-filters { min-height: 26px; padding: 0 8px; border: 1px solid rgba(255,255,255,.2); border-radius: 8px; cursor: pointer; color: rgba(255,255,255,.72); background: rgba(255,255,255,.06); font-size: 10px; font-weight: 800; }
+  .rail-filter-list { display: grid; gap: 5px; }
+  .rail-filter-list button { width: 100%; min-height: 40px; padding: 7px 9px; border: 1px solid rgba(255,255,255,.1); border-radius: 11px; display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; color: white; background: rgba(255,255,255,.035); text-align: left; }
+  .rail-filter-list button > span { min-width: 0; display: grid; gap: 2px; }
+  .rail-filter-list strong { font-size: 12px; font-weight: 800; }
+  .rail-filter-list small { overflow: hidden; color: rgba(255,255,255,.46); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .rail-reset-button { min-height: 34px; border: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; color: rgba(255,255,255,.62); background: transparent; font-size: 11px; font-weight: 800; }
+
+  .discovery-toolbar { display: none; }
+  .toolbar-actions { gap: 10px; }
+  .feed { grid-column: 2; grid-row: 1; height: 100%; }
+  .profile-card { height: 100%; }
+  .card-status-bar { top: 28px; padding-inline: 34px; }
+  .profile-copy { max-width: 720px; padding: 30px 42px calc(46px + env(safe-area-inset-bottom)); }
+  .profile-copy h2 { font-size: clamp(50px, 4vw, 76px); }
+  .profile-copy .eyebrow { max-width: 570px; line-height: 1.35; letter-spacing: .105em; }
+  .empty-results { min-height: 100%; }
+  .discovery-toolbar + .result-announcer + .feed { min-width: 0; }
+
+  .toolbar-icon-button:hover,
+  .rail-shuffle-button:hover,
+  .rail-role-button:hover,
+  .rail-toggle-row:hover,
+  .rail-filter-list button:hover,
+  .rail-reset-button:hover { transform: translateY(-1px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

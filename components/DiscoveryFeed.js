@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SearchX, SlidersHorizontal } from 'lucide-react';
 import DiscoveryToolbar from './DiscoveryToolbar';
+import DiscoveryRail from './DiscoveryRail';
 import FilterSheet from './FilterSheet';
 import ProfileCard from './ProfileCard';
 import {
@@ -374,6 +375,27 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
 
   return (
     <main className={`discovery-shell${restored ? ' is-ready' : ''}`}>
+      <DiscoveryRail
+        query={discovery.query}
+        onQueryChange={handleQueryChange}
+        searchOpen={searchOpen}
+        role={effectiveRole}
+        onRoleChange={handleRoleChange}
+        unseen={discovery.unseen}
+        onUnseenChange={handleUnseenChange}
+        saved={discovery.saved}
+        onSavedChange={handleSavedChange}
+        onShuffle={handleShuffle}
+        resultCount={visibleProfiles.length}
+        filters={discovery.filters}
+        activeFilterCount={advancedFilterCount}
+        onOpenFilters={() => {
+          setSearchOpen(false);
+          setFiltersOpen(true);
+        }}
+        onClearFilters={clearEverything}
+        availableRoles={availableRoles}
+      />
       <DiscoveryToolbar
         query={discovery.query}
         onQueryChange={handleQueryChange}
@@ -394,6 +416,7 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
         activeFilterCount={sheetFilterCount}
         resultCount={visibleProfiles.length}
         availableRoles={availableRoles}
+        desktopRail
       />
 
       <div className="result-announcer" aria-live="polite" aria-atomic="true">

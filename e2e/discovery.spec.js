@@ -3,7 +3,10 @@ const knownRoles = ['All', 'Little', 'Big', 'Family'];
 
 async function openDiscovery(page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
-  await expect(page.getByText('ACE Discover', { exact: true })).toBeVisible();
+  const title = (page.viewportSize()?.width || 0) >= 1200
+    ? page.locator('.discovery-rail').getByText('ACE Discover', { exact: true })
+    : page.locator('.discovery-toolbar').getByText('ACE Discover', { exact: true });
+  await expect(title).toBeVisible();
   await expect(page.getByRole('button', { name: 'All', exact: true })).toBeVisible();
 }
 
@@ -38,6 +41,11 @@ async function openAndRestoreCard(page, card) {
   const profileHref = await card.getByRole('link', { name: /View profile/ }).getAttribute('href');
   const feed = page.locator('.feed');
 
+  // Let the shared filter update finish its intentional scroll-to-start before
+  // moving to the requested card.
+  await page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  }));
   await card.evaluate((node) => node.scrollIntoView({ block: 'start' }));
   await expect.poll(async () => feed.evaluate((node, id) => {
     const target = node.querySelector(`[data-profile-id="${CSS.escape(id)}"]`);
@@ -183,9 +191,14 @@ test.describe('ACE Discover discovery smoke tests', () => {
     const bookmark = firstCard.getByRole('button', { name: 'Save profile' });
     await expect(bookmark).toBeVisible();
     const feedUrl = page.url();
-    const utilitySaved = page.locator('.toolbar-actions').getByRole('button', { name: 'Show saved profiles only' });
+    const utilitySaved = (page.viewportSize()?.width || 0) >= 1200
+      ? page.locator('.discovery-rail').getByRole('button', { name: 'Show saved profiles only' })
+      : page.locator('.toolbar-actions').getByRole('button', { name: 'Show saved profiles only' });
     await expect(utilitySaved).toBeVisible();
     await expect(utilitySaved).toHaveAttribute('aria-pressed', 'false');
+    if ((page.viewportSize()?.width || 0) >= 1200) {
+      await expect(page.locator('.toolbar-actions')).toBeHidden();
+    }
     await expect(page.locator('.role-control-strip').getByRole('button', { name: 'Show saved profiles only' })).toHaveCount(0);
     await bookmark.click();
     await expect(page).toHaveURL(feedUrl);
@@ -209,6 +222,69 @@ test.describe('ACE Discover discovery smoke tests', () => {
     await expect(dialog.getByText('Vibes', { exact: true })).toBeVisible();
     await dialog.getByRole('button', { name: 'Close filters' }).click();
     await expect(dialog).toBeHidden();
+  });
+
+  test('desktop keeps discovery bounded and presents filters as a centered panel', async ({ page }) => {
+    test.skip((page.viewportSize()?.width || 0) < 900, 'desktop layout');
+    await openDiscovery(page);
+
+    const viewport = page.viewportSize();
+    const shell = await page.locator('.discovery-shell').boundingBox();
+    expect(shell).not.toBeNull();
+    if (viewport.width >= 1200) {
+      expect(shell.width).toBeGreaterThan(1100);
+      await expect(page.locator('.discovery-rail')).toBeVisible();
+      await expect(page.locator('.discovery-rail').getByText('ACE Discover', { exact: true })).toBeVisible();
+      await expect(page.locator('.discovery-toolbar')).toBeHidden();
+      await expect(page.locator('.discovery-rail').getByRole('button', { name: 'Show saved profiles only' })).toBeVisible();
+      await expect(page.locator('.discovery-rail').getByRole('button', { name: 'Shuffle profiles' })).toBeVisible();
+      await expect(page.locator('.profile-card').first().locator('.brand-pill')).toBeVisible();
+      await expect(page.locator('.profile-card').first().locator('.counter')).toBeVisible();
+    } else {
+      expect(shell.width).toBeLessThanOrEqual(700);
+    }
+    expect(Math.abs((viewport.width - shell.width) / 2 - shell.x)).toBeLessThanOrEqual(2);
+    expect(await page.locator('.feed').evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+
+    const dialog = await openFilters(page);
+    const panel = await dialog.boundingBox();
+    expect(panel).not.toBeNull();
+    expect(panel.width).toBeGreaterThan(500);
+    expect(panel.x).toBeGreaterThan(0);
+    expect(panel.y).toBeGreaterThan(0);
+    expect(panel.x + panel.width).toBeLessThan(viewport.width);
+    expect(panel.y + panel.height).toBeLessThan(viewport.height);
+  });
+
+  test('desktop detail view uses a bounded reading layout', async ({ page }) => {
+    test.skip((page.viewportSize()?.width || 0) < 900, 'desktop layout');
+    await openDiscovery(page);
+    await page.locator('.profile-card').first().getByRole('link', { name: /View profile/ }).click();
+    await expect(page.locator('.detail-card')).toBeVisible();
+
+    const detail = await page.locator('.detail-card').evaluate((node) => {
+      const style = getComputedStyle(node);
+      const box = node.getBoundingClientRect();
+      return { display: style.display, columns: style.gridTemplateColumns, width: box.width };
+    });
+    expect(detail.display).toBe('grid');
+    expect(detail.columns.split(' ').length).toBe(2);
+    expect(detail.width).toBeGreaterThan(700);
+  });
+
+  test('desktop rail Shuffle preserves the shared deterministic seed flow', async ({ page }) => {
+    test.skip((page.viewportSize()?.width || 0) < 1200, 'large desktop layout');
+    await openDiscovery(page);
+    const href = await page.locator('.profile-card').first().getByRole('link', { name: /View profile/ }).getAttribute('href');
+    const { datasetSlug } = profileRouteParts(href);
+    const readSeed = () => page.evaluate((slug) => {
+      const raw = sessionStorage.getItem(`profile-gallery:discovery-v2:${slug}`);
+      return raw ? JSON.parse(raw).seed : null;
+    }, datasetSlug);
+    const before = await readSeed();
+    await page.locator('.discovery-rail').getByRole('button', { name: 'Shuffle profiles' }).click();
+    await expect(page.getByRole('status')).toContainText('Profiles reshuffled');
+    await expect.poll(readSeed).not.toBe(before);
   });
 
   test('selects multiple Vibes with OR behavior', async ({ page }) => {
@@ -263,7 +339,11 @@ test.describe('ACE Discover discovery smoke tests', () => {
 
   test('searches and opens a profile, then returns to discovery', async ({ page }) => {
     await openDiscovery(page);
-    await page.getByRole('button', { name: 'Search profiles' }).click();
+    if ((page.viewportSize()?.width || 0) >= 1200) {
+      await expect(page.locator('.discovery-rail #desktop-discovery-search')).toBeVisible();
+    } else {
+      await page.getByRole('button', { name: 'Search profiles' }).click();
+    }
     const search = page.getByRole('searchbox', { name: 'Search profiles' });
     await search.fill('Ashley Kiang');
     await expect(page.getByRole('link', { name: /View profile/ }).first()).toBeVisible();
@@ -344,6 +424,17 @@ test.describe('ACE Discover discovery smoke tests', () => {
 
   test('keeps filter spacing compact and anchors Unseen to the right', async ({ page }) => {
     await openDiscovery(page);
+
+    if ((page.viewportSize()?.width || 0) >= 1200) {
+      const rail = page.locator('.discovery-rail');
+      await expect(rail).toBeVisible();
+      await expect(rail.getByRole('button', { name: 'All', exact: true })).toBeVisible();
+      await expect(rail.getByRole('checkbox', { name: 'Show unseen profiles only' })).toBeVisible();
+      await expect(rail.getByRole('button', { name: 'Open filters' })).toBeVisible();
+      await expect(page.locator('.toolbar-search-button')).toBeHidden();
+      await expect(page.locator('.toolbar-filters-button')).toBeHidden();
+      return;
+    }
 
     const roleStrip = page.locator('.role-control-strip');
     const roleScroll = roleStrip.locator('.role-chip-scroll');
