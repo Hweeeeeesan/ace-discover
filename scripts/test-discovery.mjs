@@ -4,6 +4,7 @@ import { profiles } from '../lib/profiles.js';
 import {
   balancedShuffle,
   canonicalYear,
+  createSeed,
   filterAndOrderProfiles,
   getDiscoveryOptions,
   getAvailableRoles,
@@ -15,6 +16,12 @@ import {
 } from '../lib/discovery.js';
 import { markProfileSeen, readSeenIds, resetSeenIds, SEEN_PROFILES_KEY } from '../lib/seen-profiles.js';
 import { isProfileSaved, readSavedIds, saveProfile, toggleSavedProfile } from '../lib/saved-profiles.js';
+import {
+  encounteredProfilesKey,
+  markProfileEncountered,
+  readEncounteredIds,
+  sanitizeEncounteredIds,
+} from '../lib/encountered-profiles.js';
 
 assert.equal(profiles.length, 210, 'Expected all imported profiles');
 assert.equal(canonicalYear('2nd Year'), 'Second year');
@@ -112,6 +119,40 @@ assert.deepEqual(readSavedIds('spring-2026', savedStorage), ['one']);
 assert.deepEqual(filterAndOrderProfiles(vibeFixture, { saved: true, savedIds: ['one'], seed }).map((profile) => profile.id), ['one']);
 assert.deepEqual(filterAndOrderProfiles(vibeFixture, { saved: true, savedIds: ['one', 'two'], role: 'Big', seed }).map((profile) => profile.id), ['two']);
 assert.deepEqual(filterAndOrderProfiles(vibeFixture, { saved: true, savedIds: ['one', 'two'], vibes: ['Gaming'], unseen: true, seenIds: ['one'], seed }), []);
+const encounteredFixtureOrder = filterAndOrderProfiles(vibeFixture, {
+  encounteredIds: ['one', 'two', 'four'],
+  seenIds: ['two'],
+  seed,
+}).map((profile) => profile.id);
+assert.deepEqual(encounteredFixtureOrder, ['three', 'one', 'four', 'two'], 'encountered tiers must precede seen profiles');
+assert.deepEqual(
+  filterAndOrderProfiles(vibeFixture, {
+    encounteredIds: ['one', 'two'], seenIds: ['two'], unseen: true, seed,
+  }).map((profile) => profile.id),
+  ['three', 'four', 'one'],
+  'encountered-but-not-seen profiles remain eligible under Unseen',
+);
+assert.deepEqual(
+  filterAndOrderProfiles(vibeFixture, {
+    encounteredIds: ['one', 'two'], seenIds: ['two'], saved: true, savedIds: ['one', 'two'], seed,
+  }).map((profile) => profile.id),
+  ['one', 'two'],
+  'Saved remains an eligibility filter before Encountered ordering',
+);
+assert.deepEqual(
+  filterAndOrderProfiles(vibeFixture, {
+    encounteredIds: ['one'], seenIds: [], query: 'beta', seed,
+  }).map((profile) => profile.id),
+  ['two'],
+  'search relevance remains stronger than Encountered preference',
+);
+assert.deepEqual(
+  filterAndOrderProfiles(vibeFixture, {
+    encounteredIds: ['one'], seenIds: ['one'], orderingSeenIds: [], seed,
+  }).map((profile) => profile.id).slice(-1),
+  ['one'],
+  'live Seen updates do not change the ordering basis until an intentional reorder',
+);
 const multiVibe = filterAndOrderProfiles(vibeFixture, { vibes: ['Gaming', 'Travel'], seed });
 assert.deepEqual(new Set(multiVibe.map((profile) => profile.id)), new Set(['one', 'two']), 'Vibes use OR matching');
 const roleAndVibe = filterAndOrderProfiles(vibeFixture, { vibes: ['Gaming', 'Travel'], role: 'Little', seed });
@@ -147,6 +188,24 @@ const memoryStorage = {
   setItem(key, value) { this.value.set(key, value); },
   removeItem(key) { this.value.delete(key); },
 };
+const sessionStorage = {
+  values: new Map([
+    [encounteredProfilesKey('spring-2026'), JSON.stringify(['one', 'one', '', 7, 'two'])],
+    ['ace-discover:seen:spring-2026', JSON.stringify(['seen'])],
+    ['ace-discover:saved:spring-2026', JSON.stringify(['saved'])],
+  ]),
+  getItem(key) { return this.values.has(key) ? this.values.get(key) : null; },
+  setItem(key, value) { this.values.set(key, value); },
+  removeItem(key) { this.values.delete(key); },
+};
+assert.deepEqual(sanitizeEncounteredIds(['one', 'one', '', 7, 'two']), ['one', 'two']);
+assert.deepEqual(readEncounteredIds('spring-2026', sessionStorage), ['one', 'two']);
+assert.deepEqual(readEncounteredIds('fall-2025', sessionStorage), []);
+assert.deepEqual(markProfileEncountered('three', 'spring-2026', sessionStorage), ['one', 'two', 'three']);
+assert.equal(sessionStorage.getItem('ace-discover:seen:spring-2026'), JSON.stringify(['seen']));
+assert.equal(sessionStorage.getItem('ace-discover:saved:spring-2026'), JSON.stringify(['saved']));
+sessionStorage.values.set(encounteredProfilesKey('broken'), '{not-json');
+assert.deepEqual(readEncounteredIds('broken', sessionStorage), []);
 markProfileSeen('one', memoryStorage);
 markProfileSeen('one', memoryStorage);
 markProfileSeen('two', memoryStorage);
@@ -238,5 +297,15 @@ assert.ok(!discoveryFeedSource.includes('onModeChange'));
 assert.ok(!discoveryFeedSource.includes('discovery.mode'));
 assert.ok(!discoveryFeedSource.includes('discovery.selectedVibes'));
 assert.deepEqual(seededShuffle([1, 2, 3, 4], 12), seededShuffle([1, 2, 3, 4], 12));
+const originalCrypto = globalThis.crypto;
+try {
+  Object.defineProperty(globalThis, 'crypto', {
+    configurable: true,
+    value: { getRandomValues(values) { values[0] = 0; return values; } },
+  });
+  assert.notEqual(createSeed(1), 1, 'createSeed must not repeat the previous seed on the zero-value edge case');
+} finally {
+  Object.defineProperty(globalThis, 'crypto', { configurable: true, value: originalCrypto });
+}
 
 console.log('Discovery search, filters, stable shuffle, and options tests passed.');

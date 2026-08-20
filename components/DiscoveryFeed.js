@@ -21,6 +21,11 @@ import {
 } from '../lib/discovery';
 import { readSeenIds, SEEN_CHANGE_EVENT } from '../lib/seen-profiles';
 import { readSavedIds, SAVED_CHANGE_EVENT } from '../lib/saved-profiles';
+import {
+  markProfileEncountered,
+  readEncounteredIds,
+  sanitizeEncounteredIds,
+} from '../lib/encountered-profiles';
 
 function emptyFilters() {
   return { ...DEFAULT_FILTERS, vibes: [], years: [], majorGroups: [], socialStyles: [] };
@@ -35,6 +40,8 @@ const INITIAL_STATE = {
   seed: 1,
   activeProfileId: '',
   scrollTop: 0,
+  encounteredOrderIds: [],
+  seenOrderIds: [],
 };
 
 export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
@@ -50,9 +57,12 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [seenIds, setSeenIds] = useState([]);
   const [savedIds, setSavedIds] = useState([]);
+  const [encounteredIds, setEncounteredIds] = useState([]);
+  const encounteredIdsRef = useRef([]);
   const [toast, setToast] = useState('');
 
   stateRef.current = discovery;
+  encounteredIdsRef.current = encounteredIds;
 
   const options = useMemo(() => getDiscoveryOptions(profiles), [profiles]);
   const availableRoles = useMemo(() => getAvailableRoles(profiles), [profiles]);
@@ -69,8 +79,10 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
       savedIds,
       ...discovery.filters,
       seed: discovery.seed,
+      encounteredIds: discovery.encounteredOrderIds,
+      orderingSeenIds: discovery.seenOrderIds,
     }),
-    [profiles, discovery.query, effectiveRole, discovery.saved, discovery.unseen, discovery.filters, discovery.seed, seenIds, savedIds],
+    [profiles, discovery.query, effectiveRole, discovery.saved, discovery.unseen, discovery.filters, discovery.seed, discovery.encounteredOrderIds, discovery.seenOrderIds, seenIds, savedIds],
   );
   const visibleKey = useMemo(
     () => visibleProfiles.map((profile) => profile.id).join('|'),
@@ -135,11 +147,18 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
 
     const initialSeenIds = readSeenIds(datasetSlug);
     const initialSavedIds = readSavedIds(datasetSlug);
+    const initialEncounteredIds = readEncounteredIds(datasetSlug);
+    initial.encounteredOrderIds = sanitizeEncounteredIds(initial.encounteredOrderIds || initialEncounteredIds);
+    initial.seenOrderIds = Array.isArray(initial.seenOrderIds)
+      ? initial.seenOrderIds.filter((id) => typeof id === 'string' && id.length > 0 && id.length <= 160)
+      : initialSeenIds;
     stateRef.current = initial;
+    encounteredIdsRef.current = initialEncounteredIds;
     scrollTopRef.current = initial.scrollTop;
     setDiscovery(initial);
     setSeenIds(initialSeenIds);
     setSavedIds(initialSavedIds);
+    setEncounteredIds(initialEncounteredIds);
     setSearchOpen(Boolean(initial.query));
     setReady(true);
   }, [datasetSlug]);
@@ -250,6 +269,11 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
       });
 
       if (bestProfileId && bestRatio >= 0.45) {
+        if (!encounteredIdsRef.current.includes(bestProfileId)) {
+          const updatedEncounteredIds = markProfileEncountered(bestProfileId, datasetSlug);
+          encounteredIdsRef.current = updatedEncounteredIds;
+          setEncounteredIds(updatedEncounteredIds);
+        }
         setDiscovery((current) => {
           if (current.activeProfileId === bestProfileId) return current;
           return {
@@ -336,7 +360,12 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
   }
 
   function handleShuffle() {
-    updateControls((current) => ({ ...current, seed: createSeed(current.seed) }), 'smooth');
+    updateControls((current) => ({
+      ...current,
+      seed: createSeed(current.seed),
+      encounteredOrderIds: [...encounteredIdsRef.current],
+      seenOrderIds: [...seenIds],
+    }), 'smooth');
     showToast('Profiles reshuffled');
   }
 
@@ -348,6 +377,11 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
   }
 
   function handleOpenProfile(profileId) {
+    if (!encounteredIdsRef.current.includes(profileId)) {
+      const updatedEncounteredIds = markProfileEncountered(profileId, datasetSlug);
+      encounteredIdsRef.current = updatedEncounteredIds;
+      setEncounteredIds(updatedEncounteredIds);
+    }
     saveSnapshot({
       activeProfileId: profileId,
       scrollTop: feedRef.current?.scrollTop ?? scrollTopRef.current,

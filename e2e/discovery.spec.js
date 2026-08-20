@@ -287,6 +287,31 @@ test.describe('ACE Discover discovery smoke tests', () => {
     await expect.poll(readSeed).not.toBe(before);
   });
 
+  test('tracks the active card as Encountered without changing Seen or clearing it on Shuffle', async ({ page }) => {
+    await openDiscovery(page);
+    const firstHref = await page.locator('.profile-card').first().getByRole('link', { name: /View profile/ }).getAttribute('href');
+    const { datasetSlug } = profileRouteParts(firstHref);
+    const readState = () => page.evaluate((slug) => ({
+      encountered: JSON.parse(sessionStorage.getItem(`ace-discover:encountered:${slug}`) || '[]'),
+      seen: JSON.parse(localStorage.getItem(`ace-discover:seen:${slug}`) || '[]'),
+      discovery: JSON.parse(sessionStorage.getItem(`profile-gallery:discovery-v2:${slug}`) || '{}'),
+    }), datasetSlug);
+
+    await expect.poll(async () => (await readState()).encountered.length).toBeGreaterThan(0);
+    const before = await readState();
+    const shuffle = (page.viewportSize()?.width || 0) >= 1200
+      ? page.locator('.discovery-rail').getByRole('button', { name: 'Shuffle profiles' })
+      : page.locator('.discovery-toolbar').getByRole('button', { name: 'Shuffle profiles' });
+    await shuffle.click();
+    await expect.poll(async () => (await readState()).discovery.seed).not.toBe(before.discovery.seed);
+    const after = await readState();
+    for (const profileId of before.encountered) expect(after.encountered).toContain(profileId);
+    expect(after.encountered.length).toBeGreaterThanOrEqual(before.encountered.length);
+    expect(after.discovery.encounteredOrderIds).toEqual(before.encountered);
+    expect(new Set(after.encountered).size).toBe(after.encountered.length);
+    expect(after.seen).toEqual(before.seen);
+  });
+
   test('selects multiple Vibes with OR behavior', async ({ page }) => {
     await openDiscovery(page);
     const dialog = await openFilters(page);
