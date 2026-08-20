@@ -1,6 +1,8 @@
 -- ACE Discover v4 database schema moved to the versioned migrations below:
 -- supabase/migrations/202608150001_ace_discover_v4_datasets.sql
 -- supabase/migrations/202608150002_ace_discover_v4_hardening.sql
+-- supabase/migrations/202608160001_ace_discover_v4_service_role_grants.sql
+-- supabase/migrations/202608200001_profile_image_storage.sql
 --
 -- Run that complete migration in the Supabase SQL editor or with the Supabase
 -- CLI. This compatibility pointer intentionally contains no partial/legacy

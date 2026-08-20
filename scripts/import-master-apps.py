@@ -2,8 +2,8 @@
 """Import the Fall 2025 application workbook into the profile gallery.
 
 The importer deliberately writes only profile-facing fields to lib/profiles.js.
-A separate data/profiles.json file retains image-source metadata for the optional
-Google Drive -> Supabase migration script.
+A separate data/profiles.json file retains image-source metadata for dataset
+seed/import tooling; remote image ingestion remains a separate dataset-scoped step.
 """
 
 import csv

@@ -353,6 +353,7 @@ class PublicProfileTests(unittest.TestCase):
         profile = {
             'id': 'example',
             'name': 'Example',
+            'storageImagePath': 'spring-2026/example/primary.webp',
             'imageSourceUrl': 'https://private.example',
             'driveFileId': 'private-id',
             'driveFolderId': '',
@@ -362,6 +363,7 @@ class PublicProfileTests(unittest.TestCase):
         }
         public = IMPORTER.public_profiles([profile])[0]
         self.assertEqual(public['name'], 'Example')
+        self.assertEqual(public['storageImagePath'], 'spring-2026/example/primary.webp')
         self.assertNotIn('imageSourceUrl', public)
         self.assertNotIn('driveFileId', public)
         self.assertNotIn('imageIssue', public)

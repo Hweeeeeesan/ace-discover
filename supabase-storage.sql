@@ -1,22 +1,7 @@
--- Run this in the Supabase SQL editor if you prefer to create the bucket
--- manually instead of letting scripts/migrate-drive-images-to-supabase.mjs do it.
-
-insert into storage.buckets (
-  id,
-  name,
-  public,
-  file_size_limit,
-  allowed_mime_types
-)
-values (
-  'profile-images',
-  'profile-images',
-  true,
-  26214400,
-  array['image/*']
-)
-on conflict (id) do update
-set
-  public = excluded.public,
-  file_size_limit = excluded.file_size_limit,
-  allowed_mime_types = excluded.allowed_mime_types;
+-- ACE Discover Storage setup now lives in the versioned migration:
+-- supabase/migrations/202608200001_profile_image_storage.sql
+--
+-- Apply that complete migration instead of running a partial bucket-only setup.
+-- It configures the profile-images bucket, its scoped public-read policy, the
+-- canonical dataset_profiles.storage_image_path field, and the narrow
+-- service-role RPC used by the rerunnable migration tool.
