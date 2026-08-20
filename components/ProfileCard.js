@@ -21,6 +21,7 @@ export default function ProfileCard({
       className={`profile-card${active ? ' is-active' : ''}`}
       id={`profile-${profile.id}`}
       data-profile-id={profile.id}
+      data-profile-transition-id={`${datasetSlug}-${profile.id}`}
       aria-label={`${profile.name}, ${profile.role} profile ${index + 1} of ${total}`}
     >
       <ProfileImage
@@ -58,7 +59,10 @@ export default function ProfileCard({
             className="primary-button"
             href={`/profile/${encodeURIComponent(datasetSlug)}/${encodeURIComponent(profile.id)}`}
             prefetch={false}
-            onClick={() => onOpenProfile?.(profile.id)}
+            onClick={(event) => {
+              onOpenProfile?.(profile.id);
+              event.currentTarget.closest('.profile-card')?.classList.add('is-opening');
+            }}
           >
             View profile <ArrowUpRight size={18} />
           </Link>

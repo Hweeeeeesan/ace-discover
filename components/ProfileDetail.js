@@ -21,7 +21,7 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
           <span>{adminPreview.status === 'ready' ? 'This dataset is saved but not public.' : `Dataset status: ${adminPreview.status}`}</span>
         </div>
       )}
-      <div className="detail-card">
+      <div className="detail-card" data-profile-transition-id={`${datasetSlug}-${profile.id}`}>
         <div className="detail-photo-wrap">
           <ProfileImage className="detail-photo" src={profile.image} candidates={profile.imageCandidates} alt={profile.name} eager />
           {adminPreview

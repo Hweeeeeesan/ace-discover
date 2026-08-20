@@ -261,6 +261,7 @@ test.describe('ACE Discover discovery smoke tests', () => {
     await openDiscovery(page);
     await page.locator('.profile-card').first().getByRole('link', { name: /View profile/ }).click();
     await expect(page.locator('.detail-card')).toBeVisible();
+    await expect(page.locator('.detail-card')).toHaveAttribute('data-profile-transition-id', /.+-.+/);
 
     const detail = await page.locator('.detail-card').evaluate((node) => {
       const style = getComputedStyle(node);
