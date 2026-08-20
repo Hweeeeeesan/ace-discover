@@ -83,12 +83,12 @@ export default function DiscoveryRail({
 
       <div className="rail-toggle-group">
         <label className="rail-toggle-row">
-          <span>Unseen profiles</span>
+          <span>Unopened profiles</span>
           <input
             type="checkbox"
             checked={unseen}
             onChange={(event) => onUnseenChange(event.target.checked)}
-            aria-label="Show unseen profiles only"
+          aria-label="Show unopened profiles only"
           />
           <span className="toggle-track" aria-hidden="true"><span /></span>
         </label>

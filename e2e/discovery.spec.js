@@ -167,9 +167,9 @@ test.describe('ACE Discover discovery smoke tests', () => {
     await expect(restoredCard.getByRole('button', { name: 'Remove from saved' })).toBeVisible();
   });
 
-  test('combines independent Unseen with every role', async ({ page }) => {
+  test('combines independent Unopened with every role', async ({ page }) => {
     await openDiscovery(page);
-    const unseen = page.getByRole('checkbox', { name: 'Show unseen profiles only' });
+    const unseen = page.getByRole('checkbox', { name: 'Show unopened profiles only' });
 
     const roleNames = await availableRoleNames(page);
     for (const role of roleNames) {
@@ -347,10 +347,10 @@ test.describe('ACE Discover discovery smoke tests', () => {
     await expect(page.getByRole('button', { name: /Open filters, 2 active/ })).toBeVisible();
   });
 
-  test('Reset filters clears advanced state but keeps role and Unseen', async ({ page }) => {
+  test('Reset filters clears advanced state but keeps role and Unopened', async ({ page }) => {
     await openDiscovery(page);
     await page.getByRole('button', { name: 'Big', exact: true }).click();
-    const unseen = page.getByRole('checkbox', { name: 'Show unseen profiles only' });
+    const unseen = page.getByRole('checkbox', { name: 'Show unopened profiles only' });
     await unseen.check();
     const dialog = await openFilters(page);
     await dialog.getByRole('button', { name: 'Music', exact: true }).click();
@@ -447,14 +447,14 @@ test.describe('ACE Discover discovery smoke tests', () => {
     expect(overflow.bodyWidth).toBeLessThanOrEqual(overflow.viewport);
   });
 
-  test('keeps filter spacing compact and anchors Unseen to the right', async ({ page }) => {
+  test('keeps filter spacing compact and anchors Unopened to the right', async ({ page }) => {
     await openDiscovery(page);
 
     if ((page.viewportSize()?.width || 0) >= 1200) {
       const rail = page.locator('.discovery-rail');
       await expect(rail).toBeVisible();
       await expect(rail.getByRole('button', { name: 'All', exact: true })).toBeVisible();
-      await expect(rail.getByRole('checkbox', { name: 'Show unseen profiles only' })).toBeVisible();
+      await expect(rail.getByRole('checkbox', { name: 'Show unopened profiles only' })).toBeVisible();
       await expect(rail.getByRole('button', { name: 'Open filters' })).toBeVisible();
       await expect(page.locator('.toolbar-search-button')).toBeHidden();
       await expect(page.locator('.toolbar-filters-button')).toBeHidden();

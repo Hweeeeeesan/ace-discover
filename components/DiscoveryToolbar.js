@@ -165,12 +165,12 @@ export default function DiscoveryToolbar({
             })}
           </div>
           <label className="unseen-toggle">
-            <span>Unseen</span>
+            <span>Unopened</span>
             <input
               type="checkbox"
               checked={unseen}
               onChange={(event) => onUnseenChange(event.target.checked)}
-              aria-label="Show unseen profiles only"
+            aria-label="Show unopened profiles only"
             />
             <span className="toggle-track" aria-hidden="true"><span /></span>
           </label>
