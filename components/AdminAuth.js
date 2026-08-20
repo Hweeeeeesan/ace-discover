@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { LogIn, LogOut } from 'lucide-react';
+import { adminOAuthRedirect } from '../lib/admin/oauth';
 import { createSupabaseBrowserClient } from '../lib/supabase/browser';
 
 export function AdminLogin({ configured = true }) {
@@ -16,7 +17,7 @@ export function AdminLogin({ configured = true }) {
     }
     setPending(true);
     setError('');
-    const redirectTo = `${window.location.origin}/auth/callback?next=/admin`;
+    const redirectTo = adminOAuthRedirect(window.location.origin);
     const { error: authError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo, queryParams: { prompt: 'select_account' } },
