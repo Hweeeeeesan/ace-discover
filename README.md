@@ -134,21 +134,17 @@ If you temporarily keep a downloaded credential file in the project, place it un
 
 When deploying to Vercel, add the same values under **Project Settings → Environment Variables**. Redeploy after changing them.
 
-## Permanently move Drive images to Supabase Storage
+## Move one primary image per profile to Supabase Storage
 
-The proxy is convenient, but Supabase Storage is more stable for a production gallery. The included migration script:
+Phase 1 keeps every existing Drive source and adds one optional canonical
+`storageImagePath` to a profile. Public discovery, direct profile routes, and
+Admin READY previews resolve images in this order: Supabase Storage, the
+existing Drive/source candidates, then the placeholder. Workbook analysis does
+not download or upload images.
 
-1. reads `data/profiles.json`;
-2. downloads accessible Drive images;
-3. resolves Drive folder links when credentials are available;
-4. validates that each response is an image;
-5. uploads it to a public Supabase bucket;
-6. places the Supabase CDN URL first in each profile’s fallback list;
-7. regenerates `lib/profiles.js`.
+### 1. Configure the existing Supabase project
 
-### 1. Create a Supabase project
-
-Copy `.env.example` to `.env.local`, then add:
+Copy `.env.example` to `.env.local`, then add the server-only migration values:
 
 ```dotenv
 SUPABASE_URL=https://YOUR_PROJECT.supabase.co
@@ -156,52 +152,63 @@ SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
 SUPABASE_STORAGE_BUCKET=profile-images
 ```
 
-The service-role key is secret and must never use a `NEXT_PUBLIC_` prefix. It is used only by the local migration script.
+The service-role key is secret and must never use a `NEXT_PUBLIC_` prefix. The
+browser receives only the public Supabase project URL and public object URLs.
 
-The script creates or updates the bucket automatically. Alternatively, run `supabase-storage.sql` in the Supabase SQL editor.
+Apply `supabase/migrations/202608200001_profile_image_storage.sql` in the
+Supabase SQL editor after the three existing dataset migrations. It creates or
+updates only the `profile-images` bucket, allows public reads for that bucket,
+adds no anonymous write policy, and adds the narrow service-role RPC used to
+attach a canonical path. The migration does not ingest any images.
 
-### 2. Validate a small sample
+### 2. Dry-run one dataset
 
-This downloads and validates five images without uploading:
-
-```bash
-npm run images:migrate -- --dry-run --limit 5
-```
-
-Test one specific profile:
-
-```bash
-npm run images:migrate -- --dry-run --profile aiden-wang
-```
-
-### 3. Upload and apply the URLs
+Dry-run is the default and does not upload or update profile data:
 
 ```bash
-npm run images:migrate -- --apply
+npm run images:migrate -- spring-2026 --dry-run
 ```
 
-The script writes:
+Limit a diagnostic run or inspect one profile:
+
+```bash
+npm run images:migrate -- spring-2026 --dry-run --limit 5
+npm run images:migrate -- spring-2026 --dry-run --profile aiden-wang
+```
+
+The CSV report includes total, eligible, already-migrated, uploaded, skipped,
+and failed outcomes. Source failures are categorized where possible, including
+missing source, invalid URL, Drive folder, Google document, unsupported
+content, and permission/fetch failure. Direct arbitrary URLs are never fetched.
+
+If `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` are
+configured for the server/local migration tool, the same command also retries
+the existing Drive file and folder sources that were not publicly readable.
+Folder recovery examines direct children only and uploads only when exactly one
+valid image is found; ambiguous folders are reported for manual review. A
+service account must be granted Viewer access to each private file or folder
+(or its containing shared drive) before it can recover anything.
+
+### 3. Apply one dataset after reviewing the report
+
+```bash
+npm run images:migrate -- spring-2026 --apply
+```
+
+Apply mode uploads only missing valid Drive images to deterministic paths such
+as:
 
 ```text
-data/profiles.json
-lib/profiles.js
-reports/supabase-image-migration.csv
+profile-images/spring-2026/aiden-wang/primary.jpg
 ```
 
-Before replacing data, it preserves one-time backups:
+It uses non-overwriting uploads, validates object bytes and size, reuses an
+existing object after a partial prior run, and stores only the path in profile
+data. It never activates, archives, or changes unrelated profile fields.
+Reports are written to:
 
 ```text
-data/profiles.json.before-supabase
-lib/profiles.js.before-supabase
-```
-
-Profiles that cannot be downloaded keep their existing Drive proxy or placeholder, so a partial migration remains usable.
-
-### 4. Build after migration
-
-```bash
-npm run build
-npm run start
+reports/supabase-image-migration-<dataset-slug>.csv
 ```
 
 ## Refresh from a newer Google Sheets export
@@ -228,7 +235,10 @@ npm run test:e2e
 
 The suite starts a Next.js dev server on port 3100 and shuts it down when complete. It uses the locally installed Chrome channel; on a machine without Chrome, install a Playwright browser with `npx playwright install chromium` and adjust the channel in `playwright.config.js` if needed. Failure screenshots, traces, and the HTML report are written to ignored Playwright artifact folders.
 
-The import command regenerates the spreadsheet snapshot, `lib/drive-image-allowlist.js`, the image audit, and the migration data. It also replaces any previously migrated Supabase URLs. Run the Supabase migration again after importing a newer workbook.
+The import command regenerates the spreadsheet snapshot,
+`lib/drive-image-allowlist.js`, and the image audit. It does not fetch images or
+modify Storage. Save the new semester as a dataset, then run the dataset-scoped
+image dry-run and apply command for that new slug.
 
 ## Deploy to Vercel
 

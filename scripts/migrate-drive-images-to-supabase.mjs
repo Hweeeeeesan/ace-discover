@@ -1,58 +1,34 @@
 #!/usr/bin/env node
 
-import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createClient } from '@supabase/supabase-js';
+import { getDriveAuth } from '../lib/google-drive-server.js';
 import {
-  fetchDriveImage,
-  getDriveAuth,
-  resolveImageFileFromFolder,
-} from '../lib/google-drive-server.js';
-
-const PLACEHOLDER = '/profile-placeholder.svg';
-const DEFAULT_INPUT = 'data/profiles.json';
-const DEFAULT_BUCKET = 'profile-images';
-const DEFAULT_REPORT = 'reports/supabase-image-migration.csv';
-const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
-const PRIVATE_PROFILE_KEYS = new Set([
-  'imageSourceUrl',
-  'driveFileId',
-  'driveFolderId',
-  'storagePath',
-  'resolvedDriveFileId',
-  'imageIssue',
-  'imageKind',
-  'sourceGroup',
-  'sourceRow',
-]);
-const SAFE_IMAGE_TYPES = new Set([
-  'image/avif',
-  'image/bmp',
-  'image/gif',
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'image/x-icon',
-  'image/vnd.microsoft.icon',
-]);
+  MAX_PROFILE_IMAGE_BYTES,
+  detectImageContentType,
+  ingestProfileImage,
+} from '../lib/profile-image-ingestion.js';
+import { migrateDatasetProfiles } from '../lib/profile-image-migration.js';
+import {
+  DEFAULT_PROFILE_IMAGE_BUCKET,
+  isValidStorageImagePath,
+} from '../lib/profile-images.js';
 
 function loadEnvFile(filePath) {
   if (!existsSync(filePath)) return;
-
   for (const rawLine of readFileSync(filePath, 'utf8').split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith('#')) continue;
     const separator = line.indexOf('=');
     if (separator < 1) continue;
-
     const key = line.slice(0, separator).trim();
     let value = line.slice(separator + 1).trim();
     if (
       (value.startsWith('"') && value.endsWith('"'))
       || (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
+    ) value = value.slice(1, -1);
     if (!(key in process.env)) process.env[key] = value;
   }
 }
@@ -60,77 +36,61 @@ function loadEnvFile(filePath) {
 loadEnvFile(resolve('.env'));
 loadEnvFile(resolve('.env.local'));
 
-function parseArguments(argv) {
+export function parseArguments(argv) {
   const options = {
-    input: DEFAULT_INPUT,
-    output: 'data/profiles.supabase.json',
-    moduleOutput: 'lib/profiles.supabase.js',
-    report: DEFAULT_REPORT,
-    bucket: process.env.SUPABASE_STORAGE_BUCKET || DEFAULT_BUCKET,
-    concurrency: 3,
+    datasetSlug: '',
+    apply: false,
+    explicitDryRun: false,
     limit: Infinity,
     profileId: '',
-    dryRun: false,
-    apply: false,
+    report: '',
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     const value = argv[index + 1];
-
-    if (argument === '--input' && value) options.input = value, index += 1;
-    else if (argument === '--output' && value) options.output = value, index += 1;
-    else if (argument === '--module-output' && value) options.moduleOutput = value, index += 1;
-    else if (argument === '--report' && value) options.report = value, index += 1;
-    else if (argument === '--bucket' && value) options.bucket = value, index += 1;
-    else if (argument === '--concurrency' && value) options.concurrency = Number(value), index += 1;
-    else if (argument === '--limit' && value) options.limit = Number(value), index += 1;
-    else if (argument === '--profile' && value) options.profileId = value, index += 1;
-    else if (argument === '--dry-run') options.dryRun = true;
+    if (!argument.startsWith('-') && !options.datasetSlug) options.datasetSlug = argument;
     else if (argument === '--apply') options.apply = true;
+    else if (argument === '--dry-run') options.explicitDryRun = true;
+    else if (argument === '--profile' && value) options.profileId = value, index += 1;
+    else if (argument === '--limit' && value) options.limit = Number(value), index += 1;
+    else if (argument === '--report' && value) options.report = value, index += 1;
     else if (argument === '--help' || argument === '-h') options.help = true;
     else throw new Error(`Unknown argument: ${argument}`);
   }
 
-  if (!Number.isFinite(options.concurrency) || options.concurrency < 1 || options.concurrency > 10) {
-    throw new Error('--concurrency must be between 1 and 10.');
+  if (options.apply && options.explicitDryRun) throw new Error('Choose either --apply or --dry-run, not both.');
+  if (options.datasetSlug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(options.datasetSlug)) {
+    throw new Error('Dataset slug must contain lowercase letters, numbers, and single hyphens only.');
   }
-  if (options.limit !== Infinity && (!Number.isFinite(options.limit) || options.limit < 1)) {
-    throw new Error('--limit must be a positive number.');
+  if (options.limit !== Infinity && (!Number.isInteger(options.limit) || options.limit < 1)) {
+    throw new Error('--limit must be a positive integer.');
   }
-
+  options.dryRun = !options.apply;
   return options;
 }
 
 function printHelp() {
-  console.log(`Migrate profile images from Google Drive into a public Supabase Storage bucket.
+  console.log(`Migrate one dataset's approved Google Drive profile images to Supabase Storage.
 
 Usage:
-  npm run images:migrate -- [options]
+  npm run images:migrate -- <dataset-slug> --dry-run
+  npm run images:migrate -- <dataset-slug> --apply
 
 Options:
-  --dry-run                 Download and validate images without uploading.
-  --apply                   Replace data/profiles.json and lib/profiles.js after migration.
-  --profile PROFILE_ID      Process only one profile.
-  --limit NUMBER            Process at most NUMBER eligible profiles.
-  --concurrency NUMBER      Parallel downloads/uploads, 1-10 (default: 3).
-  --bucket NAME             Supabase bucket (default: profile-images).
-  --input PATH              Migration JSON input (default: data/profiles.json).
-  --output PATH             Preview JSON output.
-  --module-output PATH      Preview Next.js module output.
-  --report PATH             CSV migration report.
+  --dry-run              Default. Validate sources without uploading or changing profile data.
+  --apply                Upload missing images and attach canonical storageImagePath values.
+  --profile PROFILE_ID   Inspect or migrate one profile in the dataset.
+  --limit NUMBER         Process at most NUMBER selected profiles.
+  --report PATH          CSV report path (default includes the dataset slug).
 
-Required for upload:
-  SUPABASE_URL
+Required in .env.local:
+  SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)
   SUPABASE_SERVICE_ROLE_KEY
+  SUPABASE_STORAGE_BUCKET=profile-images
 
-For private Drive uploads or folder links, also configure a Google service
-account or OAuth refresh token in .env.local and share the Drive files/folder
-with that account.`);
-}
-
-function ensureParent(filePath) {
-  mkdirSync(dirname(resolve(filePath)), { recursive: true });
+The command never activates or archives datasets. Direct arbitrary URLs are
+reported but never fetched. Apply the checked-in Supabase migration first.`);
 }
 
 function csvCell(value) {
@@ -138,353 +98,172 @@ function csvCell(value) {
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
-function writeCsv(filePath, rows) {
-  ensureParent(filePath);
-  const headers = [
-    'profile_id',
-    'name',
-    'source_kind',
-    'status',
-    'resolved_drive_file_id',
-    'storage_path',
-    'public_url',
-    'detail',
-  ];
-  const output = [headers.join(',')];
+function writeReport(filePath, rows) {
+  const headers = ['profile_id', 'name', 'status', 'category', 'storage_path', 'detail'];
+  const lines = [headers.join(',')];
   for (const row of rows) {
-    output.push(headers.map((header) => csvCell(row[header])).join(','));
+    const values = {
+      profile_id: row.profileId,
+      name: row.name,
+      status: row.status,
+      category: row.category,
+      storage_path: row.storagePath,
+      detail: row.detail,
+    };
+    lines.push(headers.map((header) => csvCell(values[header])).join(','));
   }
-  writeFileSync(filePath, `${output.join('\n')}\n`, 'utf8');
+  const absolutePath = resolve(filePath);
+  mkdirSync(dirname(absolutePath), { recursive: true });
+  writeFileSync(absolutePath, `${lines.join('\n')}\n`, 'utf8');
+  return absolutePath;
 }
 
-function publicProfile(profile) {
-  return Object.fromEntries(
-    Object.entries(profile).filter(([key]) => !PRIVATE_PROFILE_KEYS.has(key)),
-  );
-}
-
-function writeProfileModule(filePath, profiles) {
-  ensureParent(filePath);
-  const publicProfiles = profiles.map(publicProfile);
-  const moduleText = `export const profiles = ${JSON.stringify(publicProfiles, null, 2)};\n\nexport function getProfile(id) {\n  return profiles.find((profile) => profile.id === id);\n}\n`;
-  writeFileSync(filePath, moduleText, 'utf8');
-}
-
-function writeJson(filePath, profiles) {
-  ensureParent(filePath);
-  writeFileSync(filePath, `${JSON.stringify(profiles, null, 2)}\n`, 'utf8');
-}
-
-function supabaseHeaders(serviceKey, additional = {}) {
+function profileFromRow(row) {
   return {
-    apikey: serviceKey,
-    Authorization: `Bearer ${serviceKey}`,
-    ...additional,
+    ...(row.public_data || {}),
+    id: row.profile_id,
+    driveFileId: row.drive_file_id || '',
+    driveFolderId: row.drive_folder_id || '',
+    imageKind: row.image_kind || row.public_data?.imageKind || '',
+    storageImagePath: row.storage_image_path || row.public_data?.storageImagePath || '',
   };
 }
 
-async function responseDetail(response) {
-  const text = await response.text();
-  return text.slice(0, 500);
+async function loadDataset(supabase, datasetSlug) {
+  const { data: dataset, error: datasetError } = await supabase
+    .from('datasets')
+    .select('id,slug,name,status,profile_count')
+    .eq('slug', datasetSlug)
+    .single();
+  if (datasetError || !dataset) throw new Error(`Dataset ${datasetSlug} was not found or could not be read: ${datasetError?.message || 'not found'}`);
+
+  const { data: rows, error: profilesError } = await supabase
+    .from('dataset_profiles')
+    .select('profile_id,public_data,drive_file_id,drive_folder_id,image_kind,storage_image_path,ordinal')
+    .eq('dataset_id', dataset.id)
+    .order('ordinal', { ascending: true })
+    .limit(1000);
+  if (profilesError) {
+    throw new Error(`Dataset profiles could not be read. Apply the image Storage migration first. ${profilesError.message}`);
+  }
+  if ((rows || []).length !== dataset.profile_count) {
+    throw new Error(`Dataset integrity check failed: expected ${dataset.profile_count} profiles, received ${(rows || []).length}.`);
+  }
+  return { dataset, profiles: (rows || []).map(profileFromRow) };
 }
 
-async function ensurePublicBucket({ supabaseUrl, serviceKey, bucket }) {
-  const bucketUrl = `${supabaseUrl}/storage/v1/bucket/${encodeURIComponent(bucket)}`;
-  const current = await fetch(bucketUrl, {
-    headers: supabaseHeaders(serviceKey),
-  });
+function storageInspector(supabase, bucket, datasetSlug) {
+  const storage = supabase.storage.from(bucket);
 
-  if (current.ok) {
-    const metadata = await current.json();
-    if (!metadata.public) {
-      const update = await fetch(bucketUrl, {
-        method: 'PUT',
-        headers: supabaseHeaders(serviceKey, { 'Content-Type': 'application/json' }),
-        body: JSON.stringify({
-          public: true,
-          file_size_limit: MAX_IMAGE_BYTES,
-          allowed_mime_types: ['image/*'],
-        }),
+  async function validateStoredObject(storagePath) {
+    const { data, error } = await storage.download(storagePath);
+    if (error || !data) return false;
+    if (!data.size || data.size > MAX_PROFILE_IMAGE_BYTES) return false;
+    const bytes = Buffer.from(await data.arrayBuffer());
+    return Boolean(detectImageContentType(bytes));
+  }
+
+  async function listPrimaryPaths(profileId) {
+    const directory = `${datasetSlug}/${profileId}`;
+    const { data, error } = await storage.list(directory, { limit: 20, search: 'primary.' });
+    if (error) throw new Error(`Storage inspection failed for ${directory}: ${error.message}`);
+    return (data || [])
+      .map((object) => `${directory}/${object.name}`)
+      .filter(isValidStorageImagePath);
+  }
+
+  return {
+    async pathExists(storagePath) {
+      const parts = storagePath.split('/');
+      const paths = await listPrimaryPaths(parts[1]);
+      return paths.includes(storagePath) && validateStoredObject(storagePath);
+    },
+    async findExistingPath(profile) {
+      const paths = await listPrimaryPaths(profile.id);
+      if (paths.length > 1) throw new Error('Multiple primary Storage objects exist for this profile; resolve the ambiguity manually.');
+      if (!paths[0]) return '';
+      if (!(await validateStoredObject(paths[0]))) throw new Error('The existing primary Storage object is empty, oversized, or not a supported image.');
+      return paths[0];
+    },
+    async upload({ storagePath, bytes, contentType }) {
+      const { error } = await storage.upload(storagePath, bytes, {
+        contentType,
+        cacheControl: '31536000',
+        upsert: false,
       });
-      if (!update.ok) {
-        throw new Error(`Unable to make Supabase bucket public (${update.status}): ${await responseDetail(update)}`);
-      }
-    }
-    return;
-  }
-
-  if (current.status !== 404) {
-    throw new Error(`Unable to inspect Supabase bucket (${current.status}): ${await responseDetail(current)}`);
-  }
-
-  const create = await fetch(`${supabaseUrl}/storage/v1/bucket`, {
-    method: 'POST',
-    headers: supabaseHeaders(serviceKey, { 'Content-Type': 'application/json' }),
-    body: JSON.stringify({
-      id: bucket,
-      name: bucket,
-      public: true,
-      file_size_limit: MAX_IMAGE_BYTES,
-      allowed_mime_types: ['image/*'],
-    }),
-  });
-
-  if (!create.ok) {
-    throw new Error(`Unable to create Supabase bucket (${create.status}): ${await responseDetail(create)}`);
-  }
-}
-
-function storageObjectUrl(supabaseUrl, bucket, storagePath) {
-  const encodedPath = storagePath.split('/').map(encodeURIComponent).join('/');
-  return `${supabaseUrl}/storage/v1/object/public/${encodeURIComponent(bucket)}/${encodedPath}`;
-}
-
-async function uploadImage({ supabaseUrl, serviceKey, bucket, storagePath, contentType, bytes }) {
-  const encodedPath = storagePath.split('/').map(encodeURIComponent).join('/');
-  const response = await fetch(
-    `${supabaseUrl}/storage/v1/object/${encodeURIComponent(bucket)}/${encodedPath}`,
-    {
-      method: 'POST',
-      headers: supabaseHeaders(serviceKey, {
-        'Content-Type': contentType,
-        'Cache-Control': '31536000',
-        'x-upsert': 'true',
-      }),
-      body: bytes,
+      if (!error) return;
+      if (await this.pathExists(storagePath)) return;
+      throw new Error(`Supabase Storage upload failed: ${error.message}`);
     },
-  );
-
-  if (!response.ok) {
-    throw new Error(`Supabase upload failed (${response.status}): ${await responseDetail(response)}`);
-  }
-}
-
-function extensionFor(contentType) {
-  const mime = contentType.toLowerCase().split(';', 1)[0].trim();
-  const extensions = {
-    'image/avif': 'avif',
-    'image/gif': 'gif',
-    'image/jpeg': 'jpg',
-    'image/jpg': 'jpg',
-    'image/png': 'png',
-    'image/webp': 'webp',
   };
-  return extensions[mime] || 'img';
-}
-
-async function responseToImage(response) {
-  if (!response?.ok) throw new Error('The image source did not return a successful response.');
-  const contentType = String(response.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
-  if (!SAFE_IMAGE_TYPES.has(contentType)) {
-    throw new Error(`The source returned ${contentType || 'an unknown content type'} instead of a supported raster image.`);
-  }
-
-  const statedLength = Number(response.headers.get('content-length') || 0);
-  if (statedLength > MAX_IMAGE_BYTES) {
-    throw new Error(`The image is larger than ${MAX_IMAGE_BYTES} bytes.`);
-  }
-
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (!buffer.length) throw new Error('The downloaded image was empty.');
-  if (buffer.length > MAX_IMAGE_BYTES) throw new Error(`The image is larger than ${MAX_IMAGE_BYTES} bytes.`);
-
-  return { buffer, contentType };
-}
-
-async function fetchExternalImage(url) {
-  const response = await fetch(url, {
-    redirect: 'follow',
-    headers: {
-      Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-      'User-Agent': 'ACE-Discover-Image-Migration/1.0',
-    },
-  });
-  return responseToImage(response);
-}
-
-async function downloadProfileImage(profile, driveAuth) {
-  let resolvedDriveFileId = profile.driveFileId || '';
-
-  if (profile.driveFolderId) {
-    const file = await resolveImageFileFromFolder(profile.driveFolderId, driveAuth);
-    if (!file) throw new Error('No accessible image was found in the submitted Drive folder.');
-    resolvedDriveFileId = file.id;
-  }
-
-  if (resolvedDriveFileId) {
-    const response = await fetchDriveImage(resolvedDriveFileId, driveAuth);
-    if (!response) throw new Error('The Drive file could not be downloaded as an image.');
-    const image = await responseToImage(response);
-    return { ...image, resolvedDriveFileId };
-  }
-
-  if (profile.imageSourceUrl?.startsWith('http')) {
-    const image = await fetchExternalImage(profile.imageSourceUrl);
-    return { ...image, resolvedDriveFileId: '' };
-  }
-
-  throw new Error('No downloadable image source is available for this profile.');
-}
-
-async function mapWithConcurrency(items, concurrency, worker) {
-  const results = new Array(items.length);
-  let nextIndex = 0;
-
-  async function runWorker() {
-    while (true) {
-      const currentIndex = nextIndex;
-      nextIndex += 1;
-      if (currentIndex >= items.length) return;
-      results[currentIndex] = await worker(items[currentIndex], currentIndex);
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, runWorker));
-  return results;
-}
-
-function eligibleProfile(profile) {
-  return Boolean(
-    profile.driveFileId
-      || profile.driveFolderId
-      || profile.imageKind === 'direct-image-url',
-  );
-}
-
-function updatedCandidates(profile, publicUrl) {
-  const oldCandidates = Array.isArray(profile.imageCandidates)
-    ? profile.imageCandidates
-    : [profile.image];
-  return [...new Set([publicUrl, ...oldCandidates, PLACEHOLDER].filter(Boolean))];
 }
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
-  if (options.help) {
-    printHelp();
-    return;
-  }
-
-  const inputPath = resolve(options.input);
-  if (!existsSync(inputPath)) {
-    throw new Error(`Migration input not found: ${inputPath}. Re-run the spreadsheet importer first.`);
-  }
-
-  const profiles = JSON.parse(readFileSync(inputPath, 'utf8'));
-  if (!Array.isArray(profiles)) throw new Error('The migration input must contain a JSON array.');
-
-  let selected = profiles.filter(eligibleProfile);
-  if (options.profileId) selected = selected.filter((profile) => profile.id === options.profileId);
-  selected = selected.slice(0, options.limit);
-
-  if (!selected.length) {
-    console.log('No eligible profiles matched the selected options.');
-    return;
-  }
+  if (options.help) return printHelp();
+  if (!options.datasetSlug) throw new Error('Provide a dataset slug. Example: npm run images:migrate -- spring-2026 --dry-run');
 
   const supabaseUrl = String(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const bucket = process.env.SUPABASE_STORAGE_BUCKET || DEFAULT_PROFILE_IMAGE_BUCKET;
+  if (!supabaseUrl || !serviceRoleKey) throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required, including for dataset-scoped dry runs.');
+  if (bucket !== DEFAULT_PROFILE_IMAGE_BUCKET) throw new Error(`SUPABASE_STORAGE_BUCKET must remain ${DEFAULT_PROFILE_IMAGE_BUCKET} for this migration.`);
 
-  if (!options.dryRun && (!supabaseUrl || !serviceKey)) {
-    throw new Error('Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local, or use --dry-run.');
-  }
-
-  const driveAuth = await getDriveAuth();
-  console.log(`Processing ${selected.length} profile image(s). Drive mode: ${driveAuth.mode}.`);
-
-  if (!options.dryRun) {
-    await ensurePublicBucket({ supabaseUrl, serviceKey, bucket: options.bucket });
-    console.log(`Supabase bucket ready: ${options.bucket}`);
-  }
-
-  const updates = new Map();
-  const report = await mapWithConcurrency(selected, options.concurrency, async (profile, index) => {
-    const prefix = `[${index + 1}/${selected.length}] ${profile.name}`;
-    try {
-      const image = await downloadProfileImage(profile, driveAuth);
-      const digest = createHash('sha256').update(image.buffer).digest('hex').slice(0, 16);
-      const extension = extensionFor(image.contentType);
-      const storagePath = `profiles/${profile.id}/${digest}.${extension}`;
-      const publicUrl = options.dryRun
-        ? ''
-        : storageObjectUrl(supabaseUrl, options.bucket, storagePath);
-
-      if (!options.dryRun) {
-        await uploadImage({
-          supabaseUrl,
-          serviceKey,
-          bucket: options.bucket,
-          storagePath,
-          contentType: image.contentType,
-          bytes: image.buffer,
-        });
-      }
-
-      updates.set(profile.id, {
-        image: publicUrl || profile.image,
-        imageCandidates: publicUrl ? updatedCandidates(profile, publicUrl) : profile.imageCandidates,
-        imageKind: publicUrl ? 'supabase-storage' : profile.imageKind,
-        imageIssue: publicUrl ? '' : profile.imageIssue,
-        storagePath: publicUrl ? storagePath : profile.storagePath || '',
-        resolvedDriveFileId: image.resolvedDriveFileId || profile.resolvedDriveFileId || '',
-      });
-
-      console.log(`${prefix}: ${options.dryRun ? 'validated' : 'uploaded'}`);
-      return {
-        profile_id: profile.id,
-        name: profile.name,
-        source_kind: profile.imageKind,
-        status: options.dryRun ? 'validated' : 'uploaded',
-        resolved_drive_file_id: image.resolvedDriveFileId,
-        storage_path: options.dryRun ? '' : storagePath,
-        public_url: publicUrl,
-        detail: `${image.contentType}; ${image.buffer.length} bytes`,
-      };
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      console.warn(`${prefix}: skipped — ${detail}`);
-      return {
-        profile_id: profile.id,
-        name: profile.name,
-        source_kind: profile.imageKind,
-        status: 'skipped',
-        resolved_drive_file_id: '',
-        storage_path: '',
-        public_url: '',
-        detail,
-      };
-    }
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
+  const { dataset, profiles: allProfiles } = await loadDataset(supabase, options.datasetSlug);
+  let profiles = allProfiles;
+  if (options.profileId) profiles = profiles.filter((profile) => profile.id === options.profileId);
+  profiles = profiles.slice(0, options.limit);
+  if (!profiles.length) throw new Error('No profiles matched the selected dataset and filters.');
 
-  const migratedProfiles = profiles.map((profile) => (
-    updates.has(profile.id) ? { ...profile, ...updates.get(profile.id) } : profile
-  ));
+  const inspector = storageInspector(supabase, bucket, dataset.slug);
+  const driveAuth = await getDriveAuth({ strict: true });
+  console.log(`${options.dryRun ? 'DRY RUN' : 'APPLY'}: ${dataset.name} (${dataset.slug}, ${dataset.status})`);
+  console.log(`Selected ${profiles.length} of ${allProfiles.length} profiles. Drive mode: ${driveAuth.mode}.`);
 
-  writeCsv(options.report, report);
+  const result = await migrateDatasetProfiles({
+    dataset,
+    profiles,
+    dryRun: options.dryRun,
+    storagePathExists: inspector.pathExists,
+    findExistingPath: inspector.findExistingPath,
+    ingest: (profile) => ingestProfileImage({
+      profile,
+      datasetSlug: dataset.slug,
+      driveAuth,
+      dryRun: options.dryRun,
+      upload: inspector.upload.bind(inspector),
+    }),
+    persistPath: async (profile, storagePath) => {
+      const { data, error } = await supabase.rpc('set_profile_storage_image_path', {
+        requested_dataset_id: dataset.id,
+        requested_profile_id: profile.id,
+        requested_storage_path: storagePath,
+      });
+      if (error) throw new Error(`The Storage upload succeeded but its canonical path could not be saved: ${error.message}`);
+      if (data?.storageImagePath !== storagePath) throw new Error('The canonical Storage path RPC did not confirm the requested path.');
+    },
+    onRow(row) {
+      console.log(`${row.profileId}: ${row.status}${row.category ? ` (${row.category})` : ''}`);
+    },
+  });
+  result.summary.totalProfiles = allProfiles.length;
 
-  if (options.apply && !options.dryRun) {
-    const dataBackup = `${options.input}.before-supabase`;
-    const moduleBackup = 'lib/profiles.js.before-supabase';
-    if (!existsSync(dataBackup)) copyFileSync(options.input, dataBackup);
-    if (existsSync('lib/profiles.js') && !existsSync(moduleBackup)) copyFileSync('lib/profiles.js', moduleBackup);
-    writeJson(options.input, migratedProfiles);
-    writeProfileModule('lib/profiles.js', migratedProfiles);
-    console.log('Applied migrated URLs to data/profiles.json and lib/profiles.js.');
-  } else {
-    writeJson(options.output, migratedProfiles);
-    writeProfileModule(options.moduleOutput, migratedProfiles);
-    console.log(`Preview data: ${options.output}`);
-    console.log(`Preview module: ${options.moduleOutput}`);
-  }
-
-  const uploaded = report.filter((row) => row.status === 'uploaded').length;
-  const validated = report.filter((row) => row.status === 'validated').length;
-  const skipped = report.filter((row) => row.status === 'skipped').length;
-  console.log(`Finished: uploaded=${uploaded}, validated=${validated}, skipped=${skipped}.`);
-  console.log(`Report: ${options.report}`);
+  const reportPath = writeReport(
+    options.report || `reports/supabase-image-migration-${dataset.slug}.csv`,
+    result.rows,
+  );
+  console.log(JSON.stringify(result.summary, null, 2));
+  console.log(`Report: ${reportPath}`);
+  if (options.dryRun) console.log('Dry run complete: no images were uploaded and no profile data was changed.');
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+const invokedPath = process.argv[1] ? resolve(process.argv[1]) : '';
+if (invokedPath === resolve(fileURLToPath(import.meta.url))) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}
