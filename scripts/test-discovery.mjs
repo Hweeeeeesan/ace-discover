@@ -292,10 +292,24 @@ for (const removedLabel of ['>School<', '>Program<', '>Profile<', 'Has Deck', 'H
 }
 assert.ok(filterSheetSource.indexOf('<legend>Vibes</legend>') < filterSheetSource.indexOf('<legend>Year</legend>'));
 assert.ok(filterSheetSource.indexOf('<legend>Year</legend>') < filterSheetSource.indexOf('<legend>Major Area</legend>'));
+for (const section of ['vibes', 'year', 'majorArea', 'socialLevel', 'socialStyle']) {
+  assert.ok(filterSheetSource.includes(`id="filter-section-${section}"`), `FilterSheet should expose the ${section} section target`);
+}
+assert.ok(filterSheetSource.includes('initialSection = null'), 'FilterSheet should accept an optional section target');
+assert.ok(filterSheetSource.includes('scrollIntoView'), 'FilterSheet should scroll a requested section into view');
+assert.ok(filterSheetSource.includes('section.focus'), 'FilterSheet should move focus to a requested section');
 const discoveryFeedSource = await readFile(new URL('../components/DiscoveryFeed.js', import.meta.url), 'utf8');
 assert.ok(!discoveryFeedSource.includes('onModeChange'));
 assert.ok(!discoveryFeedSource.includes('discovery.mode'));
 assert.ok(!discoveryFeedSource.includes('discovery.selectedVibes'));
+assert.ok(discoveryFeedSource.includes('filterSheetSection'), 'Discovery should keep section targeting separate from filter values');
+assert.ok(discoveryFeedSource.includes('initialSection={filterSheetSection}'));
+assert.ok(discoveryFeedSource.includes('onOpenFilters={openFilters}'));
+const discoveryRailSource = await readFile(new URL('../components/DiscoveryRail.js', import.meta.url), 'utf8');
+for (const section of ['vibes', 'year', 'majorArea', 'socialLevel', 'socialStyle']) {
+  assert.ok(discoveryRailSource.includes(`id: '${section}'`), `Discovery rail should use a stable ${section} target`);
+}
+assert.ok(discoveryRailSource.includes('onOpenFilters(section.id)'), 'Rail sections should request their own FilterSheet target');
 assert.deepEqual(seededShuffle([1, 2, 3, 4], 12), seededShuffle([1, 2, 3, 4], 12));
 const originalCrypto = globalThis.crypto;
 try {

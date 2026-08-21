@@ -20,8 +20,10 @@ export default function FilterSheet({
   values,
   onClose,
   onApply,
+  initialSection = null,
 }) {
   const [draft, setDraft] = useState(() => sanitizeFilters(values));
+  const [highlightedSection, setHighlightedSection] = useState('');
   const wasOpenRef = useRef(false);
   const closeButtonRef = useRef(null);
 
@@ -53,6 +55,25 @@ export default function FilterSheet({
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [open, onClose]);
+
+  useEffect(() => {
+    if (!open || !initialSection) return undefined;
+
+    let clearHighlightTimer;
+    const frame = window.requestAnimationFrame(() => {
+      const section = document.getElementById(`filter-section-${initialSection}`);
+      if (!section) return;
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      section.focus({ preventScroll: true });
+      setHighlightedSection(initialSection);
+      clearHighlightTimer = window.setTimeout(() => setHighlightedSection(''), 900);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (clearHighlightTimer) window.clearTimeout(clearHighlightTimer);
+    };
+  }, [open, initialSection]);
 
   const draftCount = useMemo(
     () => countAdvancedFilters(draft),
@@ -131,7 +152,7 @@ export default function FilterSheet({
         </div>
 
         <div className="sheet-scroll">
-          <fieldset className="filter-fieldset">
+          <fieldset id="filter-section-vibes" tabIndex="-1" className={`filter-fieldset${highlightedSection === 'vibes' ? ' is-targeted' : ''}`}>
             <legend>Vibes</legend>
             <div className="vibe-grid filter-vibe-grid">
               {VIBE_OPTIONS.map((vibe) => {
@@ -151,7 +172,7 @@ export default function FilterSheet({
             </div>
           </fieldset>
 
-          <fieldset className="filter-fieldset">
+          <fieldset id="filter-section-year" tabIndex="-1" className={`filter-fieldset${highlightedSection === 'year' ? ' is-targeted' : ''}`}>
             <legend>Year</legend>
             <div className="year-options">
               {options.years.map((option) => {
@@ -172,7 +193,7 @@ export default function FilterSheet({
             </div>
           </fieldset>
 
-          <fieldset className="filter-fieldset">
+          <fieldset id="filter-section-majorArea" tabIndex="-1" className={`filter-fieldset${highlightedSection === 'majorArea' ? ' is-targeted' : ''}`}>
             <legend>Major Area</legend>
             <div className="major-group-options">
               {options.majorGroups.map((option) => {
@@ -193,7 +214,7 @@ export default function FilterSheet({
             </div>
           </fieldset>
 
-          <fieldset className="filter-fieldset social-level-fieldset">
+          <fieldset id="filter-section-socialLevel" tabIndex="-1" className={`filter-fieldset social-level-fieldset${highlightedSection === 'socialLevel' ? ' is-targeted' : ''}`}>
             <legend>Social Level</legend>
             <div className="social-range-summary">
               <span>Low-key</span>
@@ -233,7 +254,7 @@ export default function FilterSheet({
             <p className="filter-help">Profiles without a rating remain included at 1–5 and are excluded when you narrow the range.</p>
           </fieldset>
 
-          <fieldset className="filter-fieldset">
+          <fieldset id="filter-section-socialStyle" tabIndex="-1" className={`filter-fieldset${highlightedSection === 'socialStyle' ? ' is-targeted' : ''}`}>
             <legend>Social Style</legend>
             <div className="social-style-options">
               {SOCIAL_STYLE_OPTIONS.map((style) => {

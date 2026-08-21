@@ -55,6 +55,7 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
   const [discovery, setDiscovery] = useState(INITIAL_STATE);
   const [searchOpen, setSearchOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filterSheetSection, setFilterSheetSection] = useState(null);
   const [seenIds, setSeenIds] = useState([]);
   const [savedIds, setSavedIds] = useState([]);
   const [encounteredIds, setEncounteredIds] = useState([]);
@@ -296,7 +297,10 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
   useEffect(() => {
     function handleEscape(event) {
       if (event.key !== 'Escape') return;
-      if (filtersOpen) setFiltersOpen(false);
+      if (filtersOpen) {
+        setFiltersOpen(false);
+        setFilterSheetSection(null);
+      }
       else if (searchOpen) setSearchOpen(false);
     }
 
@@ -335,6 +339,7 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
 
   const handleSearchOpen = useCallback(() => {
     setFiltersOpen(false);
+    setFilterSheetSection(null);
     setSearchOpen(true);
   }, []);
 
@@ -357,6 +362,18 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
   function handleApplyFilters(filters) {
     updateControls((current) => ({ ...current, filters: sanitizeFilters(filters) }));
     setFiltersOpen(false);
+    setFilterSheetSection(null);
+  }
+
+  function openFilters(section = null) {
+    setSearchOpen(false);
+    setFilterSheetSection(section);
+    setFiltersOpen(true);
+  }
+
+  function closeFilters() {
+    setFiltersOpen(false);
+    setFilterSheetSection(null);
   }
 
   function handleShuffle() {
@@ -423,10 +440,7 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
         resultCount={visibleProfiles.length}
         filters={discovery.filters}
         activeFilterCount={advancedFilterCount}
-        onOpenFilters={() => {
-          setSearchOpen(false);
-          setFiltersOpen(true);
-        }}
+        onOpenFilters={openFilters}
         onClearFilters={clearEverything}
         availableRoles={availableRoles}
       />
@@ -443,10 +457,7 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
         saved={discovery.saved}
         onSavedChange={handleSavedChange}
         onShuffle={handleShuffle}
-        onOpenFilters={() => {
-          setSearchOpen(false);
-          setFiltersOpen(true);
-        }}
+        onOpenFilters={openFilters}
         activeFilterCount={sheetFilterCount}
         resultCount={visibleProfiles.length}
         availableRoles={availableRoles}
@@ -499,8 +510,9 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
         open={filtersOpen}
         options={options}
         values={discovery.filters}
-        onClose={() => setFiltersOpen(false)}
+        onClose={closeFilters}
         onApply={handleApplyFilters}
+        initialSection={filterSheetSection}
       />
 
       {!restored && (

@@ -41,13 +41,13 @@ export default function DiscoveryRail({
   }, [searchOpen]);
 
   const filterSections = [
-    ['Vibes', filterSummary(filters, 'vibes', 'All vibes')],
-    ['Year', filterSummary(filters, 'years', 'All years')],
-    ['Major Area', filterSummary(filters, 'majorGroups', 'All areas')],
-    ['Social Level', filters?.socialLevelMin !== 1 || filters?.socialLevelMax !== 5
+    { id: 'vibes', label: 'Vibes', summary: filterSummary(filters, 'vibes', 'All vibes') },
+    { id: 'year', label: 'Year', summary: filterSummary(filters, 'years', 'All years') },
+    { id: 'majorArea', label: 'Major Area', summary: filterSummary(filters, 'majorGroups', 'All areas') },
+    { id: 'socialLevel', label: 'Social Level', summary: filters?.socialLevelMin !== 1 || filters?.socialLevelMax !== 5
       ? `${filters.socialLevelMin}–${filters.socialLevelMax}`
-      : 'Any level'],
-    ['Social Style', filterSummary(filters, 'socialStyles', 'All styles')],
+      : 'Any level' },
+    { id: 'socialStyle', label: 'Social Style', summary: filterSummary(filters, 'socialStyles', 'All styles') },
   ];
 
   return (
@@ -142,9 +142,9 @@ export default function DiscoveryRail({
           </div>
         </div>
         <div className="rail-filter-list">
-          {filterSections.map(([label, summary]) => (
-            <button key={label} type="button" onClick={onOpenFilters} aria-label={`Edit ${label} filters`}>
-              <span><strong>{label}</strong><small>{summary}</small></span>
+          {filterSections.map((section) => (
+            <button key={section.id} type="button" onClick={() => onOpenFilters(section.id)} aria-label={`Edit ${section.label} filters`}>
+              <span><strong>{section.label}</strong><small>{section.summary}</small></span>
               <ChevronRight size={15} aria-hidden="true" />
             </button>
           ))}

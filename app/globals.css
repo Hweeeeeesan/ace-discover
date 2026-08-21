@@ -425,6 +425,8 @@ select:focus-visible {
 .sheet-close-button { width: 38px; height: 38px; flex: 0 0 38px; border-radius: 13px; color: #333; background: #ece9e2; }
 .sheet-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 20px 16px; }
 .filter-fieldset { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.filter-fieldset.is-targeted { border-radius: 14px; outline: 2px solid rgba(31, 94, 82, .2); outline-offset: 8px; }
+.filter-fieldset:focus { outline: 2px solid rgba(31, 94, 82, .35); outline-offset: 8px; }
 .filter-fieldset + .filter-fieldset { margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e1d9; }
 .filter-fieldset legend { display: block; margin: 0 0 10px; padding: 0; color: #3d3a35; font-size: 11px; line-height: 1.2; font-weight: 850; letter-spacing: .1em; text-transform: uppercase; }
 .year-options { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
