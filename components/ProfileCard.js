@@ -30,6 +30,9 @@ export default function ProfileCard({
         candidates={profile.imageCandidates}
         alt={profile.name}
         eager={active || index < 2}
+        focalX={profile.focalX}
+        focalY={profile.focalY}
+        displayMode={profile.displayMode}
       />
       <div className="image-overlay" />
 

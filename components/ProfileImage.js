@@ -10,6 +10,9 @@ export default function ProfileImage({
   alt,
   className,
   eager = false,
+  focalX = 50,
+  focalY = 35,
+  displayMode = 'cover',
 }) {
   const sources = useMemo(
     () => Array.from(new Set([src, ...candidates, FALLBACK_IMAGE].filter(Boolean))),
@@ -32,6 +35,7 @@ export default function ProfileImage({
   return (
     <img
       className={className}
+      style={{ objectFit: displayMode === 'portrait' ? 'contain' : 'cover', objectPosition: `${focalX}% ${focalY}%` }}
       src={imageSrc}
       alt={alt}
       loading={eager ? 'eager' : 'lazy'}

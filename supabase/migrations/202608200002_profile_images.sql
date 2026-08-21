@@ -23,6 +23,9 @@ create table if not exists public.profile_images (
   storage_path text not null,
   position integer not null check (position >= 0),
   is_primary boolean not null default false,
+  focal_x numeric(5, 2) check (focal_x between 0 and 100),
+  focal_y numeric(5, 2) check (focal_y between 0 and 100),
+  display_mode text not null default 'cover' check (display_mode in ('cover', 'portrait')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint profile_images_dataset_profile_fk
@@ -197,9 +200,24 @@ as $$
           when coalesce(primary_image.storage_path, dp.storage_image_path) is null
             then dp.public_data - 'instagram'
           else jsonb_set(
-            dp.public_data - 'instagram',
-            '{storageImagePath}',
-            to_jsonb(coalesce(primary_image.storage_path, dp.storage_image_path)),
+            jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  dp.public_data - 'instagram',
+                  '{storageImagePath}',
+                  to_jsonb(coalesce(primary_image.storage_path, dp.storage_image_path)),
+                  true
+                ),
+                '{focalX}',
+                to_jsonb(coalesce(primary_image.focal_x, 50)),
+                true
+              ),
+              '{focalY}',
+              to_jsonb(coalesce(primary_image.focal_y, 35)),
+              true
+            ),
+            '{displayMode}',
+            to_jsonb(coalesce(primary_image.display_mode, 'cover')),
             true
           )
         end
@@ -207,7 +225,7 @@ as $$
       )
       from public.dataset_profiles dp
       left join lateral (
-        select pi.storage_path
+        select pi.storage_path, pi.focal_x, pi.focal_y, pi.display_mode
         from public.profile_images pi
         where pi.dataset_id = dp.dataset_id
           and pi.profile_id = dp.profile_id
@@ -280,7 +298,10 @@ as $$
             'id', pi.id,
             'storageImagePath', pi.storage_path,
             'position', pi.position,
-            'isPrimary', pi.is_primary
+            'isPrimary', pi.is_primary,
+            'focalX', pi.focal_x,
+            'focalY', pi.focal_y,
+            'displayMode', pi.display_mode
           )
           order by pi.position, pi.id
         )

@@ -172,6 +172,19 @@ Future additional images use stable UUID filenames such as
 `spring-2026/aiden-wang/4f5d1d8a-8a6f-4d44-9aac-2a7358db7f92.jpg`, so reordering
 metadata never requires moving a Storage object.
 
+Each relational image may also carry nullable `focal_x` and `focal_y` values
+from 0 to 100. Missing or invalid values render with a portrait-friendly
+default of 50/35. The bulk
+discovery RPC projects the primary image's values as compatibility `focalX`
+and `focalY` fields; detail payloads keep them on each `profileImages` item.
+The same image rows support `display_mode` (`cover` or `portrait`), which the
+Admin preview can update for each managed image.
+
+Then apply `supabase/migrations/202608210001_profile_image_admin_management.sql`.
+It adds service-role-only transactional functions for Admin image creation,
+primary selection, ordering, and deletion. The Admin profile preview uses these
+functions for image management; no browser receives service-role credentials.
+
 ### 2. Dry-run one dataset
 
 Dry-run is the default and does not upload or update profile data:

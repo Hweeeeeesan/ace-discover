@@ -2,6 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import sharp from 'sharp';
 import {
   DriveAuthConfigurationError,
   getDriveAuth,
@@ -44,7 +45,7 @@ credentialKeys.forEach((key) => {
   else process.env[key] = savedEnvironment[key];
 });
 
-const jpegBytes = Buffer.from([0xff, 0xd8, 0xff, 0xdb]);
+const jpegBytes = await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 80, g: 120, b: 160 } } }).jpeg().toBuffer();
 const imageResponse = () => new Response(jpegBytes, { headers: { 'Content-Type': 'image/jpeg' } });
 const authenticated = { accessToken: 'mock-access-token', apiKey: null, authenticated: true, mode: 'service-account' };
 const publicOnly = { accessToken: null, apiKey: null, authenticated: false, mode: 'public-only' };
