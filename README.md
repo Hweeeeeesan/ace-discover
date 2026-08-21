@@ -161,6 +161,17 @@ updates only the `profile-images` bucket, allows public reads for that bucket,
 adds no anonymous write policy, and adds the narrow service-role RPC used to
 attach a canonical path. The migration does not ingest any images.
 
+Then apply `supabase/migrations/202608200002_profile_images.sql`. It adds the
+ordered `profile_images` metadata table and backfills one primary row for each
+existing `storageImagePath` without uploading, moving, or deleting any Storage
+object. The compatibility field remains available while relational primary
+rows become authoritative for public reads.
+
+Existing objects keep paths such as `spring-2026/aiden-wang/primary.jpg`.
+Future additional images use stable UUID filenames such as
+`spring-2026/aiden-wang/4f5d1d8a-8a6f-4d44-9aac-2a7358db7f92.jpg`, so reordering
+metadata never requires moving a Storage object.
+
 ### 2. Dry-run one dataset
 
 Dry-run is the default and does not upload or update profile data:

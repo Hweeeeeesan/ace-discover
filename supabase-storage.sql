@@ -1,7 +1,8 @@
 -- ACE Discover Storage setup now lives in the versioned migration:
 -- supabase/migrations/202608200001_profile_image_storage.sql
+-- supabase/migrations/202608200002_profile_images.sql
 --
--- Apply that complete migration instead of running a partial bucket-only setup.
--- It configures the profile-images bucket, its scoped public-read policy, the
--- canonical dataset_profiles.storage_image_path field, and the narrow
--- service-role RPC used by the rerunnable migration tool.
+-- Apply both complete migrations in order instead of a partial bucket-only setup.
+-- The first migration configures the bucket and compatibility field. The
+-- second adds ordered relational image metadata and backfills existing primary
+-- paths without moving or uploading Storage objects.

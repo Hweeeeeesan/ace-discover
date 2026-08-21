@@ -3,7 +3,8 @@
 -- supabase/migrations/202608150002_ace_discover_v4_hardening.sql
 -- supabase/migrations/202608160001_ace_discover_v4_service_role_grants.sql
 -- supabase/migrations/202608200001_profile_image_storage.sql
+-- supabase/migrations/202608200002_profile_images.sql
 --
--- Run that complete migration in the Supabase SQL editor or with the Supabase
--- CLI. This compatibility pointer intentionally contains no partial/legacy
+-- Run those complete migrations in order in the Supabase SQL editor or with
+-- the Supabase CLI. This compatibility pointer intentionally contains no partial/legacy
 -- profile table, which could otherwise be mistaken for the v4 dataset model.

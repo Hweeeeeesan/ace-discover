@@ -12,7 +12,10 @@ import {
 import { migrateDatasetProfiles } from '../lib/profile-image-migration.js';
 import {
   PROFILE_IMAGE_PLACEHOLDER,
+  buildProfileImageStoragePath,
   buildPrimaryStoragePath,
+  getPrimaryProfileImage,
+  getProfileImages,
   isValidStorageImagePath,
   resolveProfileImageSources,
 } from '../lib/profile-images.js';
@@ -36,6 +39,21 @@ for (const malformed of [
 ]) assert.equal(isValidStorageImagePath(malformed), false, `malformed path should be rejected: ${malformed}`);
 assert.equal(isValidStorageImagePath(springPath), true);
 
+const imageId = '4f5d1d8a-8a6f-4d44-9aac-2a7358db7f92';
+const futurePath = buildProfileImageStoragePath('spring-2026', 'same-person', imageId, 'image/png');
+assert.equal(futurePath, `spring-2026/same-person/${imageId}.png`);
+assert.equal(isValidStorageImagePath(futurePath), true);
+assert.notEqual(
+  futurePath,
+  buildProfileImageStoragePath('fall-2025', 'same-person', imageId, 'image/png'),
+  'future image paths must remain isolated by dataset',
+);
+assert.throws(
+  () => buildProfileImageStoragePath('spring-2026', 'person@example.com', imageId, 'image/png'),
+  /Invalid profile ID/,
+  'raw emails must not be accepted as profile path segments',
+);
+
 const driveImage = '/api/drive-image?fileId=1234567890ABCDE';
 const storageFirst = resolveProfileImageSources({
   storageImagePath: springPath,
@@ -55,6 +73,27 @@ const malformedStorage = resolveProfileImageSources({ storageImagePath: '../bad'
 assert.equal(malformedStorage.src, driveImage, 'malformed Storage paths must fall back to Drive');
 const placeholderOnly = resolveProfileImageSources({}, supabaseOptions);
 assert.equal(placeholderOnly.src, PROFILE_IMAGE_PLACEHOLDER);
+
+const relationalProfile = {
+  storageImagePath: 'spring-2026/same-person/primary.webp',
+  profileImages: [
+    { id: 'second', storageImagePath: `spring-2026/same-person/${imageId}.png`, position: 1, isPrimary: true },
+    { id: 'first', storageImagePath: 'spring-2026/same-person/primary.webp', position: 0, isPrimary: false },
+  ],
+  image: driveImage,
+};
+assert.deepEqual(getProfileImages(relationalProfile).map((image) => image.id), ['first', 'second']);
+assert.equal(getPrimaryProfileImage(relationalProfile).id, 'second');
+assert.equal(
+  resolveProfileImageSources(relationalProfile, supabaseOptions).src,
+  `https://ace-discover.supabase.co/storage/v1/object/public/profile-images/spring-2026/same-person/${imageId}.png`,
+  'the relational primary image must be authoritative when present',
+);
+assert.equal(
+  getPrimaryProfileImage({ storageImagePath: springPath }).storageImagePath,
+  springPath,
+  'legacy storageImagePath-only profiles must remain supported',
+);
 
 const mixedProfiles = [
   { id: 'stored', storageImagePath: 'spring-2026/stored/primary.jpg', image: driveImage },
@@ -186,6 +225,19 @@ assert.match(migrationSql, /for select[\s\S]*to anon, authenticated/);
 assert.doesNotMatch(migrationSql, /for (?:insert|update|delete)[\s\S]*to anon, authenticated/i);
 assert.match(migrationSql, /grant execute on function public\.set_profile_storage_image_path\(uuid, text, text\) to service_role/);
 
+const multiImageMigrationSql = await readFile(new URL('../supabase/migrations/202608200002_profile_images.sql', import.meta.url), 'utf8');
+assert.match(multiImageMigrationSql, /create table if not exists public\.profile_images/);
+assert.match(multiImageMigrationSql, /foreign key \(dataset_id, profile_id\)[\s\S]*references public\.dataset_profiles\(dataset_id, profile_id\)[\s\S]*on delete cascade/);
+assert.match(multiImageMigrationSql, /unique \(dataset_id, profile_id, position\)/);
+assert.match(multiImageMigrationSql, /profile_images_one_primary_idx[\s\S]*where is_primary/);
+assert.match(multiImageMigrationSql, /A profile with images must have exactly one primary image/);
+assert.match(multiImageMigrationSql, /A profile image cannot be moved to another dataset profile/);
+assert.match(multiImageMigrationSql, /from public\.dataset_profiles[\s\S]*where storage_image_path is not null[\s\S]*not exists[\s\S]*on conflict \(dataset_id, profile_id, storage_path\) do nothing/);
+assert.match(multiImageMigrationSql, /jsonb_agg\([\s\S]*order by pi\.position, pi\.id/);
+assert.match(multiImageMigrationSql, /revoke all on table public\.profile_images from anon, authenticated/);
+assert.doesNotMatch(multiImageMigrationSql, /grant (?:insert|update|delete) on table public\.profile_images to (?:anon|authenticated)/i);
+assert.match(multiImageMigrationSql, /grant select, insert, update, delete on table public\.profile_images to service_role/);
+
 const browserGraphSources = await Promise.all([
   '../components/ProfileImage.js',
   '../components/ProfileCard.js',
@@ -196,10 +248,16 @@ const browserGraphSources = await Promise.all([
 for (const source of browserGraphSources) {
   assert.doesNotMatch(source, /SUPABASE_SERVICE_ROLE_KEY/, 'browser-reachable code must not reference the service key');
 }
+const profileCardSource = browserGraphSources[1];
+assert.equal((profileCardSource.match(/<ProfileImage/g) || []).length, 1, 'discovery cards must continue rendering exactly one primary image');
 const imageServerSource = await readFile(new URL('../lib/profile-images-server.js', import.meta.url), 'utf8');
 assert.match(imageServerSource, /import 'server-only'/);
 assert.doesNotMatch(imageServerSource, /SUPABASE_SERVICE_ROLE_KEY/);
 const adminDatasetSource = await readFile(new URL('../lib/datasets/admin.js', import.meta.url), 'utf8');
-assert.match(adminDatasetSource, /resolveProfileImage\(row\.public_data\)/, 'READY/Admin detail preview must use shared image resolution');
+assert.match(adminDatasetSource, /from\('profile_images'\)/, 'READY/Admin detail preview must load relational image metadata');
+assert.match(adminDatasetSource, /resolveProfileImage\(\{ \.\.\.row\.public_data, profileImages \}\)/, 'READY/Admin detail preview must use shared image resolution');
+const migrationToolSource = await readFile(new URL('../scripts/migrate-drive-images-to-supabase.mjs', import.meta.url), 'utf8');
+assert.match(migrationToolSource, /pathExists\(storagePath\)[\s\S]*listImagePaths/, 'canonical-path reruns must recognize UUID-named image objects');
+assert.match(migrationToolSource, /findExistingPath\(profile\)[\s\S]*listPrimaryPaths/, 'legacy recovery must remain limited to unambiguous primary objects');
 
 console.log('Profile image Storage paths, resolution, ingestion, migration, security, and preview tests passed.');

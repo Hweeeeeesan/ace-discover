@@ -163,19 +163,24 @@ function storageInspector(supabase, bucket, datasetSlug) {
     return Boolean(detectImageContentType(bytes));
   }
 
-  async function listPrimaryPaths(profileId) {
+  async function listImagePaths(profileId) {
     const directory = `${datasetSlug}/${profileId}`;
-    const { data, error } = await storage.list(directory, { limit: 20, search: 'primary.' });
+    const { data, error } = await storage.list(directory, { limit: 100 });
     if (error) throw new Error(`Storage inspection failed for ${directory}: ${error.message}`);
     return (data || [])
       .map((object) => `${directory}/${object.name}`)
       .filter(isValidStorageImagePath);
   }
 
+  async function listPrimaryPaths(profileId) {
+    return (await listImagePaths(profileId))
+      .filter((storagePath) => /\/primary\.(?:avif|gif|jpg|png|webp)$/.test(storagePath));
+  }
+
   return {
     async pathExists(storagePath) {
       const parts = storagePath.split('/');
-      const paths = await listPrimaryPaths(parts[1]);
+      const paths = await listImagePaths(parts[1]);
       return paths.includes(storagePath) && validateStoredObject(storagePath);
     },
     async findExistingPath(profile) {
