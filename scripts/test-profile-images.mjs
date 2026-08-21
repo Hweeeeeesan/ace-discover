@@ -330,6 +330,9 @@ assert.equal((profileCardSource.match(/<ProfileImage/g) || []).length, 1, 'disco
 const imageServerSource = await readFile(new URL('../lib/profile-images-server.js', import.meta.url), 'utf8');
 assert.match(imageServerSource, /import 'server-only'/);
 assert.doesNotMatch(imageServerSource, /SUPABASE_SERVICE_ROLE_KEY/);
+const homepageSource = await readFile(new URL('../app/page.js', import.meta.url), 'utf8');
+assert.match(homepageSource, /export const dynamic = ['"]force-dynamic['"]/,
+  'homepage must read current public image metadata instead of a static dataset snapshot');
 const adminDatasetSource = await readFile(new URL('../lib/datasets/admin.js', import.meta.url), 'utf8');
 assert.match(adminDatasetSource, /from\('profile_images'\)/, 'READY/Admin detail preview must load relational image metadata');
 assert.match(adminDatasetSource, /focalX: image\.focal_x[\s\S]*focalY: image\.focal_y/);
