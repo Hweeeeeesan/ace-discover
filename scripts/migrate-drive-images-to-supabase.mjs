@@ -8,9 +8,9 @@ import { getDriveAuth } from '../lib/google-drive-server.js';
 import {
   MAX_PROFILE_IMAGE_BYTES,
   detectImageContentType,
-  ingestProfileImage,
+  ingestProfileImages,
 } from '../lib/profile-image-ingestion.js';
-import { migrateDatasetProfiles } from '../lib/profile-image-migration.js';
+import { migrateDatasetProfileGalleries } from '../lib/profile-image-migration.js';
 import {
   DEFAULT_PROFILE_IMAGE_BUCKET,
   isValidStorageImagePath,
@@ -43,6 +43,7 @@ export function parseArguments(argv) {
     explicitDryRun: false,
     limit: Infinity,
     profileId: '',
+    replaceExisting: false,
     report: '',
   };
 
@@ -53,6 +54,7 @@ export function parseArguments(argv) {
     else if (argument === '--apply') options.apply = true;
     else if (argument === '--dry-run') options.explicitDryRun = true;
     else if (argument === '--profile' && value) options.profileId = value, index += 1;
+    else if (argument === '--replace-existing') options.replaceExisting = true;
     else if (argument === '--limit' && value) options.limit = Number(value), index += 1;
     else if (argument === '--report' && value) options.report = value, index += 1;
     else if (argument === '--help' || argument === '-h') options.help = true;
@@ -60,6 +62,9 @@ export function parseArguments(argv) {
   }
 
   if (options.apply && options.explicitDryRun) throw new Error('Choose either --apply or --dry-run, not both.');
+  if (options.replaceExisting && !options.profileId) {
+    throw new Error('--replace-existing requires an explicit --profile PROFILE_ID selection.');
+  }
   if (options.datasetSlug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(options.datasetSlug)) {
     throw new Error('Dataset slug must contain lowercase letters, numbers, and single hyphens only.');
   }
@@ -79,8 +84,9 @@ Usage:
 
 Options:
   --dry-run              Default. Validate sources without uploading or changing profile data.
-  --apply                Upload missing images and attach canonical storageImagePath values.
+  --apply                Upload a missing Drive gallery and create ordered profile_images rows.
   --profile PROFILE_ID   Inspect or migrate one profile in the dataset.
+  --replace-existing     Explicitly replace that profile's relational gallery.
   --limit NUMBER         Process at most NUMBER selected profiles.
   --report PATH          CSV report path (default includes the dataset slug).
 
@@ -90,7 +96,9 @@ Required in .env.local:
   SUPABASE_STORAGE_BUCKET=profile-images
 
 The command never activates or archives datasets. Direct arbitrary URLs are
-reported but never fetched. Apply the checked-in Supabase migration first.`);
+reported but never fetched. Replacement requires --profile and swaps metadata
+transactionally only after all supported Drive images validate and upload.
+Apply the checked-in Supabase migrations first.`);
 }
 
 function csvCell(value) {
@@ -99,7 +107,12 @@ function csvCell(value) {
 }
 
 function writeReport(filePath, rows) {
-  const headers = ['profile_id', 'name', 'status', 'category', 'storage_path', 'detail'];
+  const headers = [
+    'profile_id', 'name', 'status', 'category', 'drive_source',
+    'files_discovered', 'supported_images', 'uploaded', 'skipped_existing',
+    'rejected', 'diagnostics', 'image_dimensions', 'metadata_strategy',
+    'primary_storage_path', 'detail',
+  ];
   const lines = [headers.join(',')];
   for (const row of rows) {
     const values = {
@@ -107,7 +120,16 @@ function writeReport(filePath, rows) {
       name: row.name,
       status: row.status,
       category: row.category,
-      storage_path: row.storagePath,
+      drive_source: row.sourceKind,
+      files_discovered: row.filesDiscovered,
+      supported_images: row.supportedImages,
+      uploaded: row.uploaded,
+      skipped_existing: row.skippedExisting,
+      rejected: JSON.stringify(row.rejected || []),
+      diagnostics: JSON.stringify(row.diagnostics || []),
+      image_dimensions: JSON.stringify(row.imageDimensions || []),
+      metadata_strategy: row.metadataStrategy || '',
+      primary_storage_path: row.primaryStoragePath,
       detail: row.detail,
     };
     lines.push(headers.map((header) => csvCell(values[header])).join(','));
@@ -118,7 +140,7 @@ function writeReport(filePath, rows) {
   return absolutePath;
 }
 
-function profileFromRow(row) {
+function profileFromRow(row, profileImages = []) {
   return {
     ...(row.public_data || {}),
     id: row.profile_id,
@@ -126,6 +148,7 @@ function profileFromRow(row) {
     driveFolderId: row.drive_folder_id || '',
     imageKind: row.image_kind || row.public_data?.imageKind || '',
     storageImagePath: row.storage_image_path || row.public_data?.storageImagePath || '',
+    profileImages,
   };
 }
 
@@ -149,7 +172,32 @@ async function loadDataset(supabase, datasetSlug) {
   if ((rows || []).length !== dataset.profile_count) {
     throw new Error(`Dataset integrity check failed: expected ${dataset.profile_count} profiles, received ${(rows || []).length}.`);
   }
-  return { dataset, profiles: (rows || []).map(profileFromRow) };
+  const { data: imageRows, error: imagesError } = await supabase
+    .from('profile_images')
+    .select('id,profile_id,storage_path,position,is_primary,focal_x,focal_y,display_mode')
+    .eq('dataset_id', dataset.id)
+    .order('position', { ascending: true });
+  if (imagesError) {
+    throw new Error(`Relational profile images could not be read. Apply the profile_images migrations first. ${imagesError.message}`);
+  }
+  const imagesByProfile = new Map();
+  for (const image of imageRows || []) {
+    const images = imagesByProfile.get(image.profile_id) || [];
+    images.push({
+      id: image.id,
+      storagePath: image.storage_path,
+      position: image.position,
+      isPrimary: image.is_primary,
+      focalX: image.focal_x,
+      focalY: image.focal_y,
+      displayMode: image.display_mode,
+    });
+    imagesByProfile.set(image.profile_id, images);
+  }
+  return {
+    dataset,
+    profiles: (rows || []).map((row) => profileFromRow(row, imagesByProfile.get(row.profile_id) || [])),
+  };
 }
 
 function storageInspector(supabase, bucket, datasetSlug) {
@@ -200,6 +248,10 @@ function storageInspector(supabase, bucket, datasetSlug) {
       if (await this.pathExists(storagePath)) return;
       throw new Error(`Supabase Storage upload failed: ${error.message}`);
     },
+    async remove(storagePath) {
+      const { error } = await storage.remove([storagePath]);
+      if (error) throw new Error(`Supabase Storage cleanup failed: ${error.message}`);
+    },
   };
 }
 
@@ -225,33 +277,104 @@ async function main() {
 
   const inspector = storageInspector(supabase, bucket, dataset.slug);
   const driveAuth = await getDriveAuth({ strict: true });
-  console.log(`${options.dryRun ? 'DRY RUN' : 'APPLY'}: ${dataset.name} (${dataset.slug}, ${dataset.status})`);
+  console.log(`${options.dryRun ? 'DRY RUN' : 'APPLY'}${options.replaceExisting ? ' TARGETED REPLACEMENT' : ''}: ${dataset.name} (${dataset.slug}, ${dataset.status})`);
   console.log(`Selected ${profiles.length} of ${allProfiles.length} profiles. Drive mode: ${driveAuth.mode}.`);
 
-  const result = await migrateDatasetProfiles({
+  const result = await migrateDatasetProfileGalleries({
     dataset,
     profiles,
     dryRun: options.dryRun,
-    storagePathExists: inspector.pathExists,
-    findExistingPath: inspector.findExistingPath,
-    ingest: (profile) => ingestProfileImage({
+    replaceExisting: options.replaceExisting,
+    ingestGallery: (profile) => ingestProfileImages({
       profile,
       datasetSlug: dataset.slug,
       driveAuth,
       dryRun: options.dryRun,
+      requireAllSupported: options.replaceExisting,
       upload: inspector.upload.bind(inspector),
     }),
-    persistPath: async (profile, storagePath) => {
-      const { data, error } = await supabase.rpc('set_profile_storage_image_path', {
+    createImage: async ({ profile, image, makePrimary }) => {
+      const { data, error } = await supabase.rpc('create_profile_image_metadata', {
         requested_dataset_id: dataset.id,
         requested_profile_id: profile.id,
-        requested_storage_path: storagePath,
+        requested_image_id: image.imageId,
+        requested_storage_path: image.storagePath,
+        requested_make_primary: makePrimary,
       });
-      if (error) throw new Error(`The Storage upload succeeded but its canonical path could not be saved: ${error.message}`);
-      if (data?.storageImagePath !== storagePath) throw new Error('The canonical Storage path RPC did not confirm the requested path.');
+      if (!error && data?.storagePath === image.storagePath) return data;
+      const { data: confirmed } = await supabase
+        .from('profile_images')
+        .select('id,storage_path,position,is_primary')
+        .eq('id', image.imageId)
+        .eq('dataset_id', dataset.id)
+        .eq('profile_id', profile.id)
+        .maybeSingle();
+      if (confirmed?.storage_path === image.storagePath) {
+        return {
+          id: confirmed.id,
+          storagePath: confirmed.storage_path,
+          position: confirmed.position,
+          isPrimary: confirmed.is_primary,
+        };
+      }
+      throw new Error(`Profile image metadata insert failed: ${error?.message || 'the RPC did not confirm the requested path'}`);
     },
+    replaceGallery: async ({ profile, plan }) => {
+      const { data, error } = await supabase.rpc('replace_profile_image_gallery', {
+        requested_dataset_id: dataset.id,
+        requested_profile_id: profile.id,
+        expected_existing_image_ids: plan.expectedExistingImageIds,
+        replacement_images: plan.replacementRows,
+      });
+      if (!error && Number(data?.replacementCount || 0) === plan.replacementRows.length) {
+        return data;
+      }
+
+      const confirmation = await supabase
+        .from('profile_images')
+        .select('id,storage_path,position,is_primary')
+        .eq('dataset_id', dataset.id)
+        .eq('profile_id', profile.id)
+        .order('position', { ascending: true });
+      if (confirmation.error) {
+        const uncertain = new Error(
+          `The replacement result could not be confirmed after an RPC problem: ${error?.message || 'unexpected response'}`,
+        );
+        uncertain.preserveStagedObjects = true;
+        throw uncertain;
+      }
+      const confirmedRows = confirmation.data || [];
+      const replacementConfirmed = confirmedRows.length === plan.replacementRows.length
+        && confirmedRows.every((row, index) => {
+          const expected = plan.replacementRows[index];
+          return row.id === expected.imageId
+            && row.storage_path === expected.storagePath
+            && row.position === expected.position
+            && row.is_primary === expected.isPrimary;
+        });
+      if (replacementConfirmed) {
+        return { replacementCount: confirmedRows.length, confirmedAfterRpcProblem: true };
+      }
+      throw new Error(`Transactional profile gallery replacement failed: ${error?.message || 'the RPC did not confirm the requested gallery'}`);
+    },
+    removeStorage: inspector.remove.bind(inspector),
     onRow(row) {
-      console.log(`${row.profileId}: ${row.status}${row.category ? ` (${row.category})` : ''}`);
+      console.log(
+        `${row.profileId}: ${row.status}${row.category ? ` (${row.category})` : ''}; `
+        + `source=${row.sourceKind || 'none'} discovered=${row.filesDiscovered} `
+        + `supported=${row.supportedImages} uploaded=${row.uploaded} `
+        + `existing=${row.skippedExisting} rejected=${row.rejected.length} `
+        + `diagnostics=${row.diagnostics.length}`,
+      );
+      for (const image of row.imageDimensions || []) {
+        console.log(
+          `  ${image.name || image.driveFileId || 'image'}: ${image.width}x${image.height}; `
+          + `${image.byteLength} bytes; source=${image.downloadSource}`,
+        );
+      }
+      for (const diagnostic of row.diagnostics || []) {
+        console.log(`  diagnostic=${diagnostic.category}: ${diagnostic.detail}`);
+      }
     },
   });
   result.summary.totalProfiles = allProfiles.length;

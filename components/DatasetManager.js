@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Archive, CheckCircle2, Database, RotateCcw, Upload } from 'lucide-react';
+import { Archive, CheckCircle2, Database, Plus, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 
@@ -13,6 +13,13 @@ async function postJson(url, body) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || 'The request failed.');
+  return payload;
+}
+
+async function deleteJson(url) {
+  const response = await fetch(url, { method: 'DELETE' });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || 'The semester could not be removed.');
   return payload;
 }
 
@@ -95,6 +102,8 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
   const [pendingAction, setPendingAction] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [removeTarget, setRemoveTarget] = useState(null);
+  const [removeConfirmation, setRemoveConfirmation] = useState('');
   const active = datasets.find((dataset) => dataset.status === 'active');
   const selected = datasets.find((dataset) => dataset.id === selectedDatasetId) || active || datasets[0];
   const defaultYear = new Date().getFullYear();
@@ -148,6 +157,42 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
     }
   }
 
+  function openRemoveDialog(dataset) {
+    if (dataset.status === 'active') {
+      setError('You cannot remove the active semester. Activate another semester first.');
+      return;
+    }
+    setError('');
+    setMessage('');
+    setRemoveConfirmation('');
+    setRemoveTarget(dataset);
+  }
+
+  function closeRemoveDialog() {
+    if (pendingAction === `remove-${removeTarget?.id}`) return;
+    setRemoveTarget(null);
+    setRemoveConfirmation('');
+  }
+
+  async function removeSemester() {
+    if (!removeTarget || removeConfirmation !== removeTarget.name) return;
+    setPendingAction(`remove-${removeTarget.id}`);
+    setError('');
+    try {
+      const result = await deleteJson(`/api/admin/datasets/${encodeURIComponent(removeTarget.id)}`);
+      const deleted = result.dataset || {};
+      setMessage(`${removeTarget.name} was removed with ${deleted.profilesDeleted || 0} profiles, ${deleted.imageRowsDeleted || 0} image records, and ${deleted.storageObjectsDeleted || 0} Storage objects.`);
+      setRemoveTarget(null);
+      setRemoveConfirmation('');
+      router.replace('/admin');
+      router.refresh();
+    } catch (actionError) {
+      setError(actionError.message);
+    } finally {
+      setPendingAction('');
+    }
+  }
+
   return (
     <section className="dataset-manager admin-section" aria-labelledby="dataset-manager-title">
       <div className="admin-section-title"><span>Semester publishing</span><h2 id="dataset-manager-title">Dataset Manager</h2></div>
@@ -159,20 +204,31 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
       <div className="dataset-list">
         {datasets.map((dataset) => (
           <article className={dataset.id === selected?.id ? 'is-selected' : ''} key={dataset.id}>
-            <div><strong>{dataset.name}</strong><span>{dataset.profileCount} profiles · imported {dataset.importedAt ? new Date(dataset.importedAt).toLocaleDateString() : '—'}</span></div>
+            <div><strong>{dataset.name}</strong><span>{dataset.slug} · {dataset.profileCount} profiles · imported {dataset.importedAt ? new Date(dataset.importedAt).toLocaleDateString() : '—'}</span></div>
             <b className={`dataset-status status-${dataset.status}`}>{dataset.status}</b>
             <div className="dataset-actions">
               <Link href={`/admin?dataset=${encodeURIComponent(dataset.id)}`}>Health</Link>
               <Link href={`/admin/preview/${encodeURIComponent(dataset.id)}`}>Profiles</Link>
-              {dataset.status !== 'active' && <button type="button" onClick={() => activate(dataset)} disabled={Boolean(pendingAction)}>Make Active</button>}
-              {dataset.status === 'ready' && <button type="button" onClick={() => setStatus(dataset, 'archived')} disabled={Boolean(pendingAction)}><Archive size={14} /> Archive</button>}
-              {dataset.status === 'archived' && <button type="button" onClick={() => setStatus(dataset, 'ready')} disabled={Boolean(pendingAction)}><RotateCcw size={14} /> Restore</button>}
+              {dataset.status !== 'active' && <button type="button" onClick={() => activate(dataset)} disabled={Boolean(pendingAction) || dataset.deletionPending}>Make Active</button>}
+              {dataset.status === 'ready' && <button type="button" onClick={() => setStatus(dataset, 'archived')} disabled={Boolean(pendingAction) || dataset.deletionPending}><Archive size={14} /> Archive</button>}
+              {dataset.status === 'archived' && <button type="button" onClick={() => setStatus(dataset, 'ready')} disabled={Boolean(pendingAction) || dataset.deletionPending}><RotateCcw size={14} /> Restore</button>}
+              <button
+                type="button"
+                className="dataset-remove-action"
+                onClick={() => openRemoveDialog(dataset)}
+                disabled={Boolean(pendingAction) || dataset.status === 'active'}
+                aria-describedby={dataset.status === 'active' ? `active-remove-note-${dataset.id}` : undefined}
+                title={dataset.status === 'active' ? 'Activate another semester before removing this one.' : 'Permanently remove this semester'}
+              >
+                <Trash2 size={14} /> {dataset.status === 'active' ? 'Active — cannot remove' : dataset.deletionPending ? 'Finish Removal' : 'Remove Semester'}
+              </button>
+              {dataset.status === 'active' && <span className="sr-only" id={`active-remove-note-${dataset.id}`}>You cannot remove the active semester. Activate another semester first.</span>}
             </div>
           </article>
         ))}
         {!datasets.length && <p className="dataset-empty">Run the migration and seed Fall 2025, then refresh this page.</p>}
       </div>
-      <button className="dataset-import-toggle" type="button" onClick={() => setShowImport((value) => !value)}><Upload size={17} /> Import Semester</button>
+      <button className="dataset-import-toggle" type="button" onClick={() => setShowImport((value) => !value)} aria-expanded={showImport}><Plus size={17} /> {showImport ? 'Close Add Semester' : 'Add Semester'}</button>
       {showImport && (
         <form className="dataset-import-form" onSubmit={analyze}>
           <label>Semester name<input name="name" defaultValue={suggestedName} maxLength="100" required /></label>
@@ -186,6 +242,21 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
       {error && <p className="admin-form-error" role="alert">{error}</p>}
       {message && <p className="admin-form-success" role="status"><CheckCircle2 size={16} /> {message}</p>}
       {preview && <ImportPreview preview={preview} onSaved={(dataset) => { setPreview(null); setShowImport(false); setMessage(`${dataset.name} was saved as READY and is not live.`); router.refresh(); }} />}
+      {removeTarget && (
+        <div className="dataset-remove-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeRemoveDialog(); }} onKeyDown={(event) => { if (event.key === 'Escape') closeRemoveDialog(); }}>
+          <section className="dataset-remove-dialog" role="dialog" aria-modal="true" aria-labelledby="dataset-remove-title" aria-describedby="dataset-remove-description">
+            <span>Permanent action</span>
+            <h3 id="dataset-remove-title">Remove {removeTarget.name}?</h3>
+            <p id="dataset-remove-description">This permanently removes {removeTarget.name}, its imported profiles, image metadata, and Storage images. This cannot be undone.</p>
+            <label>Type <strong>{removeTarget.name}</strong> to confirm<input autoFocus value={removeConfirmation} onChange={(event) => setRemoveConfirmation(event.target.value)} disabled={pendingAction === `remove-${removeTarget.id}`} /></label>
+            {error && <p className="dataset-remove-error" role="alert">{error}</p>}
+            <div>
+              <button type="button" onClick={closeRemoveDialog} disabled={pendingAction === `remove-${removeTarget.id}`}>Cancel</button>
+              <button className="dataset-confirm-remove" type="button" onClick={removeSemester} disabled={removeConfirmation !== removeTarget.name || pendingAction === `remove-${removeTarget.id}`}><Trash2 size={15} /> {pendingAction === `remove-${removeTarget.id}` ? 'Removing…' : `Remove ${removeTarget.name}`}</button>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }

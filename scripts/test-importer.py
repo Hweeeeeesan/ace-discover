@@ -22,6 +22,10 @@ class ImageClassificationTests(unittest.TestCase):
             result['app_url'],
             '/api/drive-image?fileId=1AbCdEfGhIjKlMnOpQrStUv',
         )
+        self.assertEqual(
+            IMPORTER.parse_drive_source('https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUv/view'),
+            {'type': 'file', 'id': '1AbCdEfGhIjKlMnOpQrStUv'},
+        )
 
     def test_drive_open_link(self):
         result = IMPORTER.parse_image_source(
@@ -42,6 +46,10 @@ class ImageClassificationTests(unittest.TestCase):
                 self.assertEqual(
                     result['app_url'],
                     '/api/drive-image?folderId=1AbCdEfGhIjKlMnOpQrStUv',
+                )
+                self.assertEqual(
+                    IMPORTER.parse_drive_source(url),
+                    {'type': 'folder', 'id': '1AbCdEfGhIjKlMnOpQrStUv'},
                 )
 
     def test_google_document_is_not_an_image(self):
@@ -81,9 +89,40 @@ class ImageClassificationTests(unittest.TestCase):
     def test_plain_text_is_invalid(self):
         result = IMPORTER.parse_image_source('please use my Instagram photo')
         self.assertEqual(result['kind'], 'invalid-value')
+        self.assertIsNone(IMPORTER.parse_drive_source('https://example.com/file/d/1AbCdEfGhIjKlMnOpQrStUv'))
 
 
 class PublicProfileTests(unittest.TestCase):
+    def test_fall_2026_test_response_maps_public_story_fields_only(self):
+        workbook = pathlib.Path(__file__).parents[1] / 'FALL 26 MASTER APPS TEST.xlsx'
+        profiles, _ = IMPORTER.build_profiles(workbook)
+        self.assertEqual(len(profiles), 1)
+        profile = profiles[0]
+        self.assertEqual(profile['name'], 'Logan Ho')
+        self.assertEqual(profile['role'], 'Big')
+        self.assertEqual(profile['tagline'], 'Be the change you want to see.')
+        self.assertIn('1. I am both a morning and a night person', profile['uniqueThings'])
+        self.assertIn('Psychology', profile['passion'])
+        self.assertIn('Exploring new places:', profile['hobbyDetails'])
+        self.assertEqual(profile['hotTake'], 'Putting too many toppings on pizza ruins it.')
+        self.assertEqual(profile['imageKind'], 'drive-folder')
+        self.assertEqual(profile['driveFileId'], '')
+        self.assertTrue(IMPORTER.valid_drive_id(profile['driveFolderId']))
+        with zipfile.ZipFile(workbook) as archive:
+            root = ET.fromstring(archive.read('xl/sharedStrings.xml'))
+            shared = [
+                ''.join(node.text or '' for node in item.iter('{%s}t' % IMPORTER.MAIN))
+                for item in root.findall('{%s}si' % IMPORTER.MAIN)
+            ]
+            paths = IMPORTER.resolve_worksheet_paths(archive)
+            configs = IMPORTER.select_sheet_configs(archive, shared, paths)
+            headers = IMPORTER._header_values(archive, paths['BIGS'], shared)
+        self.assertEqual(configs['BIGS']['image'], 'CX')
+        self.assertEqual(headers['CX'], 'upload picture(s) of yourself! (max 4)')
+        public = IMPORTER.public_profiles(profiles)[0]
+        for private_key in ('phone', 'email', 'birthday', 'facebook', 'conflicts', 'curfew'):
+            self.assertNotIn(private_key, public)
+
     @staticmethod
     def _workbook(sheet_definitions):
         workbook_sheets = []

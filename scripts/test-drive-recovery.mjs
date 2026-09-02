@@ -4,10 +4,13 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import sharp from 'sharp';
 import {
+  compareDriveFilesNaturally,
   DriveAuthConfigurationError,
+  fetchDriveImage,
   getDriveAuth,
 } from '../lib/google-drive-server.js';
 import {
+  ingestProfileImages,
   MAX_PROFILE_IMAGE_BYTES,
   ProfileImageIngestionError,
   ingestProfileImage,
@@ -49,6 +52,85 @@ const jpegBytes = await sharp({ create: { width: 2, height: 2, channels: 3, back
 const imageResponse = () => new Response(jpegBytes, { headers: { 'Content-Type': 'image/jpeg' } });
 const authenticated = { accessToken: 'mock-access-token', apiKey: null, authenticated: true, mode: 'service-account' };
 const publicOnly = { accessToken: null, apiKey: null, authenticated: false, mode: 'public-only' };
+
+const nativeFetch = globalThis.fetch;
+try {
+  const originalCalls = [];
+  globalThis.fetch = async (input, options = {}) => {
+    const url = String(input);
+    originalCalls.push({ url, authorization: new Headers(options.headers).get('authorization') });
+    if (!url.includes('alt=media')) {
+      return Response.json({
+        id: '1234567890ORIGINAL',
+        name: 'original.jpg',
+        mimeType: 'image/jpeg',
+        size: String(jpegBytes.length),
+        thumbnailLink: 'https://thumbnail.example/should-not-run',
+      });
+    }
+    return imageResponse();
+  };
+  const originalResponse = await fetchDriveImage('1234567890ORIGINAL', authenticated);
+  assert.equal(originalResponse.headers.get('x-drive-download-source'), 'original_media');
+  assert.equal(originalCalls.length, 2, 'metadata should be followed directly by original media');
+  assert.match(originalCalls[1].url, /\/drive\/v3\/files\/1234567890ORIGINAL\?alt=media/);
+  assert.equal(originalCalls[1].authorization, 'Bearer mock-access-token');
+  assert.equal(
+    originalCalls.some((call) => call.url.includes('thumbnail.example')),
+    false,
+    'thumbnailLink must not be fetched when original media succeeds',
+  );
+
+  const publicFullCalls = [];
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    publicFullCalls.push(url);
+    if (!url.includes('alt=media') && url.includes('googleapis.com/drive/v3/files/')) {
+      return Response.json({
+        id: '1234567890PUBLICFULL',
+        name: 'public-full.jpg',
+        mimeType: 'image/jpeg',
+        thumbnailLink: 'https://thumbnail.example/not-needed',
+      });
+    }
+    if (url.includes('drive.usercontent.google.com/download')) return imageResponse();
+    return new Response('unavailable', { status: 404, headers: { 'Content-Type': 'text/plain' } });
+  };
+  const publicFullResponse = await fetchDriveImage('1234567890PUBLICFULL', authenticated);
+  assert.equal(publicFullResponse.headers.get('x-drive-download-source'), 'public_full_file');
+  assert.equal(
+    publicFullCalls.some((url) => url.includes('thumbnail.example')),
+    false,
+    'a safe public full-file response must be used before thumbnailLink',
+  );
+
+  const fallbackCalls = [];
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    fallbackCalls.push(url);
+    if (!url.includes('alt=media') && url.includes('googleapis.com/drive/v3/files/')) {
+      return Response.json({
+        id: '1234567890FALLBACK',
+        name: 'fallback.jpg',
+        mimeType: 'image/jpeg',
+        thumbnailLink: 'https://thumbnail.example/last-resort',
+      });
+    }
+    if (url.includes('thumbnail.example')) return imageResponse();
+    return new Response('unavailable', { status: 404, headers: { 'Content-Type': 'text/plain' } });
+  };
+  const fallbackResponse = await fetchDriveImage('1234567890FALLBACK', authenticated);
+  assert.equal(fallbackResponse.headers.get('x-drive-download-source'), 'thumbnail_fallback');
+  assert.ok(fallbackCalls.findIndex((url) => url.includes('alt=media')) >= 0);
+  assert.ok(fallbackCalls.findIndex((url) => url.includes('drive.usercontent.google.com/download')) >= 0);
+  assert.ok(
+    fallbackCalls.findIndex((url) => url.includes('thumbnail.example'))
+      > fallbackCalls.findIndex((url) => url.includes('drive.google.com/uc?')),
+    'metadata thumbnail must run only after original media and public full-file fallbacks',
+  );
+} finally {
+  globalThis.fetch = nativeFetch;
+}
 
 const authenticatedFile = await ingestProfileImage({
   profile: { id: 'private-file', driveFileId: '1234567890ABCDE', imageKind: 'drive-file' },
@@ -116,6 +198,169 @@ const folderSingle = await ingestProfileImage({
 assert.equal(folderSingle.recoveryCategory, 'folder_single_image');
 assert.equal(folderSingle.resolvedDriveFileId, '1234567890IMAGE1');
 
+const naturallyOrdered = [
+  { id: '3', name: 'photo10.jpg' },
+  { id: '1', name: 'photo1.jpg' },
+  { id: '2', name: 'photo2.jpg' },
+].sort(compareDriveFilesNaturally);
+assert.deepEqual(naturallyOrdered.map((file) => file.name), ['photo1.jpg', 'photo2.jpg', 'photo10.jpg']);
+
+const galleryUploads = [];
+const galleryIds = [
+  '11111111-1111-4111-8111-111111111111',
+  '22222222-2222-4222-8222-222222222222',
+];
+const folderGallery = await ingestProfileImages({
+  profile: { ...folderProfile, id: 'folder-gallery' },
+  datasetSlug: 'fall-2026',
+  driveAuth: authenticated,
+  dryRun: false,
+  createImageId: () => galleryIds.shift(),
+  upload: async (upload) => galleryUploads.push(upload),
+  driveClient: {
+    listFilesInFolder: async () => [
+      { id: '1234567890IMAGE10', name: 'photo10.jpg', mimeType: 'image/jpeg' },
+      { id: '1234567890PDF000', name: 'notes.pdf', mimeType: 'application/pdf' },
+      { id: '1234567890IMAGE2', name: 'photo2.jpg', mimeType: 'image/jpeg' },
+      { id: '1234567890IMAGE1', name: 'photo1.jpg', mimeType: 'image/jpeg' },
+    ],
+    fetchDriveImage: async (fileId) => (
+      fileId === '1234567890IMAGE2'
+        ? new Response('corrupt', { headers: { 'Content-Type': 'image/jpeg' } })
+        : imageResponse()
+    ),
+  },
+});
+assert.equal(folderGallery.sourceKind, 'folder');
+assert.equal(folderGallery.filesDiscovered, 4);
+assert.equal(folderGallery.supportedImages, 3);
+assert.deepEqual(folderGallery.images.map((image) => image.name), ['photo1.jpg', 'photo10.jpg']);
+assert.deepEqual(folderGallery.images.map((image) => image.storagePath), [
+  'fall-2026/folder-gallery/11111111-1111-4111-8111-111111111111.jpg',
+  'fall-2026/folder-gallery/22222222-2222-4222-8222-222222222222.jpg',
+]);
+assert.equal(galleryUploads.length, 2, 'valid siblings must survive one corrupt image');
+assert.deepEqual(folderGallery.rejected.map((item) => item.category).sort(), ['corrupt_image', 'unsupported_file_type']);
+
+const thumbnailDiagnostic = await ingestProfileImages({
+  profile: { id: 'thumbnail-diagnostic', driveFileId: '1234567890THUMB', imageKind: 'drive-file' },
+  datasetSlug: 'fall-2026',
+  driveAuth: authenticated,
+  dryRun: true,
+  driveClient: {
+    fetchDriveImage: async () => new Response(jpegBytes, {
+      headers: {
+        'Content-Type': 'image/jpeg',
+        'X-Drive-Download-Source': 'thumbnail_fallback',
+      },
+    }),
+  },
+});
+assert.equal(thumbnailDiagnostic.diagnostics[0]?.category, 'thumbnail_fallback_used');
+assert.equal(thumbnailDiagnostic.images[0]?.downloadSource, 'thumbnail_fallback');
+
+const stagedEvents = [];
+const stagedRepair = await ingestProfileImages({
+  profile: { ...folderProfile, id: 'staged-repair' },
+  datasetSlug: 'fall-2026',
+  driveAuth: authenticated,
+  dryRun: false,
+  requireAllSupported: true,
+  createImageId: (() => {
+    const ids = [
+      '55555555-5555-4555-8555-555555555555',
+      '66666666-6666-4666-8666-666666666666',
+    ];
+    return () => ids.shift();
+  })(),
+  upload: async ({ storagePath }) => stagedEvents.push(`upload:${storagePath}`),
+  driveClient: {
+    listFilesInFolder: async () => [
+      { id: '1234567890STAGE1', name: 'one.jpg', mimeType: 'image/jpeg' },
+      { id: '1234567890STAGE2', name: 'two.jpg', mimeType: 'image/jpeg' },
+    ],
+    fetchDriveImage: async (fileId) => {
+      stagedEvents.push(`fetch:${fileId}`);
+      return imageResponse();
+    },
+  },
+});
+assert.equal(stagedRepair.images.length, 2);
+assert.deepEqual(
+  stagedEvents.map((event) => event.split(':', 1)[0]),
+  ['fetch', 'fetch', 'upload', 'upload'],
+  'replacement ingestion must download and validate every supported file before uploading any',
+);
+
+let invalidRepairUploads = 0;
+const invalidStagedRepair = await ingestProfileImages({
+  profile: { ...folderProfile, id: 'invalid-staged-repair' },
+  datasetSlug: 'fall-2026',
+  driveAuth: authenticated,
+  dryRun: false,
+  requireAllSupported: true,
+  upload: async () => { invalidRepairUploads += 1; },
+  driveClient: {
+    listFilesInFolder: async () => [
+      { id: '1234567890VALID1', name: 'one.jpg', mimeType: 'image/jpeg' },
+      { id: '1234567890BROKEN', name: 'two.jpg', mimeType: 'image/jpeg' },
+    ],
+    fetchDriveImage: async (fileId) => (
+      fileId.endsWith('BROKEN') ? new Response('corrupt') : imageResponse()
+    ),
+  },
+});
+assert.equal(invalidStagedRepair.allSupportedValidated, false);
+assert.equal(invalidStagedRepair.images.length, 0);
+assert.equal(invalidRepairUploads, 0, 'a validation failure must prevent every replacement upload');
+
+const oneImageGallery = await ingestProfileImages({
+  profile: { ...folderProfile, id: 'folder-gallery-one' },
+  datasetSlug: 'fall-2026',
+  driveAuth: authenticated,
+  dryRun: true,
+  createImageId: () => '33333333-3333-4333-8333-333333333333',
+  driveClient: {
+    listFilesInFolder: async () => [{ id: '1234567890IMAGE1', name: 'only.png', mimeType: 'image/png' }],
+    fetchDriveImage: async () => imageResponse(),
+  },
+});
+assert.equal(oneImageGallery.images.length, 1);
+
+await assert.rejects(
+  ingestProfileImages({
+    profile: { ...folderProfile, id: 'folder-private' },
+    datasetSlug: 'fall-2026',
+    driveAuth: authenticated,
+    dryRun: true,
+    driveClient: {
+      listFilesInFolder: async () => { throw new Error('Drive returned 403'); },
+      fetchDriveImage: async () => imageResponse(),
+    },
+  }),
+  (error) => error instanceof ProfileImageIngestionError && error.code === 'folder_inaccessible',
+);
+
+const orientedGallerySource = await sharp({
+  create: { width: 3, height: 1, channels: 3, background: { r: 200, g: 80, b: 50 } },
+}).withMetadata({ orientation: 6 }).jpeg().toBuffer();
+let orientedUpload;
+await ingestProfileImages({
+  profile: { id: 'oriented-file', driveFileId: '1234567890ORIENT', imageKind: 'drive-file' },
+  datasetSlug: 'fall-2026',
+  driveAuth: authenticated,
+  dryRun: false,
+  createImageId: () => '44444444-4444-4444-8444-444444444444',
+  upload: async (upload) => { orientedUpload = upload; },
+  driveClient: { fetchDriveImage: async () => new Response(orientedGallerySource) },
+});
+const orientedMetadata = await sharp(orientedUpload.bytes).metadata();
+assert.deepEqual(
+  { width: orientedMetadata.width, height: orientedMetadata.height, orientation: orientedMetadata.orientation },
+  { width: 1, height: 3, orientation: undefined },
+  'folder/file migration must retain canonical Sharp EXIF normalization',
+);
+
 await assert.rejects(
   ingestProfileImage({
     profile: { ...folderProfile, id: 'folder-empty' },
@@ -177,7 +422,7 @@ await assert.rejects(
       listImageFilesInFolder: async () => [],
     },
   }),
-  (error) => error instanceof ProfileImageIngestionError && error.code === 'unsupported_content',
+  (error) => error instanceof ProfileImageIngestionError && error.code === 'image_too_large',
 );
 
 const browserSources = await Promise.all([

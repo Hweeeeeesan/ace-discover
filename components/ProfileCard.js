@@ -49,6 +49,8 @@ export default function ProfileCard({
           <h2>{profile.name}</h2>
         </div>
 
+        {profile.tagline && <p className="profile-tagline">“{profile.tagline}”</p>}
+
         {interests.length > 0 && (
           <div className="tag-row">
             {interests.map((interest) => (

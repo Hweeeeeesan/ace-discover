@@ -8,7 +8,7 @@ Version 4 adds Supabase Google authentication for the organizer Admin, persisten
 
 1. Create a Supabase project and enable the Google provider under Authentication.
 2. Add the local and production callback URLs to the Supabase redirect allowlist, including `http://localhost:3000/auth/callback` and the deployed `/auth/callback` URL.
-3. Run both versioned migrations in order from `supabase/migrations/`. The `202608150002` hardening migration is required even if the initial v4 migration was already applied.
+3. Run all versioned migrations in order from `supabase/migrations/`. Existing projects must also apply the latest dataset-removal migration before the Admin semester-removal controls are used.
 4. Configure the variables documented in `.env.example`:
 
 ```dotenv
@@ -34,6 +34,8 @@ Google OAuth establishes a persistent Supabase cookie session. `/admin` verifies
 The database stores `datasets`, normalized `dataset_profiles`, singleton `app_settings`, and expiring `dataset_imports`. Tables have RLS enabled and no direct anonymous/authenticated table access. Anonymous bulk functions expose only the active dataset and remove Instagram from every discovery record. A separate active-dataset single-profile function supplies detail data, including a valid Instagram URL when present. READY and archived datasets remain private; authenticated Admin preview reads them only through the server service role after authorization.
 
 Workbook uploads accept `.xlsx` files up to 15 MiB inside a 16 MiB multipart request envelope. Oversized requests are rejected before parsing when `Content-Length` is available, and file size is always checked again after parsing. A Node route writes the workbook to a private temporary directory, invokes the canonical Python importer, and deletes the workbook immediately. Sanitized previews expire after 24 hours; expired rows are deleted opportunistically during Admin dataset access, new analysis, and save attempts. Save creates a READY dataset without changing public discovery. Make Active is a separate confirmed action; the previous active dataset becomes private and archived but remains available to Admin for rollback. The host must provide `python3` because the canonical importer is Python-based.
+
+The Admin Dataset Manager exposes the same workbook workflow as **Add Semester**. READY and archived semesters can also be permanently removed after typing their exact names. Active semesters are protected in both the UI and database and must be replaced first. Removal derives the Storage prefix from the server-side dataset record, deletes only that prefix from `profile-images`, then deletes the dataset row; existing foreign-key cascades remove its profiles and relational image metadata. A Storage failure keeps the database dataset available and reports the failure for retry.
 
 Profile URLs are collision-safe: `/profile/[datasetSlug]/[profileId]`. Existing Fall 2025 `/profile/[profileId]` links redirect to the new Fall route. Seen and discovery state use dataset-specific keys, while old Fall 2025 browser state migrates once.
 
@@ -134,13 +136,12 @@ If you temporarily keep a downloaded credential file in the project, place it un
 
 When deploying to Vercel, add the same values under **Project Settings → Environment Variables**. Redeploy after changing them.
 
-## Move one primary image per profile to Supabase Storage
+## Move profile image galleries to Supabase Storage
 
-Phase 1 keeps every existing Drive source and adds one optional canonical
-`storageImagePath` to a profile. Public discovery, direct profile routes, and
-Admin READY previews resolve images in this order: Supabase Storage, the
-existing Drive/source candidates, then the placeholder. Workbook analysis does
-not download or upload images.
+The migration keeps every existing Drive source while materializing new
+single-file or folder sources as ordered `profile_images` rows. Discovery uses
+only the relational primary image; detail and Admin payloads receive the full
+ordered collection. Workbook analysis itself does not download or upload images.
 
 ### 1. Configure the existing Supabase project
 
@@ -185,6 +186,11 @@ It adds service-role-only transactional functions for Admin image creation,
 primary selection, ordering, and deletion. The Admin profile preview uses these
 functions for image management; no browser receives service-role credentials.
 
+Apply `supabase/migrations/202609020001_targeted_profile_gallery_replacement.sql`
+before using targeted repair. It adds one service-role-only transaction that
+swaps a single profile's complete metadata gallery after all replacement
+objects have uploaded. It does not change data when the migration is applied.
+
 ### 2. Dry-run one dataset
 
 Dry-run is the default and does not upload or update profile data:
@@ -200,18 +206,26 @@ npm run images:migrate -- spring-2026 --dry-run --limit 5
 npm run images:migrate -- spring-2026 --dry-run --profile aiden-wang
 ```
 
-The CSV report includes total, eligible, already-migrated, uploaded, skipped,
-and failed outcomes. Source failures are categorized where possible, including
-missing source, invalid URL, Drive folder, Google document, unsupported
-content, and permission/fetch failure. Direct arbitrary URLs are never fetched.
+The CSV report includes the source kind, files discovered, supported images,
+pixel dimensions, safe download-source categories, uploads, preserved existing
+rows, per-file rejections, and primary Storage path. Failures distinguish
+invalid/missing sources, inaccessible folders, unsupported types, corrupt or
+oversized images, Drive downloads, Storage uploads, and metadata inserts.
+Direct arbitrary URLs are never fetched.
 
 If `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` are
 configured for the server/local migration tool, the same command also retries
 the existing Drive file and folder sources that were not publicly readable.
-Folder recovery examines direct children only and uploads only when exactly one
-valid image is found; ambiguous folders are reported for manual review. A
-service account must be granted Viewer access to each private file or folder
-(or its containing shared drive) before it can recover anything.
+Folder gallery ingestion examines direct children only. Drive does not expose a
+reliable user-defined folder position, so files use deterministic natural
+filename order (`photo2.jpg` before `photo10.jpg`). Unsupported files are
+reported and valid siblings continue through byte validation and Sharp EXIF
+normalization. A service account must be granted Viewer access to each private
+file or folder (or its containing shared drive) before it can recover anything.
+Authenticated ingestion requests Drive's original `alt=media` bytes first,
+then tries public full-file endpoints, and uses thumbnail renditions only as a
+reported `thumbnail_fallback_used` last resort. Sharp does not resize: upright
+files remain byte-for-byte intact, while EXIF rotation can swap width/height.
 
 ### 3. Apply one dataset after reviewing the report
 
@@ -219,16 +233,44 @@ service account must be granted Viewer access to each private file or folder
 npm run images:migrate -- spring-2026 --apply
 ```
 
-Apply mode uploads only missing valid Drive images to deterministic paths such
-as:
+Apply mode uploads valid Drive images to UUID-stable paths such as:
 
 ```text
-profile-images/spring-2026/aiden-wang/primary.jpg
+profile-images/fall-2026/logan-ho/4f5d1d8a-8a6f-4d44-9aac-2a7358db7f92.jpg
 ```
 
-It uses non-overwriting uploads, validates object bytes and size, reuses an
-existing object after a partial prior run, and stores only the path in profile
-data. It never activates, archives, or changes unrelated profile fields.
+Each successful metadata insert receives the next contiguous position; the
+first successful image is primary. Non-overwriting uploads and cleanup after a
+metadata failure minimize orphaned objects. For idempotency and Admin safety,
+any existing relational gallery or legacy canonical image is authoritative and
+the Drive source is skipped in full. Reruns therefore do not duplicate images,
+but newly added Drive files are not appended after the first migration; add
+later images through Admin. The command never activates, archives, or changes
+unrelated profile fields.
+
+### Repair one previously migrated low-resolution gallery
+
+Replacement is deliberately unavailable without one exact profile ID. First
+verify the original downloads, dimensions, ordering, and fallback diagnostics:
+
+```bash
+npm run images:migrate -- fall-2026 --dry-run --replace-existing --profile logan-ho
+```
+
+After reviewing the profile-scoped report, apply only that replacement:
+
+```bash
+npm run images:migrate -- fall-2026 --apply --replace-existing --profile logan-ho
+```
+
+Every supported Drive image is downloaded and decoded before any replacement
+upload starts. Any validation/upload failure leaves the old gallery in place
+and cleans staged objects. A successful RPC swaps the complete gallery in one
+database transaction; only afterward are old Storage objects removed. When the
+new and old deterministic counts match, focal points, display mode, and primary
+selection are preserved by position. If that mapping cannot be established,
+the first naturally ordered image becomes primary and focal/display values use
+their defaults. Existing galleries remain authoritative on every normal run.
 Reports are written to:
 
 ```text

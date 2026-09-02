@@ -12,7 +12,12 @@ import {
   rotateImage,
   validatedImageFromResponse,
 } from '../lib/profile-image-ingestion.js';
-import { migrateDatasetProfiles } from '../lib/profile-image-migration.js';
+import {
+  buildGalleryReplacementPlan,
+  migrateDatasetProfileGalleries,
+  migrateDatasetProfiles,
+} from '../lib/profile-image-migration.js';
+import { parseArguments as parseImageMigrationArguments } from './migrate-drive-images-to-supabase.mjs';
 import {
   PROFILE_IMAGE_PLACEHOLDER,
   buildProfileImageStoragePath,
@@ -25,6 +30,7 @@ import {
   normalizeDisplayMode,
   normalizeFocalCoordinate,
   resolveProfileImageSources,
+  resolveProfileImageSourcesForImage,
   withResolvedProfileImage,
 } from '../lib/profile-images.js';
 
@@ -114,6 +120,12 @@ assert.deepEqual(getProfileImages(relationalProfile).map((image) => image.id), [
 assert.equal(getPrimaryProfileImage(relationalProfile).id, 'second');
 assert.equal(getPrimaryProfileImage(relationalProfile).focalY, 35);
 assert.equal(getPrimaryProfileImage(relationalProfile).displayMode, 'portrait');
+const secondaryResolved = resolveProfileImageSourcesForImage(
+  { storageImagePath: `spring-2026/same-person/${imageId}.png` },
+  supabaseOptions,
+);
+assert.match(secondaryResolved.src, /\/same-person\//);
+assert.doesNotMatch(secondaryResolved.src, /primary\.webp/);
 assert.equal(
   resolveProfileImageSources(relationalProfile, supabaseOptions).src,
   `https://ace-discover.supabase.co/storage/v1/object/public/profile-images/spring-2026/same-person/${imageId}.png`,
@@ -150,12 +162,26 @@ const uprightMetadata = await sharp(jpeg).metadata();
 const upright = await normalizeImageOrientation(jpeg, 'image/jpeg');
 assert.deepEqual(await sharp(upright.bytes).metadata().then((metadata) => ({ width: metadata.width, height: metadata.height })), { width: uprightMetadata.width, height: uprightMetadata.height });
 assert.deepEqual(upright.bytes, jpeg, 'upright JPEGs should not be needlessly recompressed');
+const fullResolutionJpeg = await sharp({
+  create: { width: 641, height: 427, channels: 3, background: { r: 90, g: 130, b: 170 } },
+}).jpeg().toBuffer();
+const fullResolutionNormalized = await normalizeImageOrientation(fullResolutionJpeg, 'image/jpeg');
+assert.deepEqual(
+  { width: fullResolutionNormalized.width, height: fullResolutionNormalized.height },
+  { width: 641, height: 427 },
+  'normal JPEG ingestion must preserve original pixel dimensions',
+);
 const oriented = await sharp({ create: { width: 2, height: 1, channels: 3, background: { r: 220, g: 30, b: 80 } } }).withMetadata({ orientation: 6 }).jpeg().toBuffer();
 const normalized = await normalizeImageOrientation(oriented, 'image/jpeg');
 const normalizedMetadata = await sharp(normalized.bytes).metadata();
 assert.equal(normalizedMetadata.width, 1, 'EXIF orientation should be applied to pixel dimensions');
 assert.equal(normalizedMetadata.height, 2, 'EXIF orientation should be applied to pixel dimensions');
 assert.equal(normalizedMetadata.orientation, undefined, 'normalized output should not retain EXIF orientation');
+assert.deepEqual(
+  { width: normalized.width, height: normalized.height },
+  { width: 1, height: 2 },
+  'EXIF normalization may swap dimensions but must not downscale them',
+);
 assert.equal(normalized.contentType, 'image/jpeg');
 const normalizedPng = await normalizeImageOrientation(png, 'image/png');
 assert.equal(normalizedPng.contentType, 'image/png');
@@ -169,7 +195,7 @@ assert.equal(rotatedMetadata.orientation, undefined, 'rotated output should not 
 assert.equal(rotated.contentType, 'image/jpeg');
 await assert.rejects(
   validatedImageFromResponse(new Response('not an image', { headers: { 'Content-Type': 'image/jpeg' } })),
-  (error) => error instanceof ProfileImageIngestionError && error.code === 'unsupported_content',
+  (error) => error instanceof ProfileImageIngestionError && error.code === 'unsupported_file_type',
 );
 await assert.rejects(
   validatedImageFromResponse(new Response(jpeg, { headers: { 'Content-Length': String(MAX_PROFILE_IMAGE_BYTES + 1) } })),
@@ -177,7 +203,7 @@ await assert.rejects(
 );
 await assert.rejects(
   validatedImageFromResponse(new Response(Buffer.from([0xff, 0xd8, 0xff, 0xdb]), { headers: { 'Content-Type': 'image/jpeg' } })),
-  (error) => error instanceof ProfileImageIngestionError && error.code === 'unsupported_content',
+  (error) => error instanceof ProfileImageIngestionError && error.code === 'corrupt_image',
 );
 
 assert.deepEqual(classifyProfileImageSource({ imageKind: 'direct-image-url', image: 'https://evil.example/a.jpg' }), {
@@ -280,6 +306,292 @@ assert.equal(repairedRun.summary.alreadyMigrated, 1);
 assert.equal(repairIngestions, 0, 'an uploaded object from a partial prior run should be reused');
 assert.equal(repaired, 'spring-2026/repair/primary.webp');
 
+const galleryProfile = {
+  id: 'gallery',
+  name: 'Gallery',
+  driveFolderId: '1234567890FOLDER',
+  imageKind: 'drive-folder',
+  profileImages: [],
+};
+const galleryCandidates = [1, 2, 3].map((position) => ({
+  imageId: `${position}${String(position).repeat(7)}-${String(position).repeat(4)}-4${String(position).repeat(3)}-8${String(position).repeat(3)}-${String(position).repeat(12)}`,
+  storagePath: `fall-2026/gallery/${String(position).repeat(8)}-${String(position).repeat(4)}-4${String(position).repeat(3)}-8${String(position).repeat(3)}-${String(position).repeat(12)}.jpg`,
+  resolvedDriveFileId: `1234567890IMAGE${position}`,
+  name: `photo${position}.jpg`,
+}));
+const createdGalleryRows = [];
+const migrateGallery = () => migrateDatasetProfileGalleries({
+  dataset: { id: 'dataset-id', slug: 'fall-2026' },
+  profiles: [galleryProfile],
+  dryRun: false,
+  ingestGallery: async () => ({
+    sourceKind: 'folder',
+    filesDiscovered: 4,
+    supportedImages: 3,
+    images: galleryCandidates,
+    rejected: [{ name: 'notes.pdf', category: 'unsupported_file_type', detail: 'Ignored.' }],
+  }),
+  createImage: async ({ image, makePrimary }) => {
+    const row = {
+      id: image.imageId,
+      storagePath: image.storagePath,
+      position: createdGalleryRows.length,
+      isPrimary: makePrimary,
+    };
+    createdGalleryRows.push(row);
+    galleryProfile.profileImages.push(row);
+    return row;
+  },
+});
+const firstGalleryRun = await migrateGallery();
+const secondGalleryRun = await migrateGallery();
+assert.equal(firstGalleryRun.summary.uploaded, 3);
+assert.equal(firstGalleryRun.summary.rejected, 1);
+assert.deepEqual(createdGalleryRows.map((row) => row.position), [0, 1, 2]);
+assert.deepEqual(createdGalleryRows.map((row) => row.isPrimary), [true, false, false]);
+assert.equal(firstGalleryRun.rows[0].primaryStoragePath, galleryCandidates[0].storagePath);
+assert.equal(secondGalleryRun.summary.galleriesPreserved, 1);
+assert.equal(createdGalleryRows.length, 3, 'rerunning a migrated gallery must not duplicate rows');
+
+let adminIngestions = 0;
+const adminPreserved = await migrateDatasetProfileGalleries({
+  dataset: { slug: 'fall-2026' },
+  profiles: [{
+    id: 'admin-managed',
+    driveFolderId: '1234567890FOLDER',
+    profileImages: [{ id: 'admin-image', storagePath: 'fall-2026/admin-managed/primary.jpg', position: 0, isPrimary: true }],
+  }],
+  ingestGallery: async () => { adminIngestions += 1; },
+});
+assert.equal(adminPreserved.rows[0].category, 'existing_relational_gallery');
+assert.equal(adminIngestions, 0, 'Admin-managed relational galleries must remain authoritative');
+
+assert.throws(
+  () => parseImageMigrationArguments(['fall-2026', '--replace-existing']),
+  /requires an explicit --profile/,
+  'replacement must never be enabled dataset-wide',
+);
+const targetedDryRunOptions = parseImageMigrationArguments([
+  'fall-2026', '--dry-run', '--replace-existing', '--profile', 'logan-ho',
+]);
+assert.equal(targetedDryRunOptions.dryRun, true);
+assert.equal(targetedDryRunOptions.replaceExisting, true);
+assert.equal(targetedDryRunOptions.profileId, 'logan-ho');
+
+const replacementExisting = [
+  {
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    storagePath: 'fall-2026/repair/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg',
+    position: 0,
+    isPrimary: false,
+    focalX: 18,
+    focalY: 72,
+    displayMode: 'portrait',
+  },
+  {
+    id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    storagePath: 'fall-2026/repair/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.jpg',
+    position: 1,
+    isPrimary: true,
+    focalX: 66,
+    focalY: 24,
+    displayMode: 'cover',
+  },
+];
+const replacementNew = galleryCandidates.slice(0, 2).map((image) => ({
+  ...image,
+  storagePath: image.storagePath.replace('/gallery/', '/repair/'),
+  width: 2400,
+  height: 3600,
+  byteLength: 800000,
+  downloadSource: 'original_media',
+}));
+const preservedPlan = buildGalleryReplacementPlan(replacementExisting, replacementNew);
+assert.equal(preservedPlan.metadataStrategy, 'preserve_by_position');
+assert.deepEqual(
+  preservedPlan.replacementRows.map((image) => ({
+    isPrimary: image.isPrimary,
+    focalX: image.focalX,
+    focalY: image.focalY,
+    displayMode: image.displayMode,
+  })),
+  [
+    { isPrimary: false, focalX: 18, focalY: 72, displayMode: 'portrait' },
+    { isPrimary: true, focalX: 66, focalY: 24, displayMode: 'cover' },
+  ],
+  'same-length deterministic replacements preserve primary/focal/display metadata by position',
+);
+const defaultPlan = buildGalleryReplacementPlan(replacementExisting, replacementNew.slice(0, 1));
+assert.equal(defaultPlan.metadataStrategy, 'reset_to_defaults');
+assert.deepEqual(
+  defaultPlan.replacementRows.map((image) => ({
+    isPrimary: image.isPrimary,
+    focalX: image.focalX,
+    focalY: image.focalY,
+    displayMode: image.displayMode,
+  })),
+  [{ isPrimary: true, focalX: null, focalY: null, displayMode: 'cover' }],
+  'unproven mappings use defaults and the first deterministic image as primary',
+);
+
+let dryRunReplacementCalls = 0;
+const targetedReplacementDryRun = await migrateDatasetProfileGalleries({
+  dataset: { slug: 'fall-2026' },
+  profiles: [{
+    id: 'repair',
+    driveFolderId: '1234567890FOLDER',
+    profileImages: replacementExisting,
+  }],
+  dryRun: true,
+  replaceExisting: true,
+  ingestGallery: async () => ({
+    sourceKind: 'folder',
+    filesDiscovered: 3,
+    supportedImages: 2,
+    allSupportedValidated: true,
+    images: replacementNew,
+    rejected: [{ name: 'raw.nef', category: 'unsupported_file_type', detail: 'Ignored.' }],
+    diagnostics: [],
+  }),
+  replaceGallery: async () => { dryRunReplacementCalls += 1; },
+  removeStorage: async () => assert.fail('dry-run must not remove Storage objects'),
+});
+assert.equal(targetedReplacementDryRun.rows[0].status, 'dry_run_replacement_validated');
+assert.equal(targetedReplacementDryRun.rows[0].metadataStrategy, 'preserve_by_position');
+assert.deepEqual(
+  targetedReplacementDryRun.rows[0].imageDimensions.map(({ width, height }) => ({ width, height })),
+  [{ width: 2400, height: 3600 }, { width: 2400, height: 3600 }],
+);
+assert.equal(dryRunReplacementCalls, 0, 'dry-run must not invoke the replacement RPC');
+
+const replacementCleanup = [];
+let failedReplacementCalls = 0;
+const failedTargetedReplacement = await migrateDatasetProfileGalleries({
+  dataset: { slug: 'fall-2026' },
+  profiles: [{
+    id: 'repair',
+    driveFolderId: '1234567890FOLDER',
+    profileImages: replacementExisting,
+  }],
+  dryRun: false,
+  replaceExisting: true,
+  ingestGallery: async () => ({
+    sourceKind: 'folder',
+    filesDiscovered: 2,
+    supportedImages: 2,
+    allSupportedValidated: true,
+    images: replacementNew.slice(0, 1),
+    rejected: [{ name: 'photo2.jpg', category: 'supabase_upload_failure', detail: 'Upload failed.' }],
+    diagnostics: [],
+  }),
+  replaceGallery: async () => { failedReplacementCalls += 1; },
+  removeStorage: async (storagePath) => replacementCleanup.push(storagePath),
+});
+assert.equal(failedTargetedReplacement.rows[0].status, 'replacement_failed_preserved');
+assert.equal(failedTargetedReplacement.rows[0].primaryStoragePath, replacementExisting[1].storagePath);
+assert.equal(failedReplacementCalls, 0, 'partial replacement must not touch existing metadata');
+assert.deepEqual(replacementCleanup, [replacementNew[0].storagePath], 'partial new uploads must be cleaned up');
+
+const failedMetadataCleanup = [];
+const failedMetadataReplacement = await migrateDatasetProfileGalleries({
+  dataset: { slug: 'fall-2026' },
+  profiles: [{
+    id: 'repair',
+    driveFolderId: '1234567890FOLDER',
+    profileImages: replacementExisting,
+  }],
+  dryRun: false,
+  replaceExisting: true,
+  ingestGallery: async () => ({
+    sourceKind: 'folder',
+    filesDiscovered: 2,
+    supportedImages: 2,
+    allSupportedValidated: true,
+    images: replacementNew,
+    rejected: [],
+    diagnostics: [],
+  }),
+  replaceGallery: async () => { throw new Error('transaction rolled back'); },
+  removeStorage: async (storagePath) => failedMetadataCleanup.push(storagePath),
+});
+assert.equal(failedMetadataReplacement.rows[0].status, 'replacement_failed_preserved');
+assert.equal(failedMetadataReplacement.rows[0].category, 'metadata_replacement_failure');
+assert.equal(failedMetadataReplacement.rows[0].primaryStoragePath, replacementExisting[1].storagePath);
+assert.deepEqual(
+  failedMetadataCleanup,
+  replacementNew.map((image) => image.storagePath),
+  'a failed atomic metadata swap must clean new objects while retaining the old gallery',
+);
+
+const successfulReplacementEvents = [];
+const successfulTargetedReplacement = await migrateDatasetProfileGalleries({
+  dataset: { slug: 'fall-2026' },
+  profiles: [{
+    id: 'repair',
+    driveFolderId: '1234567890FOLDER',
+    profileImages: replacementExisting,
+  }],
+  dryRun: false,
+  replaceExisting: true,
+  ingestGallery: async () => ({
+    sourceKind: 'folder',
+    filesDiscovered: 2,
+    supportedImages: 2,
+    allSupportedValidated: true,
+    images: replacementNew,
+    rejected: [],
+    diagnostics: [],
+  }),
+  replaceGallery: async ({ plan }) => {
+    successfulReplacementEvents.push('metadata');
+    assert.deepEqual(plan.expectedExistingImageIds, replacementExisting.map((image) => image.id));
+  },
+  removeStorage: async (storagePath) => successfulReplacementEvents.push(`remove:${storagePath}`),
+});
+assert.equal(successfulTargetedReplacement.rows[0].status, 'replaced');
+assert.equal(successfulTargetedReplacement.summary.replaced, 1);
+assert.deepEqual(
+  successfulReplacementEvents,
+  ['metadata', ...replacementExisting.map((image) => `remove:${image.storagePath}`)],
+  'old Storage objects must be removed only after transactional metadata replacement succeeds',
+);
+
+const metadataCleanup = [];
+let metadataAttempts = 0;
+let partialPrimary = false;
+const partialMetadata = await migrateDatasetProfileGalleries({
+  dataset: { slug: 'fall-2026' },
+  profiles: [{ id: 'partial', driveFileId: '1234567890ABCDE', profileImages: [] }],
+  dryRun: false,
+  ingestGallery: async () => ({
+    sourceKind: 'file', filesDiscovered: 2, supportedImages: 2, rejected: [],
+    images: galleryCandidates.slice(0, 2).map((image) => ({
+      ...image,
+      storagePath: image.storagePath.replace('/gallery/', '/partial/'),
+    })),
+  }),
+  createImage: async ({ image, makePrimary }) => {
+    metadataAttempts += 1;
+    if (metadataAttempts === 1) throw new Error('database unavailable');
+    partialPrimary = makePrimary;
+    return { storagePath: image.storagePath, position: 0, isPrimary: makePrimary };
+  },
+  removeStorage: async (storagePath) => metadataCleanup.push(storagePath),
+});
+assert.equal(partialMetadata.summary.uploaded, 1);
+assert.equal(partialMetadata.summary.rejected, 1);
+assert.equal(partialMetadata.rows[0].status, 'uploaded_with_rejections');
+assert.equal(partialMetadata.rows[0].rejected[0].category, 'metadata_insert_failure');
+assert.equal(metadataCleanup.length, 1, 'a failed metadata insert must clean up its uploaded object');
+assert.equal(partialPrimary, true, 'the first image whose metadata succeeds must become primary');
+
+const missingGallery = await migrateDatasetProfileGalleries({
+  dataset: { slug: 'fall-2026' },
+  profiles: [{ id: 'missing', imageKind: 'missing', profileImages: [] }],
+  ingestGallery: async () => assert.fail('missing sources must not be ingested'),
+});
+assert.equal(missingGallery.rows[0].category, 'missing_source');
+
 const migrationSql = await readFile(new URL('../supabase/migrations/202608200001_profile_image_storage.sql', import.meta.url), 'utf8');
 assert.match(migrationSql, /storage_image_path text/);
 assert.match(migrationSql, /bucket_id = 'profile-images'/);
@@ -314,6 +626,12 @@ assert.match(adminImageMigrationSql, /create or replace function public\.delete_
 assert.match(adminImageMigrationSql, /create or replace function public\.replace_profile_image_storage_path/);
 assert.match(adminImageMigrationSql, /revoke all on function public\.create_profile_image_metadata/);
 assert.match(adminImageMigrationSql, /grant execute on function public\.delete_profile_image\(uuid, text, uuid\) to service_role/);
+const replacementMigrationSql = await readFile(new URL('../supabase/migrations/202609020001_targeted_profile_gallery_replacement.sql', import.meta.url), 'utf8');
+assert.match(replacementMigrationSql, /create or replace function public\.replace_profile_image_gallery/);
+assert.match(replacementMigrationSql, /for update/);
+assert.match(replacementMigrationSql, /existing_image_ids is distinct from expected_existing_image_ids/);
+assert.match(replacementMigrationSql, /delete from public\.profile_images[\s\S]*insert into public\.profile_images/);
+assert.match(replacementMigrationSql, /grant execute on function public\.replace_profile_image_gallery\(uuid, text, uuid\[\], jsonb\)[\s\S]*to service_role/);
 
 const browserGraphSources = await Promise.all([
   '../components/ProfileImage.js',
@@ -341,10 +659,32 @@ assert.match(adminDatasetSource, /resolveProfileImage\(\{ \.\.\.row\.public_data
 assert.match(adminDatasetSource, /updateAdminProfileImageFocal[\s\S]*\.eq\('dataset_id', datasetId\)[\s\S]*\.eq\('profile_id', profileId\)/);
 assert.match(adminDatasetSource, /if \(imageError\)[\s\S]*\.select\('id,storage_path,position,is_primary,focal_x,focal_y'\)/, 'Admin preview should remain compatible before display_mode is applied');
 assert.match(adminDatasetSource, /if \(fallback\.error\)[\s\S]*\.select\('id,storage_path,position,is_primary'\)/, 'Admin preview must retain image IDs when focal columns are not deployed yet');
+assert.match(adminDatasetSource, /resolveProfileImageSourcesForImage\(image/, 'Admin image cards must resolve each relational row independently');
+assert.match(adminDatasetSource, /src: resolved\.src[\s\S]*candidates: resolved\.candidates/);
 const adminProfilePreviewSource = await readFile(new URL('../app/admin/preview/[datasetId]/[profileId]/page.js', import.meta.url), 'utf8');
 assert.match(adminProfilePreviewSource, /editableImage[\s\S]*imageId: editableImage\?\.id/);
 const profileDetailSource = await readFile(new URL('../components/ProfileDetail.js', import.meta.url), 'utf8');
+assert.match(profileDetailSource, /import ProfileGallery from ['"]\.\/ProfileGallery['"]/);
+assert.match(profileDetailSource, /<ProfileGallery[\s\S]*images=\{profile\.profileImages\}/);
 assert.match(profileDetailSource, /\{adminPreview && hasEditableImage\s*\n\s*\? <FocalPointEditor/, 'Admin previews must mount the focal editor only for relational images');
+const profileGallerySource = await readFile(new URL('../components/ProfileGallery.js', import.meta.url), 'utf8');
+assert.match(profileGallerySource, /isPrimary/);
+assert.match(profileGallerySource, /ArrowLeft/);
+assert.match(profileGallerySource, /scrollTo/);
+assert.match(profileGallerySource, /slideRefs/);
+assert.match(profileGallerySource, /offsetLeft/);
+assert.match(profileGallerySource, /disabled=\{activeIndex === 0\}/);
+assert.match(profileGallerySource, /disabled=\{activeIndex === relationalImages\.length - 1\}/);
+assert.match(profileGallerySource, /targetIndex = Math\.max\(0, Math\.min\(index, relationalImages\.length - 1\)\)/);
+assert.match(profileGallerySource, /setActiveIndex\(Math\.max\(0, Math\.min\(nextIndex/);
+assert.match(profileGallerySource, /focalX=\{image\.focalX\}[\s\S]*focalY=\{image\.focalY\}[\s\S]*displayMode=\{image\.displayMode\}/);
+assert.match(profileGallerySource, /aria-label="Previous image"/);
+assert.match(profileGallerySource, /View image \$\{index \+ 1\} of/);
+const profileGalleryStyles = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
+assert.match(profileGalleryStyles, /\.profile-gallery-viewport[\s\S]*scroll-snap-type: x mandatory/);
+assert.match(profileGalleryStyles, /\.profile-gallery-viewport[\s\S]*touch-action: pan-x pan-y/);
+assert.match(profileGalleryStyles, /\.profile-gallery-slide[\s\S]*flex: 0 0 100%[\s\S]*width: 100%[\s\S]*min-width: 100%[\s\S]*scroll-snap-align: start/);
+assert.match(profileGalleryStyles, /prefers-reduced-motion: reduce/);
 const profileImageSource = browserGraphSources[0];
 assert.match(profileImageSource, /objectPosition: `\$\{focalX\}% \$\{focalY\}%`/);
 assert.match(profileImageSource, /objectFit: displayMode === 'portrait' \? 'contain' : 'cover'/);
@@ -387,5 +727,12 @@ assert.match(profileSearchSource, /No profiles match/);
 const migrationToolSource = await readFile(new URL('../scripts/migrate-drive-images-to-supabase.mjs', import.meta.url), 'utf8');
 assert.match(migrationToolSource, /pathExists\(storagePath\)[\s\S]*listImagePaths/, 'canonical-path reruns must recognize UUID-named image objects');
 assert.match(migrationToolSource, /findExistingPath\(profile\)[\s\S]*listPrimaryPaths/, 'legacy recovery must remain limited to unambiguous primary objects');
+assert.match(migrationToolSource, /migrateDatasetProfileGalleries/);
+assert.match(migrationToolSource, /from\('profile_images'\)/, 'migration must inspect relational galleries before touching Drive');
+assert.match(migrationToolSource, /create_profile_image_metadata/, 'migration must use the existing transactional metadata RPC');
+assert.match(migrationToolSource, /removeStorage: inspector\.remove/, 'metadata failures must use Storage cleanup');
+assert.match(migrationToolSource, /--replace-existing requires an explicit --profile/);
+assert.match(migrationToolSource, /replace_profile_image_gallery/);
+assert.match(migrationToolSource, /image_dimensions/);
 
 console.log('Profile image Storage paths, resolution, ingestion, migration, security, and preview tests passed.');

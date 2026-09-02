@@ -247,6 +247,16 @@ def resolve_worksheet_paths(archive):
         if path:
             resolved[_sheet_name_key(logical_name)] = path
 
+    # Fall 2026's test export is a single Google Forms sheet. Its Big answers
+    # live in the duplicated BY:CY block, so expose that sheet through the
+    # existing logical BIGS pipeline without changing older workbook handling.
+    form_response_path = next(
+        (path for name, path in resolved.items() if name == 'form responses 1'),
+        None,
+    )
+    if form_response_path and form_response_path in archive.namelist():
+        return {'BIGS': form_response_path}
+
     missing = []
     selected = {}
     for logical_key, config in SHEETS.items():
@@ -291,6 +301,17 @@ def select_sheet_configs(archive, shared, worksheet_paths):
                 'family': ('S',), 'hobbies': ('Y',), 'music': 'AE', 'movies': 'AF',
                 'perfectDay': 'AH', 'story': 'AZ', 'instagram': 'BC', 'image': 'BD',
                 'deck': None, 'socialLevel': ('AT',), 'socialStyle': ('AV',),
+            })
+        elif sheet_name == 'BIGS' and 'personality' in headers.get('CD', ''):
+            config.update({
+                'year': 'N', 'school': 'P', 'major': 'Q', 'program': 'R',
+                'family': ('BN', 'AS'), 'hobbies': 'BY', 'hobbyDetails': 'BZ',
+                'music': 'CA', 'movies': 'CB', 'passion': 'CC',
+                'tagline': 'CD', 'perfectDay': 'CE', 'uniqueThings': 'CF',
+                'bucketList': 'CG', 'hotTake': 'CH', 'idealHangout': 'AA',
+                'instagram': 'K', 'image': 'CX', 'deck': None,
+                'socialLevel': ('CS',), 'socialStyle': ('CU',), 'story': 'CV',
+                'f26': True,
             })
         elif sheet_name == 'BIGS' and 'instagram' in headers.get('DN', ''):
             config.update({
@@ -416,6 +437,11 @@ def redact_pii(value):
         value = HTTP_URL_RE.sub('[link with embedded credentials removed]', value)
         value = SENSITIVE_PARAMETER_RE.sub('[embedded credential removed]', value)
     return value
+
+
+def redact_multiline(value):
+    """Redact public story answers while retaining author-supplied line breaks."""
+    return '\n'.join(redact_pii(line) for line in (value or '').replace('\r\n', '\n').split('\n')).strip()
 
 
 def valid_instagram_handle(value):
@@ -560,6 +586,39 @@ def drive_id_from_query(parsed):
     return ''
 
 
+def parse_drive_source(value):
+    """Return one canonical Drive source without exposing URL parsing downstream."""
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return None
+    host = parsed.netloc.lower().split(':')[0]
+    if not (host.endswith('drive.google.com') or host.endswith('googleusercontent.com')):
+        return None
+
+    path = parsed.path or ''
+    query = parse_qs(parsed.query)
+    folder_query_id = (query.get('folderId') or [''])[0]
+    if folder_query_id:
+        return {'type': 'folder', 'id': folder_query_id} if valid_drive_id(folder_query_id) else {'type': 'invalid', 'id': ''}
+    folder_match = re.search(r'/(?:folders|folder/d)/([A-Za-z0-9_-]{10,200})', path)
+    if folder_match:
+        drive_id = folder_match.group(1)
+        return {'type': 'folder', 'id': drive_id} if valid_drive_id(drive_id) else {'type': 'invalid', 'id': ''}
+
+    for pattern in (
+        r'/file/d/([A-Za-z0-9_-]{10,200})',
+        r'/d/([A-Za-z0-9_-]{10,200})(?:[=/]|$)',
+    ):
+        match = re.search(pattern, path)
+        if match:
+            drive_id = match.group(1)
+            return {'type': 'file', 'id': drive_id} if valid_drive_id(drive_id) else {'type': 'invalid', 'id': ''}
+
+    drive_id = drive_id_from_query(parsed)
+    return {'type': 'file', 'id': drive_id} if drive_id else {'type': 'invalid', 'id': ''}
+
+
 def parse_image_source(raw_value):
     """Classify one spreadsheet image value and build the app-facing URL."""
     raw = clean_text(raw_value)
@@ -607,50 +666,20 @@ def parse_image_source(raw_value):
     host = parsed.netloc.lower().split(':')[0]
     path = parsed.path or ''
 
-    # Current and legacy Google Drive folder formats.
-    folder_match = re.search(
-        r'/(?:folders|folder/d)/([A-Za-z0-9_-]{10,200})',
-        path,
-    )
-    if host.endswith('drive.google.com') and folder_match:
-        folder_id = folder_match.group(1)
-        if not valid_drive_id(folder_id):
+    drive_source = parse_drive_source(candidate_url)
+    if drive_source:
+        if drive_source['type'] == 'invalid':
             result.update({
                 'kind': 'invalid-drive-link',
-                'issue': 'The submitted Drive folder link contains a placeholder or invalid file ID.',
+                'issue': 'The submitted Drive link contains a placeholder or invalid file ID.',
             })
             return result
+        drive_id = drive_source['id']
+        is_folder = drive_source['type'] == 'folder'
         result.update({
-            'kind': 'drive-folder',
-            'drive_id': folder_id,
-            'app_url': f'/api/drive-image?folderId={quote(folder_id)}',
-            'issue': (
-                'Folder link detected. Configure Google Drive credentials and share '
-                'the folder with the app, or replace it with one image file link.'
-            ),
-        })
-        return result
-
-    # Standard Drive file links plus open?id=, uc?id=, and thumbnail?id=.
-    file_patterns = [
-        r'/file/d/([A-Za-z0-9_-]{10,200})',
-        r'/d/([A-Za-z0-9_-]{10,200})(?:[=/]|$)',
-    ]
-    file_id = ''
-    if host.endswith('drive.google.com') or host.endswith('googleusercontent.com'):
-        for pattern in file_patterns:
-            match = re.search(pattern, path)
-            if match and valid_drive_id(match.group(1)):
-                file_id = match.group(1)
-                break
-        if not file_id:
-            file_id = drive_id_from_query(parsed)
-
-    if file_id:
-        result.update({
-            'kind': 'drive-file',
-            'drive_id': file_id,
-            'app_url': f'/api/drive-image?fileId={quote(file_id)}',
+            'kind': 'drive-folder' if is_folder else 'drive-file',
+            'drive_id': drive_id,
+            'app_url': f'/api/drive-image?{"folderId" if is_folder else "fileId"}={quote(drive_id)}',
             'issue': '',
         })
         return result
@@ -822,6 +851,13 @@ def build_profiles(xlsx_path):
 
         for sheet_name, config in configs.items():
             for row_number, row in enumerate(read_sheet(archive, worksheet_paths[sheet_name], shared), start=2):
+                hobby_details = ''
+                passion = ''
+                tagline = ''
+                unique_things = ''
+                bucket_list = ''
+                hot_take = ''
+                ideal_hangout = ''
                 if sheet_name == 'BIGS' and is_legacy_big_compact_row(row):
                     # This response came from an older version of the form. Its
                     # name starts in B/C, while the current E/F cells contain
@@ -874,6 +910,13 @@ def build_profiles(xlsx_path):
                     program = first(row, config['program'])
                     family = first(row, config['family'])
                     hobbies = first(row, config['hobbies'])
+                    hobby_details = first(row, config.get('hobbyDetails'))
+                    passion = first(row, config.get('passion'))
+                    tagline = first(row, config.get('tagline'))
+                    unique_things = first(row, config.get('uniqueThings'))
+                    bucket_list = first(row, config.get('bucketList'))
+                    hot_take = first(row, config.get('hotTake'))
+                    ideal_hangout = first(row, config.get('idealHangout'))
                     story = first(row, config['story']) if config.get('story') else ''
                     perfect_day = first(row, config['perfectDay'])
                     music = first(row, config['music'])
@@ -911,10 +954,17 @@ def build_profiles(xlsx_path):
                     'bio': bio,
                     'interests': interest_tags(hobbies, config['role'], program),
                     'vibes': infer_vibes(hobbies, music, movies, perfect_day, story),
-                    'hobbies': redact_pii(hobbies),
-                    'music': redact_pii(music),
-                    'movies': redact_pii(movies),
+                    'hobbies': redact_multiline(hobbies),
+                    'hobbyDetails': redact_multiline(hobby_details),
+                    'music': redact_multiline(music),
+                    'movies': redact_multiline(movies),
                     'perfectDay': redact_pii(perfect_day),
+                    'tagline': redact_multiline(tagline),
+                    'uniqueThings': redact_multiline(unique_things),
+                    'passion': redact_multiline(passion),
+                    'idealHangout': redact_multiline(ideal_hangout),
+                    'bucketList': redact_multiline(bucket_list),
+                    'hotTake': redact_multiline(hot_take),
                     'instagram': instagram,
                     'image': image['app_url'],
                     'imageCandidates': image_candidates(image),

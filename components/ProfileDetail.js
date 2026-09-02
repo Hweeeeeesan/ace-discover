@@ -3,17 +3,51 @@ import { ExternalLink, Instagram, Presentation } from 'lucide-react';
 import DiscoveryBackButton from './DiscoveryBackButton';
 import FocalPointEditor from './FocalPointEditor';
 import AdminImageManager from './AdminImageManager';
-import ProfileImage from './ProfileImage';
+import ProfileGallery from './ProfileGallery';
 import SeenProfileMarker from './SeenProfileMarker';
 import SavedProfileButton from './SavedProfileButton';
 import { isValidProfileImageId } from '../lib/profile-images';
+import { normalizeProfileStory } from '../lib/profile-story';
 
 function InfoSection({ title, children }) {
   if (!children) return null;
   return <section className="info-section"><h2>{title}</h2><p>{children}</p></section>;
 }
 
+function StorySection({ title, children, className = '', when = true }) {
+  if (!when || !children) return null;
+  return <section className={`story-section ${className}`}><h2>{title}</h2>{children}</section>;
+}
+
+function StoryText({ children }) {
+  return <p className="story-text">{children}</p>;
+}
+
+function EditorialStory({ story, profile }) {
+  const aboutMe = typeof profile.bio === 'string' ? profile.bio.trim() : '';
+  const hobbyContent = story.hobbyItems.length
+    ? <div className="hobby-list">{story.hobbyItems.map((item, index) => (
+      <article key={`${item.name}-${index}`}><h3>{item.name}</h3>{item.detail && <p>{item.detail}</p>}</article>
+    ))}</div>
+    : <><StoryText>{story.hobbies}</StoryText>{story.hobbyDetails && <StoryText>{story.hobbyDetails}</StoryText>}</>;
+  return <div className="editorial-story">
+    {aboutMe && <StorySection title="A LITTLE ABOUT ME" className="story-intro"><StoryText>{aboutMe}</StoryText></StorySection>}
+    <StorySection title="THINGS THAT MAKE ME, ME" className="story-feature" when={story.uniqueThingsText}>
+      {story.uniqueThings.length ? <ol className="unique-things">{story.uniqueThings.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ol> : <StoryText>{story.uniqueThingsText}</StoryText>}
+    </StorySection>
+    <StorySection title="I COULD TALK ABOUT THIS FOR HOURS" when={story.passion}><StoryText>{story.passion}</StoryText></StorySection>
+    <StorySection title="MY PERFECT DAY" className="story-prose" when={story.perfectDay}><StoryText>{story.perfectDay}</StoryText></StorySection>
+    <StorySection title="HOBBIES & ACTIVITIES" when={story.hobbies || story.hobbyDetails}><div className="story-hobbies">{hobbyContent}</div></StorySection>
+    <StorySection title="CURRENT SOUNDTRACK" className="story-compact" when={story.music}><StoryText>{story.music}</StoryText></StorySection>
+    <StorySection title="MOVIES & SHOWS" className="story-compact" when={story.moviesTv}><StoryText>{story.moviesTv}</StoryText></StorySection>
+    <StorySection title="IDEAL HANGOUT" className="story-compact" when={story.idealHangout}><StoryText>{story.idealHangout}</StoryText></StorySection>
+    <StorySection title="ON MY BUCKET LIST" className="story-bucket" when={story.bucketList}><StoryText>{story.bucketList}</StoryText></StorySection>
+    <StorySection title="MY HARMLESS HOT TAKE" className="hot-take" when={story.hotTake}><blockquote>{story.hotTake}</blockquote></StorySection>
+  </div>;
+}
+
 export default function ProfileDetail({ profile, datasetSlug, adminPreview = null }) {
+  const story = normalizeProfileStory(profile);
   const adminBackHref = adminPreview?.backHref || '';
   const editableImage = profile.profileImages?.find((image) => image.isPrimary)
     || profile.profileImages?.[0];
@@ -42,19 +76,30 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
               focalY={profile.focalY}
               displayMode={profile.displayMode}
             />
-            : <ProfileImage className="detail-photo" src={profile.image} candidates={profile.imageCandidates} alt={profile.name} eager focalX={profile.focalX} focalY={profile.focalY} displayMode={profile.displayMode} />}
+            : <ProfileGallery
+              profileName={profile.name}
+              images={profile.profileImages}
+              fallbackSrc={profile.image}
+              fallbackCandidates={profile.imageCandidates}
+              fallbackFocalX={profile.focalX}
+              fallbackFocalY={profile.focalY}
+              fallbackDisplayMode={profile.displayMode}
+            />}
           {adminPreview
             ? <Link className="back-button" href={adminBackHref} aria-label="Back to Admin dataset"><span aria-hidden="true">←</span></Link>
             : <DiscoveryBackButton className="back-button" iconOnly profileId={profile.id} datasetSlug={datasetSlug} />}
           <span className="detail-role-pill">{profile.role}</span>
         </div>
         <div className="detail-content">
-          <div className="eyebrow dark">{profile.major} · {profile.year}</div>
           <div className="detail-name-row">
             <h1>{profile.name}</h1>
             {!adminPreview && <SavedProfileButton profileId={profile.id} datasetSlug={datasetSlug} className="detail-save-button" />}
           </div>
-          <p className="detail-bio">{profile.bio}</p>
+          <div className="detail-role-label">{profile.role}</div>
+          <div className="eyebrow dark">{profile.major} · {profile.year}</div>
+          {story.isEditorial && story.tagline
+            ? <p className="detail-tagline">“{story.tagline}”</p>
+            : <p className="detail-bio">{profile.bio}</p>}
           <div className="tag-row detail-tags">
             {profile.interests.map((interest) => <span className="tag light" key={interest}>{interest}</span>)}
           </div>
@@ -70,25 +115,24 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
               <ExternalLink size={18} />
             </a>
           )}
-          <InfoSection title="Hobbies & interests">{profile.hobbies}</InfoSection>
-          <InfoSection title="Music">{profile.music}</InfoSection>
-          <InfoSection title="Movies & shows">{profile.movies}</InfoSection>
-          <InfoSection title="Perfect day">{profile.perfectDay}</InfoSection>
-          {profile.slideDeckUrl ? (
+          {story.isEditorial
+            ? <EditorialStory story={story} profile={profile} />
+            : <>
+              <InfoSection title="Hobbies & interests">{profile.hobbies}</InfoSection>
+              <InfoSection title="Music">{profile.music}</InfoSection>
+              <InfoSection title="Movies & shows">{profile.movies}</InfoSection>
+              <InfoSection title="Perfect day">{profile.perfectDay}</InfoSection>
+            </>}
+          {profile.slideDeckUrl && (
             <a className="deck-button" href={profile.slideDeckUrl} target="_blank" rel="noreferrer">
               <span className="deck-icon"><Presentation size={21} /></span>
               <span><strong>View slide deck</strong><small>Opens the submitted deck in a new tab</small></span>
               <ExternalLink size={18} />
             </a>
-          ) : (
-            <div className="deck-button deck-unavailable" aria-disabled="true">
-              <span className="deck-icon"><Presentation size={21} /></span>
-              <span><strong>No slide deck submitted</strong><small>This profile did not include a deck link.</small></span>
-            </div>
           )}
           {adminPreview
             ? <Link className="secondary-link" href={adminBackHref}>Back to Admin dataset</Link>
-            : <DiscoveryBackButton className="secondary-link" profileId={profile.id} datasetSlug={datasetSlug}>Back to discovery</DiscoveryBackButton>}
+            : <DiscoveryBackButton className="secondary-link detail-discovery-link" profileId={profile.id} datasetSlug={datasetSlug}>Back to discovery</DiscoveryBackButton>}
         </div>
       </div>
       {adminPreview && (
