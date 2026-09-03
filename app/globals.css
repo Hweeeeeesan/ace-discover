@@ -628,11 +628,12 @@ select:focus-visible {
 .info-section p { max-width: 100%; margin: 0; overflow-wrap: anywhere; color: #5b5954; font-size: 15px; line-height: 1.65; }
 .editorial-story { --story-section-gap: 26px; --story-section-padding: 16px; margin-top: 25px; }
 .instagram-button + .editorial-story { margin-top: 16px; padding-top: 16px; border-top: 1px solid #ebe8e1; }
+.instagram-button + .editorial-story > .story-section:first-child { border-top: 0; }
 .story-section { margin-top: var(--story-section-gap); padding-top: var(--story-section-padding); border-top: 1px solid #ebe8e1; }
+.editorial-story > .story-section:first-child { margin-top: 0; }
 .story-section h2 { margin: 0 0 10px; color: #171717; font-size: 11px; font-weight: 750; letter-spacing: .13em; line-height: 1.3; text-transform: uppercase; }
 .story-text { max-width: 47ch; margin: 0; overflow-wrap: anywhere; white-space: pre-line; color: #58544d; font-size: 15px; line-height: 1.62; }
 .story-prose .story-text { max-width: 42ch; }
-.story-intro { margin-top: 0; padding-top: 0; border-top: 0; }
 .unique-things { max-width: 44ch; margin: 0; padding-left: 24px; color: #58544d; }
 .unique-things li { padding: 2px 0; color: #58544d; font-size: 15px; font-weight: 400; line-height: 1.62; }
 .unique-things li::marker { color: #171717; font-size: 12px; font-weight: 600; }
@@ -643,7 +644,6 @@ select:focus-visible {
 .story-compact .story-text { max-width: 50ch; }
 .story-bucket .story-text { max-width: 44ch; }
 .hot-take { padding-bottom: 16px; border-bottom: 1px solid #ebe8e1; }
-.hot-take blockquote { margin: 0; padding: 0; border: 0; color: #58544d; background: transparent; font-family: Georgia,serif; font-size: 15px; font-style: italic; line-height: 1.62; }
 .deck-button { width: 100%; min-height: 74px; margin-top: 30px; padding: 12px 15px; border-radius: 20px; display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 12px; color: white; background: #111; }
 .deck-icon { width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; background: #242424; }
 .deck-button span:nth-child(2) { display: flex; flex-direction: column; gap: 3px; }

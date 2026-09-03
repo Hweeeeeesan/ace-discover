@@ -24,14 +24,12 @@ function StoryText({ children }) {
 }
 
 function EditorialStory({ story, profile }) {
-  const aboutMe = typeof profile.bio === 'string' ? profile.bio.trim() : '';
   const hobbyContent = story.hobbyItems.length
     ? <div className="hobby-list">{story.hobbyItems.map((item, index) => (
       <article key={`${item.name}-${index}`}><h3>{item.name}</h3>{item.detail && <p>{item.detail}</p>}</article>
     ))}</div>
     : <><StoryText>{story.hobbies}</StoryText>{story.hobbyDetails && <StoryText>{story.hobbyDetails}</StoryText>}</>;
   return <div className="editorial-story">
-    {aboutMe && <StorySection title="A LITTLE ABOUT ME" className="story-intro"><StoryText>{aboutMe}</StoryText></StorySection>}
     <StorySection title="THINGS THAT MAKE ME, ME" className="story-feature" when={story.uniqueThingsText}>
       {story.uniqueThings.length ? <ol className="unique-things">{story.uniqueThings.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ol> : <StoryText>{story.uniqueThingsText}</StoryText>}
     </StorySection>
@@ -42,7 +40,7 @@ function EditorialStory({ story, profile }) {
     <StorySection title="MOVIES & SHOWS" className="story-compact" when={story.moviesTv}><StoryText>{story.moviesTv}</StoryText></StorySection>
     <StorySection title="IDEAL HANGOUT" className="story-compact" when={story.idealHangout}><StoryText>{story.idealHangout}</StoryText></StorySection>
     <StorySection title="ON MY BUCKET LIST" className="story-bucket" when={story.bucketList}><StoryText>{story.bucketList}</StoryText></StorySection>
-    <StorySection title="MY HARMLESS HOT TAKE" className="hot-take" when={story.hotTake}><blockquote>{story.hotTake}</blockquote></StorySection>
+    <StorySection title="MY HARMLESS HOT TAKE" className="hot-take" when={story.hotTake}><StoryText>{story.hotTake}</StoryText></StorySection>
   </div>;
 }
 
