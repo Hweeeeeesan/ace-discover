@@ -10,6 +10,45 @@ MODULE_PATH = pathlib.Path(__file__).with_name('import-master-apps.py')
 SPEC = importlib.util.spec_from_file_location('profile_importer', MODULE_PATH)
 IMPORTER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(IMPORTER)
+SHEET_ANALYZER_PATH = pathlib.Path(__file__).with_name('analyze-sheet-values.py')
+SHEET_SPEC = importlib.util.spec_from_file_location('sheet_values_analyzer', SHEET_ANALYZER_PATH)
+SHEET_ANALYZER = importlib.util.module_from_spec(SHEET_SPEC)
+SHEET_SPEC.loader.exec_module(SHEET_ANALYZER)
+
+
+def logical_sheet_values(workbook, logical_name):
+    with zipfile.ZipFile(workbook) as archive:
+        root = ET.fromstring(archive.read('xl/sharedStrings.xml'))
+        shared = [
+            ''.join(node.text or '' for node in item.iter('{%s}t' % IMPORTER.MAIN))
+            for item in root.findall('{%s}si' % IMPORTER.MAIN)
+        ]
+        paths = IMPORTER.resolve_worksheet_paths(archive)
+        sheet_root = ET.fromstring(archive.read(paths[logical_name]))
+        values = []
+        for row in sheet_root.findall('.//m:sheetData/m:row', IMPORTER.NS):
+            indexed = {}
+            for cell in row.findall('m:c', IMPORTER.NS):
+                letters = ''.join(character for character in cell.attrib.get('r', '') if character.isalpha())
+                index = 0
+                for character in letters:
+                    index = index * 26 + ord(character) - 64
+                indexed[index - 1] = IMPORTER.cell_value(cell, shared)
+            dense = [''] * (max(indexed, default=-1) + 1)
+            for index, value in indexed.items():
+                dense[index] = value
+            values.append(dense)
+        return values
+
+
+def set_cell(row, column, value):
+    index = 0
+    for character in column:
+        index = index * 26 + ord(character) - 64
+    index -= 1
+    if len(row) <= index:
+        row.extend([''] * (index + 1 - len(row)))
+    row[index] = value
 
 
 class ImageClassificationTests(unittest.TestCase):
@@ -93,6 +132,112 @@ class ImageClassificationTests(unittest.TestCase):
 
 
 class PublicProfileTests(unittest.TestCase):
+    def test_fall_2026_program_choices_map_to_roles_explicitly(self):
+        cases = {
+            'FAM/ACE LITTLE Program': 'Little',
+            'FAMILY + ACE LITTLE PROGRAM': 'Little',
+            'ACE BIG ONLY PROGRAM': 'Big',
+            'ACE BIGs ONLY': 'Big',
+            'FAMILY PROGRAM / FAMILY ONLY': 'Family',
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(IMPORTER.normalize_program_role(raw), expected)
+
+    def test_fall_2026_program_choice_normalizes_case_and_spacing(self):
+        variants = [
+            '  fam / ace   little   PROGRAM  ',
+            'Family + Ace Little Program',
+            'FAMILY+ACE LITTLE PROGRAM',
+        ]
+        for raw in variants:
+            with self.subTest(raw=raw):
+                self.assertEqual(IMPORTER.normalize_program_role(raw), 'Little')
+
+    def test_ambiguous_program_choice_does_not_default_to_big(self):
+        for raw in ('', 'ACE PROGRAM', 'FAMILY OR ACE', 'Interested in ACE'):
+            with self.subTest(raw=raw):
+                self.assertIsNone(IMPORTER.normalize_program_role(raw))
+                with self.assertRaisesRegex(ValueError, 'role was not inferred'):
+                    IMPORTER.derive_profile_role(raw, 'Big', program_is_authoritative=True)
+
+    def test_hazel_tran_representative_fall_2026_row_maps_to_little(self):
+        workbook = pathlib.Path(__file__).parents[1] / 'FALL 26 MASTER APPS TEST.xlsx'
+        values = logical_sheet_values(workbook, 'BIGS')
+        row = values[1]
+        for column in ('BY', 'BZ', 'CA', 'CB', 'CC', 'CD', 'CE', 'CF', 'CG', 'CH', 'CV', 'CX'):
+            set_cell(row, column, '')
+        little_public_values = {
+            'E': 'Hazel',
+            'F': 'Tran',
+            'R': 'FAM/ACE LITTLE Program',
+            'S': 'Baking\nCrocheting\nConcerts\nMovies\nTraveling',
+            'T': 'Baking: I make treats for friends.\nCrocheting: I make gifts for people.',
+            'U': 'R&B and pop; SZA, Wave to Earth, and Laufey.',
+            'V': 'Criminal Minds, One Piece, and Legally Blonde.',
+            'W': '1. I make handmade gifts\n2. I collect blind boxes\n3. I love creative nails',
+            'X': 'Creative, caring, and always curious.',
+            'Y': 'A beach picnic, crafts, and dinner with friends.',
+            'Z': 'Cake pops are better than cupcakes.',
+            'AA': 'Trying a new cafe and doing crafts together.',
+            'AB': 'Visit Japan to explore the food and art.',
+            'AH': 'I could talk about crafts and concert memories for hours.',
+            'AL': '3',
+            'AN': 'Ambivert',
+            'AQ': 'https://drive.google.com/file/d/1HazelTranProfileImage2026/view',
+            'BL': 'I am a creative person who loves making thoughtful gifts.',
+        }
+        for column, value in little_public_values.items():
+            set_cell(row, column, value)
+        private_values = {
+            'AE': 'PRIVATE DISLIKED ACTIVITY',
+            'AF': 'PRIVATE PET PEEVE',
+            'AT': 'PRIVATE PAIRING PREFERENCE',
+            'BI': 'PRIVATE CURFEW',
+            'BJ': 'PRIVATE CONFIDENTIAL RESPONSE',
+        }
+        for column, value in private_values.items():
+            set_cell(row, column, value)
+        with tempfile.TemporaryDirectory() as directory:
+            adapted = pathlib.Path(directory) / 'hazel-f26.xlsx'
+            SHEET_ANALYZER.write_tabular_xlsx(adapted, 'Form Responses 1', values)
+            profiles, _ = IMPORTER.build_profiles(adapted)
+        profile = profiles[0]
+        self.assertEqual(profile['name'], 'Hazel Tran')
+        self.assertEqual(profile['program'], 'FAM/ACE LITTLE Program')
+        self.assertEqual(profile['role'], 'Little')
+        self.assertEqual(profile['hobbies'], little_public_values['S'])
+        self.assertEqual(profile['hobbyDetails'], little_public_values['T'])
+        self.assertEqual(profile['music'], little_public_values['U'])
+        self.assertEqual(profile['movies'], little_public_values['V'])
+        self.assertEqual(profile['uniqueThings'], little_public_values['W'])
+        self.assertEqual(profile['tagline'], little_public_values['X'])
+        self.assertEqual(profile['perfectDay'], little_public_values['Y'])
+        self.assertEqual(profile['hotTake'], little_public_values['Z'])
+        self.assertEqual(profile['idealHangout'], little_public_values['AA'])
+        self.assertEqual(profile['bucketList'], little_public_values['AB'])
+        self.assertEqual(profile['passion'], little_public_values['AH'])
+        self.assertEqual(profile['bio'], little_public_values['BL'])
+        self.assertEqual(profile['interests'][0], 'Little')
+        self.assertEqual(profile['imageKind'], 'drive-file')
+        self.assertEqual(profile['driveFileId'], '1HazelTranProfileImage2026')
+        staged = IMPORTER.build_dataset_payload(profiles)['profiles'][0]
+        public_data = staged['public']
+        for field in (
+            'hobbies', 'hobbyDetails', 'music', 'movies', 'uniqueThings', 'tagline',
+            'perfectDay', 'hotTake', 'idealHangout', 'bucketList', 'passion', 'bio',
+        ):
+            self.assertEqual(public_data[field], profile[field])
+        self.assertEqual(staged['driveFileId'], '1HazelTranProfileImage2026')
+        public_text = repr(public_data)
+        for private_value in private_values.values():
+            self.assertNotIn(private_value, public_text)
+
+    def test_legacy_sheet_roles_remain_authoritative(self):
+        self.assertEqual(IMPORTER.derive_profile_role('', 'Little'), 'Little')
+        self.assertEqual(IMPORTER.derive_profile_role('FAM/ACE LITTLE Program', 'Big'), 'Big')
+        self.assertEqual(IMPORTER.derive_profile_role('ACE BIG ONLY PROGRAM', 'Family'), 'Family')
+
     def test_fall_2026_test_response_maps_public_story_fields_only(self):
         workbook = pathlib.Path(__file__).parents[1] / 'FALL 26 MASTER APPS TEST.xlsx'
         profiles, _ = IMPORTER.build_profiles(workbook)
@@ -100,6 +245,10 @@ class PublicProfileTests(unittest.TestCase):
         profile = profiles[0]
         self.assertEqual(profile['name'], 'Logan Ho')
         self.assertEqual(profile['role'], 'Big')
+        self.assertEqual(
+            profile['interests'],
+            IMPORTER.interest_tags(profile['hobbies'], 'Big', profile['program']),
+        )
         self.assertEqual(profile['tagline'], 'Be the change you want to see.')
         self.assertIn('1. I am both a morning and a night person', profile['uniqueThings'])
         self.assertIn('Psychology', profile['passion'])
@@ -117,11 +266,24 @@ class PublicProfileTests(unittest.TestCase):
             paths = IMPORTER.resolve_worksheet_paths(archive)
             configs = IMPORTER.select_sheet_configs(archive, shared, paths)
             headers = IMPORTER._header_values(archive, paths['BIGS'], shared)
-        self.assertEqual(configs['BIGS']['image'], 'CX')
+        self.assertEqual(configs['BIGS']['image'], ('AQ', 'CX'))
+        self.assertIn('upload a picture', headers['AQ'])
         self.assertEqual(headers['CX'], 'upload picture(s) of yourself! (max 4)')
         public = IMPORTER.public_profiles(profiles)[0]
         for private_key in ('phone', 'email', 'birthday', 'facebook', 'conflicts', 'curfew'):
             self.assertNotIn(private_key, public)
+
+    def test_google_sheet_rows_match_excel_normalization(self):
+        workbook = pathlib.Path(__file__).parents[1] / 'FALL 26 MASTER APPS TEST.xlsx'
+        excel_profiles, _ = IMPORTER.build_profiles(workbook)
+        values = logical_sheet_values(workbook, 'BIGS')
+
+        with tempfile.TemporaryDirectory() as directory:
+            adapted = pathlib.Path(directory) / 'sheet.xlsx'
+            SHEET_ANALYZER.write_tabular_xlsx(adapted, 'Form Responses 1', values)
+            sheet_profiles, _ = IMPORTER.build_profiles(adapted)
+        self.assertEqual(sheet_profiles, excel_profiles)
+        self.assertNotIn('email', IMPORTER.public_profiles(sheet_profiles)[0])
 
     @staticmethod
     def _workbook(sheet_definitions):
@@ -201,6 +363,20 @@ class PublicProfileTests(unittest.TestCase):
             with zipfile.ZipFile(path) as archive:
                 with self.assertRaisesRegex(ValueError, 'BIGS.*Detected logical sheets'):
                     IMPORTER.resolve_worksheet_paths(archive)
+
+    def test_sheet_adapter_can_use_one_recognized_logical_tab(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / 'partial.xlsx'
+            with zipfile.ZipFile(path, 'w') as archive:
+                for name, content in self._workbook([
+                    ('BIGS', 'xl/worksheets/sheet1.xml'),
+                ]).items():
+                    archive.writestr(name, content)
+            with zipfile.ZipFile(path) as archive:
+                self.assertEqual(
+                    IMPORTER.resolve_worksheet_paths(archive, allow_partial=True),
+                    {'BIGS': 'xl/worksheets/sheet1.xml'},
+                )
 
     def test_real_spring_workbook_uses_spring_layout_when_available(self):
         spring = pathlib.Path(__file__).parents[1] / 'Spring 26 Master Apps.xlsx'

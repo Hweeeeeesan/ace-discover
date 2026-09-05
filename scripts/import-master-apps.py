@@ -215,7 +215,7 @@ def _sheet_name_key(value):
     return re.sub(r'[^a-z0-9]+', ' ', (value or '').strip().lower()).strip()
 
 
-def resolve_worksheet_paths(archive):
+def resolve_worksheet_paths(archive, allow_partial=False):
     """Resolve logical worksheet names through workbook relationships.
 
     XLSX worksheet filenames are package implementation details and may be
@@ -268,12 +268,15 @@ def resolve_worksheet_paths(archive):
             missing.append(logical_key)
         else:
             selected[logical_key] = path
-    if missing:
+    if missing and not allow_partial:
         detected = sorted(name for name in resolved if name)
         raise ValueError(
             'Workbook is missing required logical worksheet(s): '
             f"{missing}. Detected logical sheets: {detected}"
         )
+    if not selected:
+        detected = sorted(name for name in resolved if name)
+        raise ValueError(f'Workbook has no recognized response worksheets. Detected logical sheets: {detected}')
     return selected
 
 
@@ -305,12 +308,12 @@ def select_sheet_configs(archive, shared, worksheet_paths):
         elif sheet_name == 'BIGS' and 'personality' in headers.get('CD', ''):
             config.update({
                 'year': 'N', 'school': 'P', 'major': 'Q', 'program': 'R',
-                'family': ('BN', 'AS'), 'hobbies': 'BY', 'hobbyDetails': 'BZ',
-                'music': 'CA', 'movies': 'CB', 'passion': 'CC',
-                'tagline': 'CD', 'perfectDay': 'CE', 'uniqueThings': 'CF',
-                'bucketList': 'CG', 'hotTake': 'CH', 'idealHangout': 'AA',
-                'instagram': 'K', 'image': 'CX', 'deck': None,
-                'socialLevel': ('CS',), 'socialStyle': ('CU',), 'story': 'CV',
+                'family': ('AS', 'BN'), 'hobbies': ('S', 'BY'), 'hobbyDetails': ('T', 'BZ'),
+                'music': ('U', 'CA'), 'movies': ('V', 'CB'), 'passion': ('AH', 'CC'),
+                'tagline': ('X', 'CD'), 'perfectDay': ('Y', 'CE'), 'uniqueThings': ('W', 'CF'),
+                'bucketList': ('AB', 'CG'), 'hotTake': ('Z', 'CH'), 'idealHangout': 'AA',
+                'instagram': 'K', 'image': ('AQ', 'CX'), 'deck': None,
+                'socialLevel': ('AL', 'CS'), 'socialStyle': ('AN', 'CU'), 'story': ('BL', 'CV'),
                 'f26': True,
             })
         elif sheet_name == 'BIGS' and 'instagram' in headers.get('DN', ''):
@@ -362,6 +365,43 @@ def normalization_key(value):
     value = ''.join(character for character in value if not unicodedata.combining(character))
     value = value.lower().replace('&', ' and ')
     return re.sub(r'[^a-z0-9]+', ' ', value).strip()
+
+
+PROGRAM_ROLE_MAP = {
+    'fam ace little program': 'Little',
+    'family ace little program': 'Little',
+    'family and ace little program': 'Little',
+    'ace little program': 'Little',
+    'ace big only program': 'Big',
+    'ace big only': 'Big',
+    'ace bigs only': 'Big',
+    'ace bigs only program': 'Big',
+    'family program family only': 'Family',
+    'family program only': 'Family',
+    'family only program': 'Family',
+    'family only': 'Family',
+    'fam program only': 'Family',
+    'fam only program': 'Family',
+    'fam only': 'Family',
+}
+
+
+def normalize_program_role(value):
+    """Map known program choices to public roles without substring inference."""
+    return PROGRAM_ROLE_MAP.get(normalization_key(value))
+
+
+def derive_profile_role(program, sheet_role, program_is_authoritative=False):
+    """Keep legacy sheet roles, but require a known program choice for Fall 2026."""
+    if not program_is_authoritative:
+        return sheet_role
+    role = normalize_program_role(program)
+    if role:
+        return role
+    raise ValueError(
+        'Fall 2026 program choice is missing or unrecognized; role was not inferred: '
+        f'{clean_text(program)!r}'
+    )
 
 
 def normalize_year(value):
@@ -833,7 +873,7 @@ def validate_workbook_schema(archive, shared, worksheet_paths=None, configs=None
                 )
 
 
-def build_profiles(xlsx_path):
+def build_profiles(xlsx_path, allow_partial=False):
     profiles = []
     image_report = []
     seen = {}
@@ -845,7 +885,7 @@ def build_profiles(xlsx_path):
             for shared_item in root.findall('m:si', NS):
                 shared.append(''.join((node.text or '') for node in shared_item.iter(f'{{{MAIN}}}t')))
 
-        worksheet_paths = resolve_worksheet_paths(archive)
+        worksheet_paths = resolve_worksheet_paths(archive, allow_partial=allow_partial)
         configs = select_sheet_configs(archive, shared, worksheet_paths)
         validate_workbook_schema(archive, shared, worksheet_paths, configs)
 
@@ -931,17 +971,22 @@ def build_profiles(xlsx_path):
                 if not name or '[email removed]' in name or '[phone removed]' in name:
                     continue
 
+                role = derive_profile_role(program, config['role'], config.get('f26', False))
+
                 base = slugify(name)
                 seen[base] = seen.get(base, 0) + 1
                 profile_id = base if seen[base] == 1 else f'{base}-{seen[base]}'
 
-                bio = redact_pii(story or hobbies or perfect_day or f'{config["role"]} applicant')
+                bio = redact_pii(story or hobbies or perfect_day)
                 image = parse_image_source(raw_image)
+                interests = interest_tags(hobbies, role, program)
+                if config.get('f26') and role == 'Little':
+                    interests = [role] + [item for item in interests if item != role][:2]
 
                 profile = {
                     'id': profile_id,
                     'name': name,
-                    'role': config['role'],
+                    'role': role,
                     'major': redact_pii(major) or 'Major not listed',
                     'majorGroup': normalize_major_group(major),
                     'year': redact_pii(year) or 'Year not listed',
@@ -952,7 +997,7 @@ def build_profiles(xlsx_path):
                     'program': redact_pii(program),
                     'family': redact_pii(family),
                     'bio': bio,
-                    'interests': interest_tags(hobbies, config['role'], program),
+                    'interests': interests,
                     'vibes': infer_vibes(hobbies, music, movies, perfect_day, story),
                     'hobbies': redact_multiline(hobbies),
                     'hobbyDetails': redact_multiline(hobby_details),
@@ -982,7 +1027,7 @@ def build_profiles(xlsx_path):
                 image_report.append({
                     'profile_id': profile_id,
                     'name': name,
-                    'role': config['role'],
+                    'role': role,
                     'source_group': sheet_name,
                     'source_row': row_number,
                     'submitted_value': image['source'],

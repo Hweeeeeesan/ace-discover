@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Archive, CheckCircle2, Database, Plus, RotateCcw, Trash2, Upload } from 'lucide-react';
+import { AlertTriangle, Archive, CheckCircle2, Database, FileSpreadsheet, Link2, Pencil, Plus, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 
@@ -86,12 +86,128 @@ function ImportPreview({ preview, onSaved }) {
           </details>
         ))}
       </div>
-      <p className="dataset-preview-note">Only normalized public profile fields and Drive allowlist IDs will be saved. The uploaded workbook is not retained.</p>
+      <p className="dataset-preview-note">Only normalized public profile fields and Drive allowlist IDs will be saved. Source files and private Sheet responses are not retained.</p>
       {error && <p className="admin-form-error" role="alert">{error}</p>}
       <button className="dataset-primary-action" type="button" onClick={save} disabled={pending}>
         <Database size={17} /> {pending ? 'Saving…' : 'Save Dataset'}
       </button>
     </section>
+  );
+}
+
+function SyncPreview({ preview, onApplied, onCancel }) {
+  const [pending, setPending] = useState(false);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [error, setError] = useState('');
+  const { diff } = preview;
+  const needsAcknowledgement = diff.counts.removed > 0;
+
+  async function apply() {
+    setPending(true);
+    setError('');
+    try {
+      const result = await postJson('/api/admin/datasets/sync/apply', {
+        importId: preview.importId,
+        datasetId: preview.metadata.id,
+        acknowledgeRemoved: acknowledged,
+        sourceType: preview.sourceType,
+        sheetId: preview.sheetId,
+        sheetTab: preview.sheetTab,
+        sourceHash: preview.sourceHash,
+        previewHash: preview.previewHash,
+      });
+      onApplied(result.dataset);
+    } catch (applyError) {
+      setError(applyError.message);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <section className="dataset-import-preview dataset-sync-preview" aria-label="Changes since last sync">
+      <div className="dataset-preview-heading">
+        <div><span>Changes since last sync</span><h3>{preview.metadata.name}</h3></div>
+        <b>Not applied</b>
+      </div>
+      <div className="dataset-diff-counts">
+        <article><strong>+ {diff.counts.added}</strong><span>New profiles</span></article>
+        <article><strong>~ {diff.counts.updated}</strong><span>Updated profiles</span></article>
+        <article><strong>− {diff.counts.removed}</strong><span>Missing from source</span></article>
+      </div>
+      {!diff.hasChanges && <p className="dataset-no-changes">No normalized public profile changes were found.</p>}
+      {diff.added.length > 0 && <div className="dataset-diff-group"><h4>New</h4><ul>{diff.added.map((profile) => <li key={profile.id}><b>+</b><strong>{profile.name}</strong></li>)}</ul></div>}
+      {diff.updated.length > 0 && <div className="dataset-diff-group"><h4>Updated</h4><ul>{diff.updated.map((profile) => <li key={profile.id}><b>~</b><span><strong>{profile.name}</strong><small>{profile.fields.join(' · ')}</small></span></li>)}</ul></div>}
+      {needsAcknowledgement && (
+        <div className="dataset-removed-warning">
+          <AlertTriangle size={18} />
+          <div><strong>{diff.counts.removed} profile{diff.counts.removed === 1 ? ' is' : 's are'} no longer present in the source.</strong><p>ACE Discover will preserve {diff.counts.removed === 1 ? 'this profile' : 'these profiles'} and all existing galleries.</p></div>
+          <ul>{diff.removed.map((profile) => <li key={profile.id}>{profile.name}</li>)}</ul>
+          <label><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /> I understand these profiles are missing from the source and will be preserved.</label>
+        </div>
+      )}
+      <p className="dataset-preview-note">Applying updates normalized public fields atomically. Existing Admin-managed galleries remain authoritative; changed Drive links are reported but do not replace them.</p>
+      <p className="dataset-preview-note">Validated snapshot: {preview.health.totalProfiles} profiles. No public change occurs until Apply Changes succeeds.</p>
+      {error && <p className="admin-form-error" role="alert">{error}</p>}
+      <div className="dataset-preview-actions">
+        <button type="button" onClick={onCancel} disabled={pending}>Cancel</button>
+        <button className="dataset-primary-action" type="button" onClick={apply} disabled={pending || (needsAcknowledgement && !acknowledged)}><Database size={17} /> {pending ? 'Applying…' : 'Apply Changes'}</button>
+      </div>
+    </section>
+  );
+}
+
+function SheetConnector({ dataset, onPreview, onError, setPendingAction, pendingAction }) {
+  const [sheetUrl, setSheetUrl] = useState('');
+  const [connection, setConnection] = useState(null);
+  const [tab, setTab] = useState('');
+
+  async function inspect(event) {
+    event.preventDefault();
+    setPendingAction('connect-sheet');
+    onError('');
+    try {
+      const result = await postJson('/api/admin/datasets/sheets/connect', { sheetUrl });
+      setConnection(result);
+      setTab(result.suggestedTab || '');
+    } catch (connectError) {
+      onError(connectError.message);
+    } finally {
+      setPendingAction('');
+    }
+  }
+
+  async function previewSync() {
+    if (!connection || !tab) return;
+    setPendingAction('analyze-sheet');
+    onError('');
+    try {
+      const result = await postJson('/api/admin/datasets/sheets/analyze', {
+        datasetId: dataset.id,
+        sheetId: connection.sheetId,
+        tab,
+      });
+      onPreview(result);
+    } catch (analyzeError) {
+      onError(analyzeError.message);
+    } finally {
+      setPendingAction('');
+    }
+  }
+
+  return (
+    <form className="dataset-sheet-connector" onSubmit={inspect}>
+      <label>Google Sheets URL<input type="url" value={sheetUrl} onChange={(event) => { setSheetUrl(event.target.value); setConnection(null); setTab(''); }} placeholder="https://docs.google.com/spreadsheets/d/…/edit" required /></label>
+      <button type="submit" disabled={Boolean(pendingAction)}><Link2 size={16} /> {pendingAction === 'connect-sheet' ? 'Checking access…' : 'Connect Google Sheet'}</button>
+      {connection && (
+        <div className="dataset-sheet-confirmation">
+          <p><strong>{connection.title}</strong><span>Service account access verified</span></p>
+          <label>Worksheet<select value={tab} onChange={(event) => setTab(event.target.value)} required><option value="">Choose a worksheet</option>{connection.tabs.map((item) => <option key={item.id} value={item.title}>{item.title}</option>)}</select></label>
+          {!connection.suggestedTab && connection.tabs.length > 1 && <small>Multiple worksheets were found. Choose the response worksheet before continuing.</small>}
+          <button type="button" className="dataset-primary-action" onClick={previewSync} disabled={!tab || Boolean(pendingAction)}><RefreshCw size={16} /> {pendingAction === 'analyze-sheet' ? 'Analyzing…' : 'Preview Sheet changes'}</button>
+        </div>
+      )}
+    </form>
   );
 }
 
@@ -102,13 +218,34 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
   const [pendingAction, setPendingAction] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [showSourceEditor, setShowSourceEditor] = useState(false);
+  const [showManualUpdate, setShowManualUpdate] = useState(false);
+  const [addSource, setAddSource] = useState('excel');
+  const [addSheetUrl, setAddSheetUrl] = useState('');
+  const [addSheet, setAddSheet] = useState(null);
+  const [addSheetTab, setAddSheetTab] = useState('');
+  const [addName, setAddName] = useState('');
+  const [addTerm, setAddTerm] = useState('');
+  const [addYear, setAddYear] = useState('');
   const [removeTarget, setRemoveTarget] = useState(null);
   const [removeConfirmation, setRemoveConfirmation] = useState('');
+  const [editingDatasetId, setEditingDatasetId] = useState('');
+  const [datasetNameDraft, setDatasetNameDraft] = useState('');
   const active = datasets.find((dataset) => dataset.status === 'active');
   const selected = datasets.find((dataset) => dataset.id === selectedDatasetId) || active || datasets[0];
   const defaultYear = new Date().getFullYear();
   const defaultTerm = new Date().getMonth() >= 6 ? 'Fall' : 'Spring';
   const suggestedName = useMemo(() => `${defaultTerm} ${defaultYear}`, [defaultTerm, defaultYear]);
+
+  function openAddSemester() {
+    const next = !showImport;
+    if (next) {
+      setAddName(suggestedName);
+      setAddTerm(defaultTerm);
+      setAddYear(String(defaultYear));
+    }
+    setShowImport(next);
+  }
 
   async function analyze(event) {
     event.preventDefault();
@@ -120,6 +257,58 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || 'Workbook analysis failed.');
       setPreview(payload);
+    } catch (analyzeError) {
+      setError(analyzeError.message);
+    } finally {
+      setPendingAction('');
+    }
+  }
+
+  async function checkSheetUpdates() {
+    if (!selected) return;
+    setPendingAction('check-sheet');
+    setError('');
+    setMessage('');
+    try {
+      setPreview(await postJson('/api/admin/datasets/sheets/analyze', { datasetId: selected.id }));
+    } catch (checkError) {
+      setError(checkError.message);
+    } finally {
+      setPendingAction('');
+    }
+  }
+
+  async function inspectAddSheet() {
+    setPendingAction('connect-new-sheet');
+    setError('');
+    try {
+      const result = await postJson('/api/admin/datasets/sheets/connect', { sheetUrl: addSheetUrl });
+      setAddSheet(result);
+      setAddSheetTab(result.suggestedTab || '');
+    } catch (connectError) {
+      setError(connectError.message);
+    } finally {
+      setPendingAction('');
+    }
+  }
+
+  async function analyzeNewSheet(event) {
+    event.preventDefault();
+    if (!addSheet || !addSheetTab) {
+      setError('Verify the Google Sheet and choose a worksheet first.');
+      return;
+    }
+    setPendingAction('analyze-new-sheet');
+    setError('');
+    setMessage('');
+    try {
+      setPreview(await postJson('/api/admin/datasets/sheets/analyze', {
+        name: addName,
+        term: addTerm,
+        year: addYear,
+        sheetId: addSheet.sheetId,
+        tab: addSheetTab,
+      }));
     } catch (analyzeError) {
       setError(analyzeError.message);
     } finally {
@@ -149,6 +338,43 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
     try {
       await postJson('/api/admin/datasets/status', { datasetId: dataset.id, status });
       setMessage(`${dataset.name} is now ${status}.`);
+      router.refresh();
+    } catch (actionError) {
+      setError(actionError.message);
+    } finally {
+      setPendingAction('');
+    }
+  }
+
+  function startEditingName(dataset) {
+    setError('');
+    setMessage('');
+    setEditingDatasetId(dataset.id);
+    setDatasetNameDraft(dataset.name);
+  }
+
+  function cancelEditingName() {
+    if (!pendingAction.startsWith('rename-')) {
+      setEditingDatasetId('');
+      setDatasetNameDraft('');
+    }
+  }
+
+  async function saveDatasetName(event, dataset) {
+    event.preventDefault();
+    const name = datasetNameDraft.trim();
+    if (!name) {
+      setError('Dataset name is required.');
+      return;
+    }
+    setPendingAction(`rename-${dataset.id}`);
+    setError('');
+    setMessage('');
+    try {
+      await postJson('/api/admin/datasets/name', { datasetId: dataset.id, name });
+      setEditingDatasetId('');
+      setDatasetNameDraft('');
+      setMessage(`Dataset renamed to ${name}.`);
       router.refresh();
     } catch (actionError) {
       setError(actionError.message);
@@ -204,11 +430,17 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
       <div className="dataset-list">
         {datasets.map((dataset) => (
           <article className={dataset.id === selected?.id ? 'is-selected' : ''} key={dataset.id}>
-            <div><strong>{dataset.name}</strong><span>{dataset.slug} · {dataset.profileCount} profiles · imported {dataset.importedAt ? new Date(dataset.importedAt).toLocaleDateString() : '—'}</span></div>
+            {editingDatasetId === dataset.id ? (
+              <form className="dataset-name-editor" onSubmit={(event) => saveDatasetName(event, dataset)}>
+                <label>Dataset name<input autoFocus value={datasetNameDraft} onChange={(event) => setDatasetNameDraft(event.target.value)} maxLength="100" required /></label>
+                <div><button type="submit" disabled={pendingAction === `rename-${dataset.id}`}>{pendingAction === `rename-${dataset.id}` ? 'Saving…' : 'Save name'}</button><button type="button" onClick={cancelEditingName} disabled={pendingAction === `rename-${dataset.id}`}>Cancel</button></div>
+              </form>
+            ) : <div><strong>{dataset.name}</strong><span>{dataset.slug} · {dataset.profileCount} profiles · imported {dataset.importedAt ? new Date(dataset.importedAt).toLocaleDateString() : '—'}</span></div>}
             <b className={`dataset-status status-${dataset.status}`}>{dataset.status}</b>
             <div className="dataset-actions">
               <Link href={`/admin?dataset=${encodeURIComponent(dataset.id)}`}>Health</Link>
               <Link href={`/admin/preview/${encodeURIComponent(dataset.id)}`}>Profiles</Link>
+              {editingDatasetId !== dataset.id && <button type="button" onClick={() => startEditingName(dataset)} disabled={Boolean(pendingAction) || dataset.deletionPending}><Pencil size={14} /> Edit name</button>}
               {dataset.status !== 'active' && <button type="button" onClick={() => activate(dataset)} disabled={Boolean(pendingAction) || dataset.deletionPending}>Make Active</button>}
               {dataset.status === 'ready' && <button type="button" onClick={() => setStatus(dataset, 'archived')} disabled={Boolean(pendingAction) || dataset.deletionPending}><Archive size={14} /> Archive</button>}
               {dataset.status === 'archived' && <button type="button" onClick={() => setStatus(dataset, 'ready')} disabled={Boolean(pendingAction) || dataset.deletionPending}><RotateCcw size={14} /> Restore</button>}
@@ -228,20 +460,61 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
         ))}
         {!datasets.length && <p className="dataset-empty">Run the migration and seed Fall 2025, then refresh this page.</p>}
       </div>
-      <button className="dataset-import-toggle" type="button" onClick={() => setShowImport((value) => !value)} aria-expanded={showImport}><Plus size={17} /> {showImport ? 'Close Add Semester' : 'Add Semester'}</button>
+      {selected && (
+        <section className="dataset-source-card" aria-labelledby="dataset-source-title">
+          <div><span>Data source</span><h3 id="dataset-source-title">{selected.sourceType === 'google_sheet' ? 'Google Sheet' : 'Excel Workbook'}</h3></div>
+          {selected.sourceType === 'google_sheet' ? (
+            <div className="dataset-source-details">
+              <strong>{selected.googleSheetTitle || 'Connected Google Sheet'}</strong>
+              <span><CheckCircle2 size={14} /> Connected · {selected.googleSheetTab}</span>
+              <small>Last synced {selected.lastSourceSyncAt ? new Date(selected.lastSourceSyncAt).toLocaleString() : '—'}</small>
+            </div>
+          ) : <p>Upload a workbook whenever this semester needs a reviewed update.</p>}
+          <div className="dataset-source-actions">
+            {selected.sourceType === 'google_sheet' && <button type="button" onClick={checkSheetUpdates} disabled={Boolean(pendingAction)}><RefreshCw size={16} /> {pendingAction === 'check-sheet' ? 'Checking…' : 'Check for updates'}</button>}
+            <button type="button" onClick={() => setShowManualUpdate((value) => !value)} disabled={Boolean(pendingAction)}><FileSpreadsheet size={16} /> {selected.sourceType === 'google_sheet' ? 'Upload Excel fallback' : 'Upload Updated Workbook'}</button>
+            {selected.sourceType !== 'google_sheet' && <button type="button" onClick={() => setShowSourceEditor((value) => !value)} disabled={Boolean(pendingAction)}><Link2 size={16} /> Connect Google Sheet</button>}
+          </div>
+          {showManualUpdate && (
+            <form className="dataset-source-inline-form" onSubmit={analyze}>
+              <input type="hidden" name="datasetId" value={selected.id} />
+              <label>Workbook (.xlsx, max 15 MiB)<input name="workbook" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required /></label>
+              <p>This fallback uses the same preview and approval flow. A connected Sheet remains connected.</p>
+              <button className="dataset-primary-action" type="submit" disabled={pendingAction === 'analyze'}><Upload size={17} /> {pendingAction === 'analyze' ? 'Analyzing…' : 'Preview workbook update'}</button>
+            </form>
+          )}
+          {showSourceEditor && selected.sourceType !== 'google_sheet' && <SheetConnector dataset={selected} onPreview={setPreview} onError={setError} setPendingAction={setPendingAction} pendingAction={pendingAction} />}
+        </section>
+      )}
+      <button className="dataset-import-toggle" type="button" onClick={openAddSemester} aria-expanded={showImport}><Plus size={17} /> {showImport ? 'Close Add Semester' : 'Add Semester'}</button>
       {showImport && (
-        <form className="dataset-import-form" onSubmit={analyze}>
-          <label>Semester name<input name="name" defaultValue={suggestedName} maxLength="100" required /></label>
-          <label>Term<select name="term" defaultValue={defaultTerm}><option>Spring</option><option>Summer</option><option>Fall</option><option>Winter</option></select></label>
-          <label>Year<input name="year" type="number" min="2020" max="2100" defaultValue={defaultYear} required /></label>
-          <label className="dataset-file-input">Workbook (.xlsx, max 15 MiB)<input name="workbook" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required /></label>
-          <p>The workbook is analyzed with the existing ACE privacy and normalization importer. Analysis never publishes automatically.</p>
-          <button className="dataset-primary-action" type="submit" disabled={pendingAction === 'analyze'}><Upload size={17} /> {pendingAction === 'analyze' ? 'Analyzing…' : 'Analyze workbook'}</button>
+        <form className="dataset-import-form" onSubmit={addSource === 'excel' ? analyze : analyzeNewSheet}>
+          <label>Semester name<input name="name" value={addName} onChange={(event) => setAddName(event.target.value)} maxLength="100" required /></label>
+          <label>Term<select name="term" value={addTerm} onChange={(event) => setAddTerm(event.target.value)}><option>Spring</option><option>Summer</option><option>Fall</option><option>Winter</option></select></label>
+          <label>Year<input name="year" type="number" min="2020" max="2100" value={addYear} onChange={(event) => setAddYear(event.target.value)} required /></label>
+          <div className="dataset-source-picker" role="group" aria-label="Data source">
+            <span>Data source</span>
+            <button type="button" className={addSource === 'excel' ? 'is-selected' : ''} onClick={() => setAddSource('excel')}><FileSpreadsheet size={16} /> Upload Excel Workbook</button>
+            <button type="button" className={addSource === 'google_sheet' ? 'is-selected' : ''} onClick={() => setAddSource('google_sheet')}><Link2 size={16} /> Connect Google Sheet</button>
+          </div>
+          {addSource === 'excel' ? (
+            <label className="dataset-file-input">Workbook (.xlsx, max 15 MiB)<input name="workbook" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required /></label>
+          ) : (
+            <div className="dataset-new-sheet-fields">
+              <label>Google Sheets URL<input type="url" value={addSheetUrl} onChange={(event) => { setAddSheetUrl(event.target.value); setAddSheet(null); }} placeholder="https://docs.google.com/spreadsheets/d/…/edit" required /></label>
+              <button type="button" onClick={inspectAddSheet} disabled={!addSheetUrl || Boolean(pendingAction)}>{pendingAction === 'connect-new-sheet' ? 'Checking access…' : 'Verify Sheet'}</button>
+              {addSheet && <label>Worksheet<select value={addSheetTab} onChange={(event) => setAddSheetTab(event.target.value)} required><option value="">Choose a worksheet</option>{addSheet.tabs.map((tab) => <option key={tab.id} value={tab.title}>{tab.title}</option>)}</select></label>}
+              {addSheet && !addSheet.suggestedTab && addSheet.tabs.length > 1 && <small>Multiple worksheets were found. Choose the response worksheet.</small>}
+            </div>
+          )}
+          <p>Both sources use the same ACE privacy, normalization, validation, and preview pipeline. Analysis never publishes automatically.</p>
+          <button className="dataset-primary-action" type="submit" disabled={Boolean(pendingAction) || (addSource === 'google_sheet' && (!addSheet || !addSheetTab))}>{addSource === 'excel' ? <Upload size={17} /> : <RefreshCw size={17} />} {pendingAction.startsWith('analyze') ? 'Analyzing…' : addSource === 'excel' ? 'Analyze workbook' : 'Analyze Google Sheet'}</button>
         </form>
       )}
       {error && <p className="admin-form-error" role="alert">{error}</p>}
       {message && <p className="admin-form-success" role="status"><CheckCircle2 size={16} /> {message}</p>}
-      {preview && <ImportPreview preview={preview} onSaved={(dataset) => { setPreview(null); setShowImport(false); setMessage(`${dataset.name} was saved as READY and is not live.`); router.refresh(); }} />}
+      {preview?.mode === 'sync' && <SyncPreview preview={preview} onCancel={() => setPreview(null)} onApplied={(dataset) => { setPreview(null); setShowManualUpdate(false); setShowSourceEditor(false); setMessage(`${dataset.name} was updated atomically${dataset.status === 'active' ? ' and is now reflected on the public site' : ''}.`); router.refresh(); }} />}
+      {preview && preview.mode !== 'sync' && <ImportPreview preview={preview} onSaved={(dataset) => { setPreview(null); setShowImport(false); setMessage(`${dataset.name} was saved as READY and is not live.`); router.refresh(); }} />}
       {removeTarget && (
         <div className="dataset-remove-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeRemoveDialog(); }} onKeyDown={(event) => { if (event.key === 'Escape') closeRemoveDialog(); }}>
           <section className="dataset-remove-dialog" role="dialog" aria-modal="true" aria-labelledby="dataset-remove-title" aria-describedby="dataset-remove-description">

@@ -7,7 +7,7 @@ import ProfileGallery from './ProfileGallery';
 import SeenProfileMarker from './SeenProfileMarker';
 import SavedProfileButton from './SavedProfileButton';
 import { isValidProfileImageId } from '../lib/profile-images';
-import { normalizeProfileStory } from '../lib/profile-story';
+import { normalizeProfileIntro, normalizeProfileStory } from '../lib/profile-story';
 
 function InfoSection({ title, children }) {
   if (!children) return null;
@@ -23,7 +23,7 @@ function StoryText({ children }) {
   return <p className="story-text">{children}</p>;
 }
 
-function EditorialStory({ story, profile }) {
+function EditorialStory({ story }) {
   const hobbyContent = story.hobbyItems.length
     ? <div className="hobby-list">{story.hobbyItems.map((item, index) => (
       <article key={`${item.name}-${index}`}><h3>{item.name}</h3>{item.detail && <p>{item.detail}</p>}</article>
@@ -46,6 +46,7 @@ function EditorialStory({ story, profile }) {
 
 export default function ProfileDetail({ profile, datasetSlug, adminPreview = null }) {
   const story = normalizeProfileStory(profile);
+  const intro = normalizeProfileIntro(profile, story);
   const adminBackHref = adminPreview?.backHref || '';
   const editableImage = profile.profileImages?.find((image) => image.isPrimary)
     || profile.profileImages?.[0];
@@ -95,9 +96,9 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
           </div>
           <div className="detail-role-label">{profile.role}</div>
           <div className="eyebrow dark">{profile.major} · {profile.year}</div>
-          {story.isEditorial && story.tagline
-            ? <p className="detail-tagline">“{story.tagline}”</p>
-            : <p className="detail-bio">{profile.bio}</p>}
+          {intro.tagline
+            ? <p className="detail-tagline">“{intro.tagline}”</p>
+            : intro.bio ? <p className="detail-bio">{intro.bio}</p> : null}
           <div className="tag-row detail-tags">
             {profile.interests.map((interest) => <span className="tag light" key={interest}>{interest}</span>)}
           </div>
@@ -114,7 +115,7 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
             </a>
           )}
           {story.isEditorial
-            ? <EditorialStory story={story} profile={profile} />
+            ? <EditorialStory story={story} />
             : <>
               <InfoSection title="Hobbies & interests">{profile.hobbies}</InfoSection>
               <InfoSection title="Music">{profile.music}</InfoSection>

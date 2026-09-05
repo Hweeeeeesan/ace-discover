@@ -4,6 +4,11 @@
 -- supabase/migrations/202608160001_ace_discover_v4_service_role_grants.sql
 -- supabase/migrations/202608200001_profile_image_storage.sql
 -- supabase/migrations/202608200002_profile_images.sql
+-- supabase/migrations/202608210001_profile_image_admin_management.sql
+-- supabase/migrations/202609010001_dataset_removal.sql
+-- supabase/migrations/202609020001_targeted_profile_gallery_replacement.sql
+-- supabase/migrations/202609040001_google_sheet_sync.sql
+-- supabase/migrations/202609040002_dataset_name_edit.sql
 --
 -- Run those complete migrations in order in the Supabase SQL editor or with
 -- the Supabase CLI. This compatibility pointer intentionally contains no partial/legacy

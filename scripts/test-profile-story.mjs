@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { normalizeProfileStory } from '../lib/profile-story.js';
+import { readFile } from 'node:fs/promises';
+import { normalizeProfileIntro, normalizeProfileStory } from '../lib/profile-story.js';
 
 const story = normalizeProfileStory({
   tagline: 'Be the change.',
@@ -22,4 +23,53 @@ assert.deepEqual(story.hobbyItems, [
 ]);
 assert.equal(normalizeProfileStory({ bio: 'Legacy profile' }).isEditorial, false);
 assert.equal(normalizeProfileStory({ tagline: 'Only a phrase' }).perfectDay, '');
+const sharedFields = {
+  tagline: 'Creative, caring, and curious.',
+  uniqueThings: '1. Handmade gifts\n2. Loves concerts',
+  passion: 'Crafts and concert memories',
+  perfectDay: 'A beach picnic with friends.',
+  hobbies: 'Baking\nCrocheting',
+  hobbyDetails: 'Baking: Treats for friends\nCrocheting: Handmade gifts',
+  music: 'R&B and pop',
+  movies: 'Criminal Minds and One Piece',
+  idealHangout: 'A cafe and crafts',
+  bucketList: 'Visit Japan',
+  hotTake: 'Cake pops beat cupcakes',
+};
+assert.deepEqual(
+  normalizeProfileStory({ role: 'Little', ...sharedFields }),
+  normalizeProfileStory({ role: 'Big', ...sharedFields }),
+  'Big and Little profiles must use the same general story normalization',
+);
+const emptyStory = normalizeProfileStory({ role: 'Little' });
+assert.equal(emptyStory.isEditorial, false);
+for (const field of ['tagline', 'uniqueThingsText', 'passion', 'perfectDay', 'hobbies', 'hobbyDetails', 'music', 'moviesTv', 'idealHangout', 'bucketList', 'hotTake']) {
+  assert.equal(emptyStory[field], '', `${field} must remain hidden when unanswered`);
+}
+assert.deepEqual(normalizeProfileIntro({ role: 'Little', bio: 'Little applicant' }), { tagline: '', bio: '' });
+assert.deepEqual(normalizeProfileIntro({ role: 'Big', bio: 'Big applicant' }), { tagline: '', bio: '' });
+assert.deepEqual(normalizeProfileIntro({ role: 'Little', bio: 'A real public story.' }), { tagline: '', bio: 'A real public story.' });
+assert.deepEqual(
+  normalizeProfileIntro({ role: 'Big', bio: 'A real story.', ...sharedFields }),
+  { tagline: sharedFields.tagline, bio: 'A real story.' },
+  'Big editorial intro rendering remains unchanged',
+);
+
+const detailSource = await readFile(new URL('../components/ProfileDetail.js', import.meta.url), 'utf8');
+for (const title of [
+  'THINGS THAT MAKE ME, ME',
+  'I COULD TALK ABOUT THIS FOR HOURS',
+  'MY PERFECT DAY',
+  'HOBBIES & ACTIVITIES',
+  'CURRENT SOUNDTRACK',
+  'MOVIES & SHOWS',
+  'IDEAL HANGOUT',
+  'ON MY BUCKET LIST',
+  'MY HARMLESS HOT TAKE',
+]) assert.match(detailSource, new RegExp(`title="${title}"`));
+const editorialSource = detailSource.slice(detailSource.indexOf('function EditorialStory'), detailSource.indexOf('export default function ProfileDetail'));
+assert.doesNotMatch(editorialSource, /profile\.role/, 'general story sections must not branch on role');
+assert.match(detailSource, /className="detail-role-pill">\{profile\.role\}/, 'the image role badge remains');
+assert.match(detailSource, /profile\.interests\.map[\s\S]*className="tag light"/, 'the standalone role/interests chip row remains');
+assert.match(detailSource, /profile\.program && <span>\{profile\.program\}<\/span>/, 'the program context pill remains');
 console.log('Profile story normalization tests passed.');

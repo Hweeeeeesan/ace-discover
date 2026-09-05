@@ -1,5 +1,5 @@
 import { authorizeAdminRequest } from '../../../../../lib/admin/authorization';
-import { createDatasetImport } from '../../../../../lib/datasets/admin';
+import { createDatasetImport, createDatasetSyncImport } from '../../../../../lib/datasets/admin';
 import { analyzeWorkbookUpload, semesterMetadata } from '../../../../../lib/import/workbook';
 import { MAX_WORKBOOK_BYTES, uploadRequestTooLarge } from '../../../../../lib/import/limits';
 
@@ -15,10 +15,12 @@ export async function POST(request) {
 
   try {
     const formData = await request.formData();
-    const metadata = semesterMetadata({
-      name: formData.get('name'),
-      term: formData.get('term'),
-      year: formData.get('year'),
+    const datasetId = String(formData.get('datasetId') || '');
+    if (datasetId && !/^[0-9a-f-]{36}$/i.test(datasetId)) {
+      return Response.json({ error: 'Invalid dataset.' }, { status: 400 });
+    }
+    const metadata = datasetId ? null : semesterMetadata({
+      name: formData.get('name'), term: formData.get('term'), year: formData.get('year'),
     });
     const workbook = formData.get('workbook');
     if (workbook?.size > MAX_WORKBOOK_BYTES) {
@@ -28,8 +30,27 @@ export async function POST(request) {
     if (payload.criticalErrors?.length) {
       return Response.json({ error: payload.criticalErrors.join(' ') }, { status: 422 });
     }
+    if (datasetId) {
+      const result = await createDatasetSyncImport({
+        datasetId,
+        payload,
+        userId: authorization.identity.user.id,
+        source: { type: 'excel' },
+      });
+      return Response.json({
+        mode: 'sync',
+        importId: result.draft.id,
+        expiresAt: result.draft.expires_at,
+        metadata: result.metadata,
+        health: result.health,
+        safeIssues: result.safeIssues,
+        diff: result.diff,
+        sourceType: 'excel',
+      });
+    }
     const draft = await createDatasetImport({ metadata, payload, userId: authorization.identity.user.id });
     return Response.json({
+      mode: 'create',
       importId: draft.id,
       expiresAt: draft.expires_at,
       metadata,

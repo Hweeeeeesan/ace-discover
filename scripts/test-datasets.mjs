@@ -82,6 +82,7 @@ assert.deepEqual(readSeenIds('spring-2026', memoryStorage), []);
 const migration = await readFile(new URL('../supabase/migrations/202608150001_ace_discover_v4_datasets.sql', import.meta.url), 'utf8');
 const hardeningMigration = await readFile(new URL('../supabase/migrations/202608150002_ace_discover_v4_hardening.sql', import.meta.url), 'utf8');
 const serviceRoleGrantsMigration = await readFile(new URL('../supabase/migrations/202608160001_ace_discover_v4_service_role_grants.sql', import.meta.url), 'utf8');
+const datasetNameMigration = await readFile(new URL('../supabase/migrations/202609040002_dataset_name_edit.sql', import.meta.url), 'utf8');
 assert.match(migration, /datasets_one_active_idx[\s\S]*where status = 'active'/);
 assert.match(migration, /draft\.slug, draft\.name, draft\.term, draft\.year, 'ready',[\s\S]*draft\.profile_count, draft\.health, draft\.safe_issues/);
 assert.match(migration, /update public\.datasets[\s\S]*status = 'archived'[\s\S]*update public\.datasets[\s\S]*status = 'active'/);
@@ -120,11 +121,19 @@ for (const signature of [
   assert.match(serviceRoleGrantsMigration, new RegExp(`grant execute on function public\\.${signature} to service_role`));
 }
 assert.doesNotMatch(serviceRoleGrantsMigration, /ALL ON ALL TABLES/i);
+assert.match(datasetNameMigration, /create or replace function public\.update_dataset_name\([\s\S]*dataset_id_to_update uuid[\s\S]*requested_name text/);
+assert.match(datasetNameMigration, /set name = normalized_name/);
+assert.doesNotMatch(datasetNameMigration, /set slug|set profile_count|set status/);
+assert.match(datasetNameMigration, /grant execute on function public\.update_dataset_name\(uuid, text\) to service_role/);
 
 for (const route of ['analyze', 'save', 'activate', 'status']) {
   const source = await readFile(new URL(`../app/api/admin/datasets/${route}/route.js`, import.meta.url), 'utf8');
   assert.match(source, /authorizeAdminRequest\(request\)/, `${route} must verify the server-side session`);
 }
+const datasetNameRoute = await readFile(new URL('../app/api/admin/datasets/name/route.js', import.meta.url), 'utf8');
+assert.match(datasetNameRoute, /authorizeAdminRequest\(request\)/);
+assert.match(datasetNameRoute, /normalizedName\.length > 100/);
+assert.match(datasetNameRoute, /updateDatasetName\(normalizedId, normalizedName\)/);
 
 const homeSource = await readFile(new URL('../app/page.js', import.meta.url), 'utf8');
 assert.match(homeSource, /getActiveDataset/);

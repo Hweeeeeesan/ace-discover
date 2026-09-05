@@ -8,7 +8,7 @@ Version 4 adds Supabase Google authentication for the organizer Admin, persisten
 
 1. Create a Supabase project and enable the Google provider under Authentication.
 2. Add the local and production callback URLs to the Supabase redirect allowlist, including `http://localhost:3000/auth/callback` and the deployed `/auth/callback` URL.
-3. Run all versioned migrations in order from `supabase/migrations/`. Existing projects must also apply the latest dataset-removal migration before the Admin semester-removal controls are used.
+3. Run all versioned migrations in order from `supabase/migrations/`. Existing projects must also apply the latest Google Sheet sync migration, `202609040001_google_sheet_sync.sql`, before using the updated Admin Dataset Manager.
 4. Configure the variables documented in `.env.example`:
 
 ```dotenv
@@ -34,6 +34,23 @@ Google OAuth establishes a persistent Supabase cookie session. `/admin` verifies
 The database stores `datasets`, normalized `dataset_profiles`, singleton `app_settings`, and expiring `dataset_imports`. Tables have RLS enabled and no direct anonymous/authenticated table access. Anonymous bulk functions expose only the active dataset and remove Instagram from every discovery record. A separate active-dataset single-profile function supplies detail data, including a valid Instagram URL when present. READY and archived datasets remain private; authenticated Admin preview reads them only through the server service role after authorization.
 
 Workbook uploads accept `.xlsx` files up to 15 MiB inside a 16 MiB multipart request envelope. Oversized requests are rejected before parsing when `Content-Length` is available, and file size is always checked again after parsing. A Node route writes the workbook to a private temporary directory, invokes the canonical Python importer, and deletes the workbook immediately. Sanitized previews expire after 24 hours; expired rows are deleted opportunistically during Admin dataset access, new analysis, and save attempts. Save creates a READY dataset without changing public discovery. Make Active is a separate confirmed action; the previous active dataset becomes private and archived but remains available to Admin for rollback. The host must provide `python3` because the canonical importer is Python-based.
+
+## Optional Google Sheets synchronization
+
+Excel upload remains the default, fully supported dataset source. An authorized Owner or Admin can optionally connect a private Google Sheet to a semester, check it for changes, review a privacy-safe diff, and explicitly apply a validated update. A connected semester still offers manual XLSX upload as a fallback.
+
+Google Sheet rows are adapted to the same temporary tabular workbook representation consumed by `scripts/import-master-apps.py`. There is no second field mapping: Excel and Sheets use the same Fall 2025, Spring 2026, and Fall 2026 header detection, normalization, redaction, validation, health report, preview, and Supabase dataset model. Raw Sheet contents are not stored. Only the existing sanitized import-preview payload, Sheet ID/tab/title, a source hash, and sync timestamps are retained.
+
+Setup:
+
+1. In the existing `ace-discover` Google Cloud project, enable **Google Sheets API**.
+2. Share the master response Sheet with `ace-discover-drive@ace-discover.iam.gserviceaccount.com` as **Viewer**. The Sheet does not need to be public.
+3. Apply `supabase/migrations/202609040001_google_sheet_sync.sql`.
+4. In ACE Discover Admin, select the semester and choose **Connect Google Sheet**, or choose Google Sheet while adding a semester.
+5. Paste the `https://docs.google.com/spreadsheets/d/.../edit` URL. If ACE cannot safely identify one response tab, select it explicitly.
+6. Choose **Check for updates**, review the new/updated/missing profile summary, and select **Apply Changes** only when ready.
+
+ACE Discover requests read-only Google scopes and never edits the Sheet. Sheet changes never publish automatically. Check-for-updates performs no database write and returns only a sanitized diff plus integrity hashes. Apply re-fetches the Sheet and rejects stale previews before using the existing expiring import staging and atomic dataset RPC. Missing source rows are preserved and require explicit acknowledgement, and existing relational `profile_images` galleries remain authoritative even when an imported Drive source changes. Supabase remains the canonical published store, so a deleted Sheet, revoked permission, API outage, or service-account failure does not affect the current public dataset.
 
 The Admin Dataset Manager exposes the same workbook workflow as **Add Semester**. READY and archived semesters can also be permanently removed after typing their exact names. Active semesters are protected in both the UI and database and must be replaced first. Removal derives the Storage prefix from the server-side dataset record, deletes only that prefix from `profile-images`, then deletes the dataset row; existing foreign-key cascades remove its profiles and relational image metadata. A Storage failure keeps the database dataset available and reports the failure for retry.
 
@@ -277,9 +294,9 @@ Reports are written to:
 reports/supabase-image-migration-<dataset-slug>.csv
 ```
 
-## Refresh from a newer Google Sheets export
+## Manual refresh from a Google Sheets Excel export
 
-Download the Google Sheet as `.xlsx`, then run from this project folder:
+This remains supported as an offline/manual fallback. Download the Google Sheet as `.xlsx`, then run from this project folder:
 
 ```bash
 npm run profiles:import -- "/path/to/FALL 25 MASTER APPS.xlsx"
