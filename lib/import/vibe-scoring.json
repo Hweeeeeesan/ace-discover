@@ -1,0 +1,255 @@
+{
+  "version": 1,
+  "threshold": 5,
+  "maxVibes": 5,
+  "strengths": {
+    "strong": 3,
+    "weak": 1
+  },
+  "fieldWeights": {
+    "hobbies": 3,
+    "hobbyDetails": 3,
+    "passion": 3,
+    "perfectDay": 2,
+    "idealHangout": 2,
+    "story": 1,
+    "music": 1,
+    "movies": 1
+  },
+  "vibes": [
+    {
+      "name": "Foodie",
+      "strong": [
+        ["foodie", "\\bfoodie\\b"],
+        ["trying-food", "\\btry(?:ing)? (?:new )?(?:food|restaurants?|food spots?)\\b"],
+        ["eating-out", "\\beat(?:ing)? out\\b"],
+        ["cooking", "\\bcook(?:ing)?\\b"],
+        ["baking", "\\bbak(?:e|ing)\\b"]
+      ],
+      "weak": [
+        ["food", "\\bfood\\b"],
+        ["restaurant", "\\brestaurants?\\b"],
+        ["brunch", "\\bbrunch\\b"]
+      ]
+    },
+    {
+      "name": "Outdoors",
+      "strong": [
+        ["hiking", "\\bhik(?:e|ing)\\b"],
+        ["camping", "\\bcamp(?:ing)?\\b"],
+        ["backpacking", "\\bbackpack(?:ing)?\\b"],
+        ["trail", "\\btrails?\\b"],
+        ["national-park", "\\bnational parks?\\b"],
+        ["rock-climbing", "\\brock climb(?:ing)?\\b"]
+      ],
+      "weak": [
+        ["outdoors", "\\boutdoors?\\b"],
+        ["nature", "\\bnature\\b"],
+        ["beach", "\\bbeach(?:es)?\\b"]
+      ]
+    },
+    {
+      "name": "Gaming",
+      "strong": [
+        ["video-games", "\\bvideo games?\\b"],
+        ["gaming", "\\bgaming\\b"],
+        ["gamer", "\\bgamers?\\b"],
+        ["playing-games", "\\bplay(?:ing)? (?:video )?games?\\b"],
+        ["valorant", "\\bvalorant\\b"],
+        ["league", "\\bleague of legends\\b"],
+        ["fortnite", "\\bfortnite\\b"],
+        ["roblox", "\\broblox\\b"],
+        ["tft", "\\btft\\b"],
+        ["minecraft", "\\bminecraft\\b"],
+        ["brawl-stars", "\\bbrawl ?stars\\b"]
+      ],
+      "weak": [
+        ["game", "\\bgames?\\b"]
+      ]
+    },
+    {
+      "name": "Music",
+      "strong": [
+        ["concert", "\\bconcerts?\\b"],
+        ["rave", "\\brav(?:e|es|ing)\\b"],
+        ["guitar", "\\bguitars?\\b"],
+        ["piano", "\\bpiano\\b"],
+        ["singing", "\\bsing(?:ing)?\\b"],
+        ["dj", "\\bdj(?:ing)?\\b"],
+        ["instrument", "\\bplay(?:ing)? (?:an? )?(?:instrument|drums?|violin|cello|flute)\\b"],
+        ["producer", "\\bmusic producer\\b"]
+      ],
+      "weak": [
+        ["music", "\\bmusic\\b"],
+        ["spotify", "\\bspotify\\b"],
+        ["playlist", "\\bplaylists?\\b"]
+      ]
+    },
+    {
+      "name": "Creative",
+      "strong": [
+        ["drawing", "\\bdraw(?:ing)?\\b"],
+        ["painting", "\\bpaint(?:ing)?\\b"],
+        ["crafts", "\\bcraft(?:s|ing)?\\b"],
+        ["creative-writing", "\\bcreative writing\\b"],
+        ["scrapbooking", "\\bscrapbook(?:ing)?\\b"],
+        ["designing", "\\bdesign(?:ing)?\\b"],
+        ["diy", "\\bdiy\\b"],
+        ["sewing", "\\bsew(?:ing)?\\b"]
+      ],
+      "weak": [
+        ["creative", "\\bcreative\\b"],
+        ["art", "\\bart\\b"]
+      ]
+    },
+    {
+      "name": "Fitness",
+      "strong": [
+        ["gym", "\\bgym\\b"],
+        ["working-out", "\\bwork(?:ing)? out\\b"],
+        ["weightlifting", "\\b(?:weight|power)lift(?:ing)?\\b"],
+        ["fitness", "\\bfitness\\b"],
+        ["bodybuilding", "\\bbodybuild(?:ing)?\\b"],
+        ["running", "\\brunn?(?:ing|er)\\b"],
+        ["calisthenics", "\\bcalisthenics\\b"]
+      ],
+      "weak": [
+        ["exercise", "\\bexercis(?:e|ing)\\b"]
+      ]
+    },
+    {
+      "name": "Sports",
+      "strong": [
+        ["volleyball", "\\bvolleyball\\b"],
+        ["basketball", "\\bbasketball\\b"],
+        ["soccer", "\\bsoccer\\b"],
+        ["badminton", "\\bbadminton\\b"],
+        ["pickleball", "\\bpickleball\\b"],
+        ["football", "\\bfootball\\b"],
+        ["tennis", "\\btennis\\b"]
+      ],
+      "weak": [
+        ["sports", "\\bsports?\\b"]
+      ]
+    },
+    {
+      "name": "Travel",
+      "strong": [
+        ["travel", "\\btravel(?:s|ed|ing|ling)?\\b"],
+        ["road-trip", "\\broad trips?\\b"],
+        ["exploring-places", "\\bexplor(?:e|es|ed|ing) (?:new )?(?:cities|places)\\b"],
+        ["visiting-places", "\\bvisit(?:s|ed|ing)? (?:new )?(?:countries|places)\\b"],
+        ["international-trip", "\\binternational trips?\\b"]
+      ],
+      "weak": [
+        ["trip", "\\btrips?\\b"],
+        ["sightseeing", "\\bsightseeing\\b"]
+      ]
+    },
+    {
+      "name": "Movies & TV",
+      "strong": [
+        ["movie-night", "\\bmovie nights?\\b"],
+        ["letterboxd", "\\bletterboxd\\b"],
+        ["cinema", "\\bcinema\\b"],
+        ["watching-movies", "\\bwatch(?:ing)? movies?\\b"],
+        ["binge-watching", "\\bbinge(?:-| )watch(?:ing)?\\b"],
+        ["k-drama", "\\bk-?dramas?\\b"],
+        ["sitcom", "\\bsitcoms?\\b"]
+      ],
+      "weak": [
+        ["movie", "\\bmovies?\\b"],
+        ["film", "\\bfilms?\\b"],
+        ["tv-show", "\\btv shows?\\b"],
+        ["netflix", "\\bnetflix\\b"]
+      ]
+    },
+    {
+      "name": "Anime",
+      "strong": [
+        ["anime", "\\banime\\b"],
+        ["manga", "\\bmanga\\b"],
+        ["manhwa", "\\bmanhwa\\b"],
+        ["jujutsu-kaisen", "\\bjujutsu kaisen\\b"],
+        ["demon-slayer", "\\bdemon slayer\\b"]
+      ],
+      "weak": []
+    },
+    {
+      "name": "Nightlife",
+      "strong": [
+        ["nightlife", "\\bnightlife\\b"],
+        ["clubbing", "\\bclub(?:bing)?\\b"],
+        ["rave", "\\brav(?:e|es|ing)\\b"],
+        ["party", "\\bpart(?:y|ies|ying)\\b"],
+        ["bar", "\\bbars?\\b"]
+      ],
+      "weak": [
+        ["going-out", "\\bgoing out\\b"],
+        ["late-night", "\\blate nights?\\b"]
+      ]
+    },
+    {
+      "name": "Coffee & Cafes",
+      "strong": [
+        ["cafe-hopping", "\\bcaf[eé](?:-| )hopping\\b"],
+        ["coffee-shop", "\\bcoffee shops?\\b"],
+        ["trying-cafes", "\\btry(?:ing)? (?:new )?caf[eé]s?\\b"]
+      ],
+      "weak": [
+        ["cafe", "\\bcaf[eé]s?\\b"],
+        ["coffee", "\\bcoffee\\b"],
+        ["matcha", "\\bmatcha\\b"],
+        ["boba", "\\bboba\\b"]
+      ]
+    },
+    {
+      "name": "Studying",
+      "strong": [
+        ["studying", "\\bstud(?:y|ies|ied|ying)\\b"],
+        ["study-session", "\\bstudy sessions?\\b"],
+        ["library", "\\blibrary\\b"]
+      ],
+      "weak": [
+        ["academic", "\\bacademics?\\b"]
+      ]
+    },
+    {
+      "name": "Fashion",
+      "strong": [
+        ["fashion", "\\bfashion\\b"],
+        ["thrifting", "\\bthrift(?:ing)?\\b"],
+        ["streetwear", "\\bstreetwear\\b"],
+        ["outfit", "\\boutfits?\\b"]
+      ],
+      "weak": [
+        ["shopping", "\\bshopping\\b"],
+        ["clothes", "\\bclothes?\\b"]
+      ]
+    },
+    {
+      "name": "Photography",
+      "strong": [
+        ["photography", "\\bphotograph(?:y|er|ing)?\\b"],
+        ["taking-photos", "\\btak(?:e|es|ing) (?:photos?|pictures?)\\b"],
+        ["camera", "\\bcameras?\\b"],
+        ["digicam", "\\bdigicams?\\b"]
+      ],
+      "weak": [
+        ["photo", "\\bphotos?\\b"],
+        ["picture", "\\bpictures?\\b"]
+      ]
+    },
+    {
+      "name": "Volunteering",
+      "strong": [
+        ["volunteering", "\\bvolunteer(?:s|ed|ing)?\\b"],
+        ["community-service", "\\bcommunity service\\b"],
+        ["giving-back", "\\bgiving back\\b"],
+        ["nonprofit", "\\bnonprofits?\\b"],
+        ["charity", "\\bcharit(?:y|ies)\\b"]
+      ],
+      "weak": []
+    }
+  ]
+}

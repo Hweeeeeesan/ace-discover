@@ -23,29 +23,18 @@ NS = {'m': MAIN}
 REL_NS = 'http://schemas.openxmlformats.org/package/2006/relationships'
 DOC_REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 PLACEHOLDER_IMAGE = '/profile-placeholder.svg'
-VIBE_ORDER = [
-    'Foodie', 'Outdoors', 'Gaming', 'Music', 'Creative', 'Fitness', 'Sports',
-    'Travel', 'Movies & TV', 'Anime', 'Nightlife', 'Coffee & Cafes', 'Studying',
-    'Fashion', 'Photography', 'Volunteering',
-]
-VIBE_RULES = {
-    'Foodie': (r'\bfoodie\b', r'\btrying (?:new )?food\b', r'\beating out\b', r'\bcook(?:ing)?\b', r'\bbak(?:e|ing)\b', r'\brestaurant'),
-    'Outdoors': (r'\bhik(?:e|ing)\b', r'\bcamp(?:ing)?\b', r'\bnature\b', r'\bbeach\b', r'\btrail\b', r'\bbackpack(?:ing)?\b'),
-    'Gaming': (r'\bvideo games?\b', r'\bgaming\b', r'\bvalorant\b', r'\bleague of legends\b', r'\bfortnite\b', r'\broblox\b', r'\btft\b'),
-    'Music': (r'\bmusic\b', r'\bconcerts?\b', r'\bsing(?:ing)?\b', r'\bguitar\b', r'\bpiano\b', r'\bdj(?:ing)?\b', r'\braves?\b'),
-    'Creative': (r'\bdraw(?:ing)?\b', r'\bpaint(?:ing)?\b', r'\bcraft(?:s|ing)?\b', r'\bcreative writing\b', r'\bscrapbook(?:ing)?\b', r'\bdesign(?:ing)?\b'),
-    'Fitness': (r'\bgym\b', r'\bwork(?:ing)? out\b', r'\bweightlift(?:ing)?\b', r'\bfitness\b', r'\bbodybuilding\b', r'\brunning\b'),
-    'Sports': (r'\bvolleyball\b', r'\bbasketball\b', r'\bsoccer\b', r'\bbadminton\b', r'\bpickleball\b', r'\bfootball\b', r'\btennis\b', r'\bsports?\b'),
-    'Travel': (r'\btravel(?:ing|ling)?\b', r'\broad trips?\b', r'\bexplor(?:e|ing) new (?:cities|places)\b', r'\bvisit(?:ing)? (?:new )?(?:countries|places)\b'),
-    'Movies & TV': (r'\bmovies?\b', r'\bfilms?\b', r'\btv shows?\b', r'\bk-?dramas?\b', r'\bsitcoms?\b', r'\bnetflix\b'),
-    'Anime': (r'\banime\b', r'\bmanga\b', r'\bmanhwa\b', r'\bjujutsu kaisen\b', r'\bdemon slayer\b'),
-    'Nightlife': (r'\bnightlife\b', r'\bclub(?:bing)?\b', r'\bbars?\b', r'\braves?\b', r'\bpart(?:y|ies|ying)\b'),
-    'Coffee & Cafes': (r'\bcaf[eé]s?\b', r'\bcafe hopping\b', r'\bcoffee shops?\b', r'\bmatcha\b', r'\bboba\b'),
-    'Studying': (r'\bstudy(?:ing)?\b', r'\bstudy sessions?\b', r'\blibrary\b', r'\bacademic(?:s)?\b'),
-    'Fashion': (r'\bfashion\b', r'\bthrift(?:ing)?\b', r'\bshopping\b', r'\bstreetwear\b', r'\bclothes?\b', r'\boutfits?\b'),
-    'Photography': (r'\bphotograph(?:y|er|ing)?\b', r'\btaking photos?\b', r'\bdigicam\b', r'\bcamera\b'),
-    'Volunteering': (r'\bvolunteer(?:ing)?\b', r'\bcommunity service\b', r'\bgiving back\b', r'\bnonprofit\b', r'\bcharity\b'),
-}
+VIBE_SCORING_PATH = Path(__file__).resolve().parents[1] / 'lib' / 'import' / 'vibe-scoring.json'
+VIBE_SCORING = json.loads(VIBE_SCORING_PATH.read_text(encoding='utf-8'))
+VIBE_ORDER = [config['name'] for config in VIBE_SCORING['vibes']]
+VIBE_SCORE_THRESHOLD = VIBE_SCORING['threshold']
+MAX_INFERRED_VIBES = VIBE_SCORING['maxVibes']
+VIBE_FIELD_WEIGHTS = VIBE_SCORING['fieldWeights']
+VIBE_ORDER_INDEX = {vibe: index for index, vibe in enumerate(VIBE_ORDER)}
+NEGATION_PATTERN = re.compile(
+    r"(?:do not|don't|dont|never|hate(?:s|d)?|dislik(?:e|es|ed)|not into|"
+    r"not a fan of|no interest in|can't stand|cant stand|cannot stand|"
+    r"avoid(?:s|ed|ing)?)(?:\s+[a-z0-9']+){0,6}$"
+)
 
 YEAR_GROUP_ORDER = [
     'First year', 'Second year', 'Third year', 'Fourth year+', 'Graduate / Other',
@@ -291,6 +280,51 @@ def _header_values(archive, path, shared):
     return headers
 
 
+def _column_index(column):
+    index = 0
+    for character in str(column or ''):
+        index = index * 26 + ord(character) - 64
+    return index - 1
+
+
+def _matching_header_columns(headers, tokens):
+    return sorted(
+        (
+            column for column, header in headers.items()
+            if all(token in str(header).lower() for token in tokens)
+        ),
+        key=_column_index,
+    )
+
+
+def _fall_2026_passion_columns(headers):
+    hobby_starts = _matching_header_columns(headers, ('list your', 'favorite hobbies/activities'))
+    passion_columns = _matching_header_columns(headers, ('passionate', 'talk about', 'hours'))
+    if len(hobby_starts) < 2:
+        raise ValueError(
+            'BIGS schema mismatch: Fall 2026 Little and Big passion headers '
+            'could not be resolved safely.'
+        )
+    little_candidates = [
+        column for column in passion_columns
+        if _column_index(hobby_starts[0]) < _column_index(column) < _column_index(hobby_starts[1])
+    ]
+    big_candidates = [
+        column for column in passion_columns
+        if _column_index(column) > _column_index(hobby_starts[1])
+    ]
+    if len(little_candidates) != 1 or len(big_candidates) != 1:
+        raise ValueError(
+            'BIGS schema mismatch: Fall 2026 Little and Big passion headers '
+            'could not be resolved safely.'
+        )
+    return {
+        'Little': little_candidates[0],
+        'Family': little_candidates[0],
+        'Big': big_candidates[0],
+    }
+
+
 def select_sheet_configs(archive, shared, worksheet_paths):
     """Choose verified column layouts without changing the Fall defaults."""
     configs = {}
@@ -306,10 +340,12 @@ def select_sheet_configs(archive, shared, worksheet_paths):
                 'deck': None, 'socialLevel': ('AT',), 'socialStyle': ('AV',),
             })
         elif sheet_name == 'BIGS' and 'personality' in headers.get('CD', ''):
+            passion_by_role = _fall_2026_passion_columns(headers)
             config.update({
                 'year': 'N', 'school': 'P', 'major': 'Q', 'program': 'R',
                 'family': ('AS', 'BN'), 'hobbies': ('S', 'BY'), 'hobbyDetails': ('T', 'BZ'),
-                'music': ('U', 'CA'), 'movies': ('V', 'CB'), 'passion': ('AH', 'CC'),
+                'music': ('U', 'CA'), 'movies': ('V', 'CB'),
+                'passionByRole': passion_by_role,
                 'tagline': ('X', 'CD'), 'perfectDay': ('Y', 'CE'), 'uniqueThings': ('W', 'CF'),
                 'bucketList': ('AB', 'CG'), 'hotTake': ('Z', 'CH'), 'idealHangout': 'AA',
                 'instagram': 'K', 'image': ('AQ', 'CX'), 'deck': None,
@@ -826,12 +862,73 @@ def interest_tags(hobbies, role, program):
     return (candidates or [role])[:3]
 
 
+def is_negated_evidence(text, start):
+    prefix = text[max(0, start - 140):start]
+    sentence_start = max(
+        prefix.rfind('.'), prefix.rfind('!'), prefix.rfind('?'),
+        prefix.rfind(';'), prefix.rfind('\n'),
+    ) + 1
+    normalized = re.sub(r"[^a-z0-9']+", ' ', prefix[sentence_start:].replace('’', "'")).strip()
+    return bool(NEGATION_PATTERN.search(normalized))
+
+
+def overlaps_accepted_evidence(start, end, accepted):
+    return any(start < span_end and end > span_start for span_start, span_end in accepted)
+
+
+def score_vibe_evidence(fields=None):
+    fields = fields if isinstance(fields, dict) else {}
+    results = []
+    for vibe_config in VIBE_SCORING['vibes']:
+        score = 0
+        evidence = []
+        for field, field_weight in VIBE_SCORING['fieldWeights'].items():
+            text = clean_text(fields.get(field, '')).lower()
+            if not text:
+                continue
+            accepted = []
+            seen_phrases = set()
+            for level in ('strong', 'weak'):
+                strength = VIBE_SCORING['strengths'][level]
+                for rule, pattern in vibe_config[level]:
+                    for match in re.finditer(pattern, text, flags=re.I):
+                        phrase = match.group(0).lower()
+                        start, end = match.span()
+                        if (
+                            phrase in seen_phrases
+                            or overlaps_accepted_evidence(start, end, accepted)
+                            or is_negated_evidence(text, start)
+                        ):
+                            continue
+                        points = int(field_weight) * int(strength)
+                        accepted.append((start, end))
+                        seen_phrases.add(phrase)
+                        score += points
+                        evidence.append({
+                            'field': field,
+                            'rule': rule,
+                            'strength': level,
+                            'phrase': phrase,
+                            'points': points,
+                        })
+        if score > 0:
+            results.append({'vibe': vibe_config['name'], 'score': score, 'evidence': evidence})
+    return sorted(results, key=lambda result: (-result['score'], VIBE_ORDER_INDEX[result['vibe']]))
+
+
 def infer_vibes(*values):
-    text = clean_text(' '.join(str(value or '') for value in values)).lower()
+    if len(values) == 1 and isinstance(values[0], dict):
+        fields = values[0]
+    else:
+        fields = dict(zip(
+            ('hobbies', 'music', 'movies', 'perfectDay', 'story'),
+            values,
+        ))
     return [
-        vibe for vibe in VIBE_ORDER
-        if any(re.search(pattern, text, flags=re.I) for pattern in VIBE_RULES[vibe])
-    ]
+        result['vibe']
+        for result in score_vibe_evidence(fields)
+        if result['score'] >= VIBE_SCORE_THRESHOLD
+    ][:MAX_INFERRED_VIBES]
 
 
 def validate_workbook_schema(archive, shared, worksheet_paths=None, configs=None):
@@ -972,6 +1069,8 @@ def build_profiles(xlsx_path, allow_partial=False):
                     continue
 
                 role = derive_profile_role(program, config['role'], config.get('f26', False))
+                if config.get('passionByRole'):
+                    passion = first(row, config['passionByRole'].get(role))
 
                 base = slugify(name)
                 seen[base] = seen.get(base, 0) + 1
@@ -998,7 +1097,16 @@ def build_profiles(xlsx_path, allow_partial=False):
                     'family': redact_pii(family),
                     'bio': bio,
                     'interests': interests,
-                    'vibes': infer_vibes(hobbies, music, movies, perfect_day, story),
+                    'vibes': infer_vibes({
+                        'hobbies': hobbies,
+                        'hobbyDetails': hobby_details,
+                        'passion': passion,
+                        'perfectDay': perfect_day,
+                        'idealHangout': ideal_hangout,
+                        'story': story,
+                        'music': music,
+                        'movies': movies,
+                    }),
                     'hobbies': redact_multiline(hobbies),
                     'hobbyDetails': redact_multiline(hobby_details),
                     'music': redact_multiline(music),

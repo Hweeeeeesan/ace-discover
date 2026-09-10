@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   chooseWorksheet,
   fetchSpreadsheetMetadata,
@@ -16,7 +17,13 @@ import {
   preserveMissingSourceProfiles,
   validateSyncApplyAcknowledgement,
 } from '../lib/datasets/sync.js';
-import { analyzeSheetValues } from '../lib/import/profile-normalization.js';
+import {
+  analyzeSheetValues,
+  inferVibes,
+  scoreVibeEvidence,
+  VIBE_FIELD_WEIGHTS,
+  VIBE_ORDER,
+} from '../lib/import/profile-normalization.js';
 
 function columnIndex(column) {
   let index = 0;
@@ -35,8 +42,12 @@ function fall2026SheetFixture() {
   setCell(header, 'E', 'First name');
   setCell(header, 'F', 'Last name');
   setCell(header, 'K', 'Instagram username');
+  setCell(header, 'S', "List your favorite hobbies/activities. (5 minimum) Please don't put eating or sleeping :)");
+  setCell(header, 'AH', 'What’s something you’re really passionate about and could talk about for hours? Explain in 1-2 sentences.');
   setCell(header, 'AL', 'Rate your social setting from 1 to 5');
   setCell(header, 'AN', 'Are you an introvert, ambivert, or extrovert?');
+  setCell(header, 'BY', "List your favorite hobbies/activities. (5 minimum) Please don't put eating or sleeping :) 2");
+  setCell(header, 'CC', 'What’s something you’re really passionate about and could talk about for hours? Explain in 1-2 sentences. 2');
   setCell(header, 'CD', 'Describe your personality in a tagline');
 
   const hazel = [];
@@ -57,11 +68,14 @@ function fall2026SheetFixture() {
     Z: 'Cake pops are better than cupcakes.',
     AA: 'Trying a new cafe and doing crafts together.',
     AB: 'Visit Japan to explore the food and art.',
+    AG: 'PRIVATE NEARBY FRIEND QUALITIES',
     AH: 'I could talk about crafts and concert memories for hours. Contact hazel.private@example.com or (408) 555-1212.',
+    AI: 'PRIVATE NEARBY LIFE GOALS',
     AL: '3',
     AN: 'Ambivert',
     AQ: 'https://drive.google.com/file/d/1HazelTranProfileImage2026/view',
     BL: 'I am a creative person who loves making thoughtful gifts.',
+    CC: 'PRIVATE BIG BLOCK PASSION',
   };
   for (const [column, value] of Object.entries(hazelPublic)) setCell(hazel, column, value);
   for (const [column, value] of Object.entries({
@@ -167,6 +181,69 @@ function withoutGeneratedAt(payload) {
   return comparable;
 }
 
+const vibeRegressionFixtures = [
+  { fields: { hobbies: 'I love going to concerts and play guitar.' }, vibes: ['Music'] },
+  { fields: { music: 'I listen to music while studying.' }, vibes: [] },
+  { fields: { hobbies: "I don't like parties or clubs." }, vibes: [] },
+  { fields: { hobbies: 'I hate hiking.' }, vibes: [] },
+  { fields: { hobbies: "I don't play video games." }, vibes: [] },
+  { fields: { hobbies: 'I love hiking, camping, and going to the beach.' }, vibes: ['Outdoors'] },
+  { fields: { hobbies: 'I have a camera and love photography.' }, vibes: ['Photography'] },
+  { fields: { movies: 'I watch a movie sometimes.' }, vibes: [] },
+  { fields: { movies: 'I have Letterboxd and watch movies every week.' }, vibes: ['Movies & TV'] },
+  { fields: { hobbies: 'I love matcha.' }, vibes: [] },
+  {
+    fields: { hobbies: 'cooking baking hiking camping video games valorant concerts guitar anime manga fashion thrifting photography camera' },
+    vibes: ['Foodie', 'Outdoors', 'Gaming', 'Music', 'Anime'],
+  },
+  { fields: { hobbies: 'hiking gaming' }, vibes: ['Outdoors', 'Gaming'] },
+  { fields: { hobbies: 'concert concert concert' }, vibes: ['Music'] },
+];
+for (const fixture of vibeRegressionFixtures) {
+  assert.deepEqual(inferVibes(fixture.fields), fixture.vibes);
+}
+assert.deepEqual(VIBE_FIELD_WEIGHTS, {
+  hobbies: 3,
+  hobbyDetails: 3,
+  passion: 3,
+  perfectDay: 2,
+  idealHangout: 2,
+  story: 1,
+  music: 1,
+  movies: 1,
+});
+assert.deepEqual(VIBE_ORDER, [
+  'Foodie', 'Outdoors', 'Gaming', 'Music', 'Creative', 'Fitness', 'Sports',
+  'Travel', 'Movies & TV', 'Anime', 'Nightlife', 'Coffee & Cafes', 'Studying',
+  'Fashion', 'Photography', 'Volunteering',
+]);
+assert.equal(
+  scoreVibeEvidence(vibeRegressionFixtures.at(-1).fields).find(({ vibe }) => vibe === 'Music').score,
+  9,
+  'repeating identical evidence must not multiply its score',
+);
+
+const pythonVibeResults = JSON.parse(execFileSync('python3', [
+  '-c',
+  `import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location('ace_importer', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+fixtures = json.loads(sys.argv[2])
+print(json.dumps([{'vibes': module.infer_vibes(item['fields']), 'scores': module.score_vibe_evidence(item['fields'])} for item in fixtures]))`,
+  fileURLToPath(new URL('../scripts/import-master-apps.py', import.meta.url)),
+  JSON.stringify(vibeRegressionFixtures),
+], { encoding: 'utf8' }));
+const javascriptVibeResults = vibeRegressionFixtures.map(({ fields }) => ({
+  vibes: inferVibes(fields),
+  scores: scoreVibeEvidence(fields),
+}));
+assert.deepEqual(
+  javascriptVibeResults,
+  pythonVibeResults,
+  'JavaScript and Python must return identical vibe scores, evidence, ordering, and selected vibes',
+);
+
 const sheetFixture = fall2026SheetFixture();
 const originalPath = process.env.PATH;
 let nodeOnlyPayload;
@@ -185,6 +262,10 @@ assert.equal(hazelProfile.public.interests[0], 'Little', 'Fall 2026 Little inter
 assert.equal(hazelProfile.public.hobbies, sheetFixture.hazelPublic.S);
 assert.equal(hazelProfile.public.hobbyDetails, sheetFixture.hazelPublic.T);
 assert.equal(hazelProfile.public.bio, sheetFixture.hazelPublic.BL);
+assert.equal(
+  hazelProfile.public.passion,
+  'I could talk about crafts and concert memories for hours. Contact [email removed] or [phone removed].',
+);
 assert.equal(hazelProfile.public.passion.includes('hazel.private@example.com'), false);
 assert.equal(hazelProfile.public.passion.includes('(408) 555-1212'), false);
 assert.match(hazelProfile.public.passion, /\[email removed\].*\[phone removed\]/);
@@ -194,6 +275,7 @@ const bigProfile = nodeOnlyPayload.profiles[1];
 assert.equal(bigProfile.public.name, 'Logan Ho');
 assert.equal(bigProfile.public.role, 'Big');
 assert.equal(bigProfile.public.hobbies, 'Exploring new places, hiking, gaming, and trying new food.');
+assert.equal(bigProfile.public.passion, 'Psychology and helping people grow.');
 assert.equal(bigProfile.public.tagline, 'Be the change you want to see.');
 assert.equal(bigProfile.public.socialLevel, 4);
 assert.equal(bigProfile.public.socialStyle, 'Extrovert');
@@ -206,10 +288,24 @@ for (const privateValue of [
   'PRIVATE PAIRING PREFERENCE',
   'PRIVATE CURFEW',
   'PRIVATE CONFIDENTIAL RESPONSE',
+  'PRIVATE NEARBY FRIEND QUALITIES',
+  'PRIVATE NEARBY LIFE GOALS',
+  'PRIVATE BIG BLOCK PASSION',
 ]) assert.doesNotMatch(publicSheetText, new RegExp(privateValue), 'private conditional answers must not enter public profiles');
-for (const privateKey of ['imageSourceUrl', 'driveFileId', 'driveFolderId', 'imageIssue', 'imageKind', 'sourceGroup', 'sourceRow']) {
+for (const privateKey of ['imageSourceUrl', 'driveFileId', 'driveFolderId', 'imageIssue', 'imageKind', 'sourceGroup', 'sourceRow', 'vibeScores', 'vibeEvidence', 'evidence']) {
   assert.equal(privateKey in hazelProfile.public, false, `${privateKey} must remain outside public profile data`);
 }
+
+const emptyLittlePassionFixture = fall2026SheetFixture();
+setCell(emptyLittlePassionFixture.values[1], 'AH', '');
+setCell(emptyLittlePassionFixture.values[1], 'CC', 'PRIVATE BIG BLOCK PASSION MUST NOT FALL BACK');
+const emptyLittlePassion = analyzeSheetValues(
+  emptyLittlePassionFixture.title,
+  [emptyLittlePassionFixture.values[0], emptyLittlePassionFixture.values[1]],
+).profiles[0].public;
+assert.equal(emptyLittlePassion.role, 'Little');
+assert.equal(emptyLittlePassion.passion, '', 'an empty Little passion must remain empty instead of falling through to the Big block');
+assert.doesNotMatch(JSON.stringify(emptyLittlePassion), /PRIVATE BIG BLOCK PASSION MUST NOT FALL BACK/);
 
 const parityDirectory = await mkdtemp(join(tmpdir(), 'ace-sheet-parity-'));
 try {

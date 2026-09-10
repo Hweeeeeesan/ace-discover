@@ -165,7 +165,7 @@ class PublicProfileTests(unittest.TestCase):
         workbook = pathlib.Path(__file__).parents[1] / 'FALL 26 MASTER APPS TEST.xlsx'
         values = logical_sheet_values(workbook, 'BIGS')
         row = values[1]
-        for column in ('BY', 'BZ', 'CA', 'CB', 'CC', 'CD', 'CE', 'CF', 'CG', 'CH', 'CV', 'CX'):
+        for column in ('BY', 'BZ', 'CA', 'CB', 'CD', 'CE', 'CF', 'CG', 'CH', 'CV', 'CX'):
             set_cell(row, column, '')
         little_public_values = {
             'E': 'Hazel',
@@ -192,9 +192,12 @@ class PublicProfileTests(unittest.TestCase):
         private_values = {
             'AE': 'PRIVATE DISLIKED ACTIVITY',
             'AF': 'PRIVATE PET PEEVE',
+            'AG': 'PRIVATE NEARBY FRIEND QUALITIES',
+            'AI': 'PRIVATE NEARBY LIFE GOALS',
             'AT': 'PRIVATE PAIRING PREFERENCE',
             'BI': 'PRIVATE CURFEW',
             'BJ': 'PRIVATE CONFIDENTIAL RESPONSE',
+            'CC': 'PRIVATE BIG BLOCK PASSION',
         }
         for column, value in private_values.items():
             set_cell(row, column, value)
@@ -233,6 +236,25 @@ class PublicProfileTests(unittest.TestCase):
         for private_value in private_values.values():
             self.assertNotIn(private_value, public_text)
 
+    def test_fall_2026_little_empty_passion_does_not_fall_through_to_big_block(self):
+        workbook = pathlib.Path(__file__).parents[1] / 'FALL 26 MASTER APPS TEST.xlsx'
+        values = logical_sheet_values(workbook, 'BIGS')
+        row = values[1]
+        set_cell(row, 'R', 'FAM/ACE LITTLE Program')
+        set_cell(row, 'AH', '')
+        set_cell(row, 'CC', 'PRIVATE BIG BLOCK PASSION MUST NOT FALL BACK')
+        with tempfile.TemporaryDirectory() as directory:
+            adapted = pathlib.Path(directory) / 'empty-little-passion-f26.xlsx'
+            SHEET_ANALYZER.write_tabular_xlsx(adapted, 'Form Responses 1', values)
+            profiles, _ = IMPORTER.build_profiles(adapted)
+        profile = profiles[0]
+        self.assertEqual(profile['role'], 'Little')
+        self.assertEqual(profile['passion'], '')
+        self.assertNotIn(
+            'PRIVATE BIG BLOCK PASSION MUST NOT FALL BACK',
+            repr(IMPORTER.public_profiles(profiles)),
+        )
+
     def test_legacy_sheet_roles_remain_authoritative(self):
         self.assertEqual(IMPORTER.derive_profile_role('', 'Little'), 'Little')
         self.assertEqual(IMPORTER.derive_profile_role('FAM/ACE LITTLE Program', 'Big'), 'Big')
@@ -266,6 +288,10 @@ class PublicProfileTests(unittest.TestCase):
             paths = IMPORTER.resolve_worksheet_paths(archive)
             configs = IMPORTER.select_sheet_configs(archive, shared, paths)
             headers = IMPORTER._header_values(archive, paths['BIGS'], shared)
+        self.assertEqual(
+            configs['BIGS']['passionByRole'],
+            {'Little': 'AH', 'Family': 'AH', 'Big': 'CC'},
+        )
         self.assertEqual(configs['BIGS']['image'], ('AQ', 'CX'))
         self.assertIn('upload a picture', headers['AQ'])
         self.assertEqual(headers['CX'], 'upload picture(s) of yourself! (max 4)')
@@ -468,12 +494,70 @@ class PublicProfileTests(unittest.TestCase):
 
     def test_vibe_inference_is_deterministic_and_ordered(self):
         values = ('I enjoy hiking, Valorant, matcha cafes, and taking photos.',)
-        expected = ['Outdoors', 'Gaming', 'Coffee & Cafes', 'Photography']
+        expected = ['Outdoors', 'Gaming', 'Photography', 'Coffee & Cafes']
         self.assertEqual(IMPORTER.infer_vibes(*values), expected)
         self.assertEqual(IMPORTER.infer_vibes(*values), expected)
 
     def test_vibe_rules_avoid_broad_false_positives(self):
         self.assertEqual(IMPORTER.infer_vibes('I like good vibes and meeting people.'), [])
+
+    def test_weighted_vibe_regression_examples(self):
+        cases = [
+            ({'hobbies': 'I love going to concerts and play guitar.'}, ['Music']),
+            ({'music': 'I listen to music while studying.'}, []),
+            ({'hobbies': "I don't like parties or clubs."}, []),
+            ({'hobbies': 'I hate hiking.'}, []),
+            ({'hobbies': "I don't play video games."}, []),
+            ({'hobbies': 'I love hiking, camping, and going to the beach.'}, ['Outdoors']),
+            ({'hobbies': 'I have a camera and love photography.'}, ['Photography']),
+            ({'movies': 'I watch a movie sometimes.'}, []),
+            ({'movies': 'I have Letterboxd and watch movies every week.'}, ['Movies & TV']),
+            ({'hobbies': 'I love matcha.'}, []),
+        ]
+        for fields, expected in cases:
+            with self.subTest(fields=fields):
+                self.assertEqual(IMPORTER.infer_vibes(fields), expected)
+
+    def test_vibe_scoring_caps_at_five_and_uses_taxonomy_tie_order(self):
+        fields = {
+            'hobbies': (
+                'cooking baking hiking camping video games valorant concerts guitar '
+                'anime manga fashion thrifting photography camera'
+            ),
+        }
+        self.assertEqual(
+            IMPORTER.infer_vibes(fields),
+            ['Foodie', 'Outdoors', 'Gaming', 'Music', 'Anime'],
+        )
+        self.assertEqual(
+            IMPORTER.infer_vibes({'hobbies': 'hiking gaming'}),
+            ['Outdoors', 'Gaming'],
+        )
+
+    def test_vibe_scores_are_field_aware_and_deduplicate_repeated_evidence(self):
+        hobby_music = next(
+            result for result in IMPORTER.score_vibe_evidence({'hobbies': 'concert concert concert'})
+            if result['vibe'] == 'Music'
+        )
+        dedicated_music = next(
+            result for result in IMPORTER.score_vibe_evidence({'music': 'concert concert concert'})
+            if result['vibe'] == 'Music'
+        )
+        self.assertEqual(hobby_music['score'], 9)
+        self.assertEqual(dedicated_music['score'], 3)
+        self.assertEqual(len(hobby_music['evidence']), 1)
+        self.assertEqual(IMPORTER.VIBE_SCORE_THRESHOLD, 5)
+        self.assertEqual(IMPORTER.MAX_INFERRED_VIBES, 5)
+        self.assertEqual(IMPORTER.VIBE_FIELD_WEIGHTS, {
+            'hobbies': 3,
+            'hobbyDetails': 3,
+            'passion': 3,
+            'perfectDay': 2,
+            'idealHangout': 2,
+            'story': 1,
+            'music': 1,
+            'movies': 1,
+        })
 
     def test_import_health_contains_safe_aggregate_issues(self):
         profile = {
