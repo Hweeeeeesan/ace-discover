@@ -21,6 +21,50 @@ assert.deepEqual(story.hobbyItems, [
   { name: 'Exploring new places', detail: 'Discovering culture' },
   { name: 'Lion Dance', detail: 'Since childhood' },
 ]);
+assert.deepEqual(
+  normalizeProfileStory({
+    hobbies: 'Information maxxing',
+    hobbyDetails: '3) information: maxxing...?: I am addicted to lists, maps, Wikipedia articles, encyclopedias...',
+  }).hobbyItems,
+  [{ name: 'information maxxing...?', detail: 'I am addicted to lists, maps, Wikipedia articles, encyclopedias...' }],
+  'punctuation inside a hobby heading must not be treated as the explanation boundary',
+);
+assert.deepEqual(
+  normalizeProfileStory({
+    hobbies: 'Fashion\nLion Dance',
+    hobbyDetails: 'Fashion: I particularly love styling outfits\nLion Dance: I have been doing this for years',
+  }).hobbyItems,
+  [
+    { name: 'Fashion', detail: 'I particularly love styling outfits' },
+    { name: 'Lion Dance', detail: 'I have been doing this for years' },
+  ],
+);
+assert.deepEqual(
+  normalizeProfileStory({
+    hobbies: 'Travel/Photography\n3) Volleyball',
+    hobbyDetails: 'Travel/Photography: I document every trip\n3) Volleyball - I play every weekend',
+  }).hobbyItems,
+  [
+    { name: 'Travel/Photography', detail: 'I document every trip' },
+    { name: 'Volleyball', detail: 'I play every weekend' },
+  ],
+);
+assert.deepEqual(
+  normalizeProfileStory({
+    hobbies: 'Exploring new places\nLion Dance\nVolleyball',
+    hobbyDetails: 'Exploring new places: Discovering culture\nLion Dance: Since childhood\nVolleyball: Weekend games',
+  }).hobbyItems,
+  [
+    { name: 'Exploring new places', detail: 'Discovering culture' },
+    { name: 'Lion Dance', detail: 'Since childhood' },
+    { name: 'Volleyball', detail: 'Weekend games' },
+  ],
+);
+assert.deepEqual(
+  normalizeProfileStory({ hobbies: 'I love photography and hiking', hobbyDetails: 'I love photography and hiking' }).hobbyItems,
+  [],
+  'unlabeled prose should not become a structured hobby item',
+);
 assert.equal(normalizeProfileStory({ bio: 'Legacy profile' }).isEditorial, false);
 assert.equal(normalizeProfileStory({ tagline: 'Only a phrase' }).perfectDay, '');
 const sharedFields = {
