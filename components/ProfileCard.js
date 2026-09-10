@@ -5,6 +5,46 @@ import { ArrowUpRight, Presentation } from 'lucide-react';
 import ProfileImage from './ProfileImage';
 import SavedProfileButton from './SavedProfileButton';
 
+function MatchSnippet({ snippet }) {
+  if (!snippet?.parts?.length) return null;
+  return (
+    <span>
+      {snippet.parts.map((part, index) => (
+        part.highlight
+          ? <mark key={`${part.text}-${index}`}>{part.text}</mark>
+          : <span key={`${part.text}-${index}`}>{part.text}</span>
+      ))}
+    </span>
+  );
+}
+
+function MatchContext({ context }) {
+  if (!context) return null;
+  const isSearch = context.type === 'search';
+  const values = Array.isArray(context.values) ? context.values.filter(Boolean) : [];
+  const accessibleLabel = isSearch
+    ? `Matched in ${context.label}`
+    : `Matched on ${values.join(', ')}`;
+
+  return (
+    <div className="match-context" aria-label={accessibleLabel}>
+      <div className="match-context-heading">
+        <span>{isSearch ? `Matched in ${context.label}` : 'Matched on'}</span>
+        {!isSearch && values.length > 0 && <strong>{values.join(' · ')}</strong>}
+      </div>
+      {context.snippet && (
+        <p>
+          {!isSearch && <b>{context.label} · </b>}
+          “<MatchSnippet snippet={context.snippet} />”
+        </p>
+      )}
+      {context.alsoMatches?.length > 0 && (
+        <small>Also matches {context.alsoMatches.join(' · ')}</small>
+      )}
+    </div>
+  );
+}
+
 export default function ProfileCard({
   profile,
   index,
@@ -13,6 +53,7 @@ export default function ProfileCard({
   showHint = false,
   onOpenProfile,
   datasetSlug = 'fall-2025',
+  matchContext = null,
 }) {
   const interests = Array.isArray(profile.interests)
     ? profile.interests.filter((interest) => !['Big', 'Little', 'Family'].includes(interest)).slice(0, 3)
@@ -60,6 +101,8 @@ export default function ProfileCard({
             ))}
           </div>
         )}
+
+        <MatchContext context={matchContext} />
 
         <div className="card-actions">
           <Link

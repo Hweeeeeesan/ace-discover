@@ -19,4 +19,11 @@ assert.ok(component.includes('profile.role.toUpperCase()'), 'the top role badge 
 assert.match(component, /focalX=\{profile\.focalX\}/, 'cards must pass primary focalX through');
 assert.match(component, /focalY=\{profile\.focalY\}/, 'cards must pass primary focalY through');
 assert.match(component, /displayMode=\{profile\.displayMode\}/, 'cards must pass primary display mode through');
+assert.ok(component.includes('matchContext = null'), 'match context must be optional so normal cards remain unchanged');
+assert.ok(component.includes('if (!context) return null'), 'normal cards should omit the context area entirely');
+assert.ok(component.includes('<MatchContext context={matchContext} />'), 'cards should render structured context from Discovery');
+assert.ok(component.includes('<mark'), 'matched text should use semantic highlighting');
+assert.ok(!component.includes('dangerouslySetInnerHTML'), 'highlighting must rely on safe React rendering');
+assert.match(component, /Matched in \$\{context\.label\}/, 'search explanations should include their field label');
+assert.match(styles, /\.match-context[\s\S]*?\.card-actions/, 'match context should be styled as secondary card content');
 console.log('Profile card tagline tests passed.');

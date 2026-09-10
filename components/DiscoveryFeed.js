@@ -8,12 +8,12 @@ import FilterSheet from './FilterSheet';
 import ProfileCard from './ProfileCard';
 import {
   countAdvancedFilters,
+  buildDiscoveryResults,
   createSeed,
   DEFAULT_FILTERS,
   DISCOVERY_STORAGE_KEY,
   discoveryNavigationKey,
   discoveryStorageKey,
-  filterAndOrderProfiles,
   getDiscoveryOptions,
   getAvailableRoles,
   migrateDiscoveryState,
@@ -70,8 +70,8 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
   const effectiveRole = discovery.role === 'All' || availableRoles.includes(discovery.role)
     ? discovery.role
     : 'All';
-  const visibleProfiles = useMemo(
-    () => filterAndOrderProfiles(profiles, {
+  const visibleResults = useMemo(
+    () => buildDiscoveryResults(profiles, {
       query: discovery.query,
       role: effectiveRole,
       saved: discovery.saved,
@@ -84,6 +84,10 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
       orderingSeenIds: discovery.seenOrderIds,
     }),
     [profiles, discovery.query, effectiveRole, discovery.saved, discovery.unseen, discovery.filters, discovery.seed, discovery.encounteredOrderIds, discovery.seenOrderIds, seenIds, savedIds],
+  );
+  const visibleProfiles = useMemo(
+    () => visibleResults.map(({ profile }) => profile),
+    [visibleResults],
   );
   const visibleKey = useMemo(
     () => visibleProfiles.map((profile) => profile.id).join('|'),
@@ -477,7 +481,7 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
         }}
       >
         {visibleProfiles.length ? (
-          visibleProfiles.map((profile, index) => (
+          visibleResults.map(({ profile, matchContext }, index) => (
             <ProfileCard
               key={profile.id}
               profile={profile}
@@ -487,6 +491,7 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
               showHint={index === 0 && totalActiveControls === 0}
               onOpenProfile={handleOpenProfile}
               datasetSlug={datasetSlug}
+              matchContext={matchContext}
             />
           ))
         ) : (

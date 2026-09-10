@@ -78,7 +78,7 @@ export default function DiscoveryToolbar({
                 type="search"
                 value={query}
                 onChange={(event) => onQueryChange(event.target.value)}
-                placeholder="Name, major, or interest"
+                placeholder="Search public profiles"
                 aria-label="Search profiles"
                 autoComplete="off"
                 enterKeyHint="search"

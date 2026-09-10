@@ -3,17 +3,25 @@ import { readFile } from 'node:fs/promises';
 import { profiles } from '../lib/profiles.js';
 import {
   balancedShuffle,
+  buildDiscoveryResults,
+  buildProfileMatchContext,
+  buildPublicSearchDocument,
   canonicalYear,
+  createMatchSnippet,
   createSeed,
   filterAndOrderProfiles,
   getDiscoveryOptions,
   getAvailableRoles,
   migrateDiscoveryState,
+  normalizePublicText,
   normalizeText,
+  PUBLIC_SEARCH_FIELDS,
   scoreProfile,
   sanitizeFilters,
   seededShuffle,
 } from '../lib/discovery.js';
+import { scoreVibeEvidence } from '../lib/import/vibe-evidence.js';
+import { resolveEffectivePublicProfile } from '../lib/profile-overrides.js';
 import { markProfileSeen, readSeenIds, resetSeenIds, SEEN_PROFILES_KEY } from '../lib/seen-profiles.js';
 import { isProfileSaved, readSavedIds, saveProfile, toggleSavedProfile } from '../lib/saved-profiles.js';
 import {
@@ -29,8 +37,155 @@ assert.equal(canonicalYear('freshman'), 'First year');
 assert.equal(canonicalYear('5th year'), 'Fourth year+');
 assert.equal(canonicalYear('Grad student'), 'Graduate / Other');
 assert.equal(normalizeText('Data Science & AI'), 'data science and ai');
-
 const seed = 873421;
+
+const wholeProfileFixture = {
+  id: 'whole-profile',
+  name: 'Hazel Tran',
+  pronouns: 'she/her',
+  role: 'Little',
+  major: 'Nutritional Science',
+  majorGroup: 'Health & Life Sciences',
+  year: 'Third Year',
+  normalizedYear: 'Third year',
+  school: 'San Jose State University',
+  program: 'ACE Little Program',
+  family: 'Blue Family',
+  socialLevel: 3,
+  socialStyle: 'Ambivert',
+  interests: ['Photography', 'Cooking'],
+  vibes: ['Photography', 'Travel'],
+  hobbies: 'I have my own camera<br>and love photography on weekends.',
+  hobbyDetails: 'I develop film in a small home darkroom.',
+  passion: 'Community nutrition education is my lifelong cause.',
+  perfectDay: 'A sunrise picnic followed by a pottery class.',
+  idealHangout: 'Walking through a botanical garden with friends.',
+  bucketList: 'Take the train across Japan during cherry blossom season.',
+  uniqueThings: 'I can identify many birds by their songs.',
+  bio: 'My public story includes mentoring first-generation students.',
+  music: 'Japanese city pop and bedroom folk.',
+  movies: 'Studio Ghibli films and quiet documentaries.',
+  hotTake: 'Breakfast food is best served at dinner.',
+  tagline: 'Curious, kind, and always carrying a camera.',
+  email: 'private-search-marker@example.com',
+  phone: '408-555-0199',
+  birthday: 'private-birthday-marker',
+  paymentStatus: 'private-payment-marker',
+  matchingPreferences: 'private-compatibility-marker',
+  sourceRow: 'private-source-marker',
+  driveFileId: 'private-drive-marker',
+  publicOverrides: { hobbies: 'private-override-metadata-marker' },
+  auditHistory: 'private-audit-marker',
+  vibeEvidence: 'private-vibe-internal-marker',
+};
+
+const publicDocument = buildPublicSearchDocument(wholeProfileFixture);
+assert.deepEqual(
+  publicDocument.map(({ field }) => field),
+  PUBLIC_SEARCH_FIELDS.map(({ field }) => field),
+  'the canonical search document should contain only populated allowlisted fields',
+);
+for (const privateField of [
+  'email', 'phone', 'birthday', 'paymentStatus', 'matchingPreferences', 'sourceRow',
+  'driveFileId', 'publicOverrides', 'auditHistory', 'vibeEvidence',
+]) {
+  assert.equal(publicDocument.some(({ field }) => field === privateField), false, `${privateField} must not be searchable`);
+  assert.equal(scoreProfile(wholeProfileFixture, wholeProfileFixture[privateField]), -1, `${privateField} content must not match`);
+}
+
+const wholeProfileSearchCases = [
+  ['name', 'Hazel Tran'],
+  ['major', 'Nutritional Science'],
+  ['vibe', 'Photography'],
+  ['hobbies', 'photography on weekends'],
+  ['hobby details', 'home darkroom'],
+  ['passion', 'lifelong cause'],
+  ['perfect day', 'sunrise picnic'],
+  ['ideal hangout', 'botanical garden'],
+  ['bucket list', 'Japan'],
+  ['story', 'first-generation students'],
+  ['music', 'bedroom folk'],
+  ['movies', 'quiet documentaries'],
+  ['unique things', 'identify many birds'],
+  ['hot take', 'served at dinner'],
+  ['tagline', 'curious kind'],
+];
+for (const [label, query] of wholeProfileSearchCases) {
+  assert.ok(scoreProfile(wholeProfileFixture, query) >= 0, `${label} should be searchable`);
+}
+assert.ok(scoreProfile(wholeProfileFixture, 'PHOTOGRAPHY') >= 0, 'search should be case-insensitive');
+assert.ok(scoreProfile(wholeProfileFixture, '  JAPAN  \n') >= 0, 'query whitespace should normalize');
+assert.ok(scoreProfile(wholeProfileFixture, 'camera and love') >= 0, 'legacy br markup should normalize to whitespace');
+assert.equal(normalizePublicText('camera<br />  and\n film'), 'camera and film');
+assert.equal(scoreProfile(wholeProfileFixture, 'definitely-not-a-public-match'), -1, 'no-match profiles should be excluded');
+assert.deepEqual(filterAndOrderProfiles([wholeProfileFixture], { query: 'definitely-not-a-public-match', seed }), []);
+
+const priorityProfile = {
+  ...wholeProfileFixture,
+  hobbies: 'Photography belongs in the hobbies answer.',
+  hobbyDetails: 'Photography belongs in the hobby details answer.',
+  passion: 'Photography belongs in the passion answer.',
+  bucketList: 'Photography belongs in the bucket list answer.',
+};
+const priorityContext = buildProfileMatchContext(priorityProfile, { query: 'photography' });
+assert.equal(priorityContext?.field, 'hobbies', 'deep search context should use deterministic field priority');
+assert.equal(Array.isArray(priorityContext?.snippet?.parts), true, 'search context should contain one structured snippet');
+assert.equal('snippets' in priorityContext, false, 'search context should never contain stacked snippets');
+assert.equal(priorityContext.snippet.parts.filter(({ highlight }) => highlight).length >= 1, true);
+assert.equal(priorityContext.snippet.parts.filter(({ highlight }) => highlight).map(({ text }) => text).join('').toLowerCase(), 'photography');
+assert.equal(buildProfileMatchContext(wholeProfileFixture, { query: 'Hazel' }), null, 'visible name matches should not add redundant context');
+assert.equal(buildProfileMatchContext(wholeProfileFixture, { query: 'Nutritional Science' }), null, 'visible major matches should not add redundant context');
+
+const unsafeSnippet = createMatchSnippet('<img src=x onerror=alert(1)> photography', 'photography');
+assert.match(unsafeSnippet.text, /<img src=x onerror=alert\(1\)>/, 'snippet data may retain public punctuation as plain text');
+assert.equal(unsafeSnippet.parts.some(({ highlight, text }) => highlight && text === 'photography'), true);
+
+const importedProfile = {
+  id: 'override-profile', name: 'Override Example', role: 'Little',
+  year: 'First Year', normalizedYear: 'First year', major: 'History', majorGroup: 'Education & Humanities',
+  hobbies: 'Only the hidden imported hiking marker.', vibes: [], interests: [],
+};
+const effectiveProfile = resolveEffectivePublicProfile(importedProfile, {
+  year: 'Third Year',
+  major: 'Computer Science',
+  hobbies: 'My effective public hobby is photography.',
+});
+assert.ok(scoreProfile(effectiveProfile, 'photography') >= 0, 'effective Admin override text should be searchable');
+assert.equal(scoreProfile(effectiveProfile, 'hiking'), -1, 'overridden imported text should not remain searchable');
+assert.deepEqual(filterAndOrderProfiles([effectiveProfile], { years: ['third year'], seed }).map(({ id }) => id), ['override-profile']);
+assert.deepEqual(filterAndOrderProfiles([effectiveProfile], { years: ['first year'], seed }), [], 'stale normalized year must not drive filtering');
+assert.deepEqual(filterAndOrderProfiles([effectiveProfile], { majorGroups: ['computing and data'], seed }).map(({ id }) => id), ['override-profile']);
+assert.deepEqual(filterAndOrderProfiles([effectiveProfile], { majorGroups: ['education and humanities'], seed }), [], 'stale major group must not drive filtering');
+
+const canonicalPhotography = scoreVibeEvidence({ hobbies: wholeProfileFixture.hobbies })
+  .find(({ vibe }) => vibe === 'Photography');
+const vibeContext = buildProfileMatchContext(wholeProfileFixture, {
+  vibes: ['Travel', 'Photography'], socialStyles: ['Ambivert'],
+});
+assert.equal(vibeContext?.type, 'vibe');
+assert.deepEqual(vibeContext?.values, ['Photography', 'Ambivert'], 'strongest selected vibe should be deterministic and combine useful filter context');
+assert.equal(vibeContext?.field, canonicalPhotography.evidence[0].field, 'vibe context should reuse canonical evidence fields');
+assert.equal(vibeContext?.matchedTerm, canonicalPhotography.evidence[0].phrase, 'vibe context should reuse canonical evidence phrases');
+assert.equal(buildProfileMatchContext(wholeProfileFixture, { role: 'Little', years: ['third year'] }), null, 'role/year alone should not add redundant context');
+assert.deepEqual(
+  buildProfileMatchContext(wholeProfileFixture, { socialStyles: ['Ambivert'] })?.values,
+  ['Ambivert'],
+  'social style can provide compact context',
+);
+const combinedContext = buildProfileMatchContext(wholeProfileFixture, {
+  query: 'Japan', vibes: ['Photography'], socialStyles: ['Ambivert'],
+});
+assert.equal(combinedContext?.type, 'search', 'deep search context should beat filter context');
+assert.equal(combinedContext?.field, 'bucketList');
+assert.deepEqual(combinedContext?.alsoMatches, ['Photography', 'Ambivert']);
+assert.equal(buildProfileMatchContext(wholeProfileFixture), null, 'no active context should produce no explanation');
+assert.equal(buildProfileMatchContext(wholeProfileFixture, { query: 'private-audit-marker' }), null, 'private fields cannot produce explanations');
+assert.doesNotMatch(JSON.stringify(vibeContext), /private-|example\.com|408-555/, 'filter explanations must contain public evidence only');
+const structuredResult = buildDiscoveryResults([wholeProfileFixture], { query: 'Japan', seed });
+assert.equal(structuredResult.length, 1);
+assert.equal(structuredResult[0].profile, wholeProfileFixture);
+assert.equal(structuredResult[0].matchContext.field, 'bucketList');
+
 const firstOrder = balancedShuffle(profiles, seed);
 const repeatedOrder = balancedShuffle(profiles, seed);
 const secondOrder = balancedShuffle(profiles, seed + 1);
