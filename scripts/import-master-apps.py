@@ -305,32 +305,76 @@ def _matching_header_columns(headers, tokens):
     )
 
 
-def _fall_2026_passion_columns(headers):
+def _fall_2026_role_scoped_columns(
+    headers,
+    *,
+    field_name,
+    header_tokens,
+    allow_legacy_missing_big=False,
+    big_anchor_tokens=None,
+):
     hobby_starts = _matching_header_columns(headers, ('list your', 'favorite hobbies/activities'))
-    passion_columns = _matching_header_columns(headers, ('passionate', 'talk about', 'hours'))
-    if len(hobby_starts) < 2:
+    field_columns = _matching_header_columns(headers, header_tokens)
+    if len(hobby_starts) != 2:
         raise ValueError(
-            'BIGS schema mismatch: Fall 2026 Little and Big passion headers '
+            f'BIGS schema mismatch: Fall 2026 Little and Big {field_name} headers '
             'could not be resolved safely.'
         )
     little_candidates = [
-        column for column in passion_columns
+        column for column in field_columns
         if _column_index(hobby_starts[0]) < _column_index(column) < _column_index(hobby_starts[1])
     ]
     big_candidates = [
-        column for column in passion_columns
+        column for column in field_columns
         if _column_index(column) > _column_index(hobby_starts[1])
     ]
-    if len(little_candidates) != 1 or len(big_candidates) != 1:
+    big_anchors = (
+        _matching_header_columns(headers, big_anchor_tokens)
+        if big_anchor_tokens else []
+    )
+    legacy_missing_big = (
+        allow_legacy_missing_big
+        and not big_candidates
+        and not big_anchors
+    )
+    invalid_anchor = bool(big_anchor_tokens) and not legacy_missing_big and (
+        len(big_anchors) != 1
+        or len(big_candidates) != 1
+        or _column_index(big_candidates[0]) <= _column_index(big_anchors[0])
+    )
+    if (
+        len(little_candidates) != 1
+        or len(field_columns) != (1 if legacy_missing_big else 2)
+        or (not legacy_missing_big and len(big_candidates) != 1)
+        or invalid_anchor
+    ):
         raise ValueError(
-            'BIGS schema mismatch: Fall 2026 Little and Big passion headers '
+            f'BIGS schema mismatch: Fall 2026 Little and Big {field_name} headers '
             'could not be resolved safely.'
         )
     return {
         'Little': little_candidates[0],
         'Family': little_candidates[0],
-        'Big': big_candidates[0],
+        'Big': None if legacy_missing_big else big_candidates[0],
     }
+
+
+def _fall_2026_passion_columns(headers):
+    return _fall_2026_role_scoped_columns(
+        headers,
+        field_name='passion',
+        header_tokens=('passionate', 'talk about', 'hours'),
+    )
+
+
+def _fall_2026_ideal_hangout_columns(headers):
+    return _fall_2026_role_scoped_columns(
+        headers,
+        field_name='ideal hangout',
+        header_tokens=('what', 'ideal hangout'),
+        allow_legacy_missing_big=True,
+        big_anchor_tokens=('subtle ace trait', 'slide'),
+    )
 
 
 def select_sheet_configs(archive, shared, worksheet_paths):
@@ -349,13 +393,15 @@ def select_sheet_configs(archive, shared, worksheet_paths):
             })
         elif sheet_name == 'BIGS' and 'personality' in headers.get('CD', ''):
             passion_by_role = _fall_2026_passion_columns(headers)
+            ideal_hangout_by_role = _fall_2026_ideal_hangout_columns(headers)
             config.update({
                 'year': 'N', 'school': 'P', 'major': 'Q', 'program': 'R',
                 'family': ('AS', 'BN'), 'hobbies': ('S', 'BY'), 'hobbyDetails': ('T', 'BZ'),
                 'music': ('U', 'CA'), 'movies': ('V', 'CB'),
                 'passionByRole': passion_by_role,
                 'tagline': ('X', 'CD'), 'perfectDay': ('Y', 'CE'), 'uniqueThings': ('W', 'CF'),
-                'bucketList': ('AB', 'CG'), 'hotTake': ('Z', 'CH'), 'idealHangout': 'AA',
+                'bucketList': ('AB', 'CG'), 'hotTake': ('Z', 'CH'),
+                'idealHangoutByRole': ideal_hangout_by_role,
                 'instagram': 'K', 'image': ('AQ', 'CX'), 'deck': None,
                 'socialLevel': ('AL', 'CS'), 'socialStyle': ('AN', 'CU'), 'story': ('BL', 'CV'),
                 'f26': True,
@@ -1410,6 +1456,8 @@ def build_profiles(xlsx_path, allow_partial=False):
                 role = derive_profile_role(program, config['role'], config.get('f26', False))
                 if config.get('passionByRole'):
                     passion = first(row, config['passionByRole'].get(role))
+                if config.get('idealHangoutByRole'):
+                    ideal_hangout = first(row, config['idealHangoutByRole'].get(role))
 
                 base = slugify(name)
                 seen[base] = seen.get(base, 0) + 1

@@ -47,9 +47,12 @@ function fall2026SheetFixture() {
   setCell(header, 'AH', 'What’s something you’re really passionate about and could talk about for hours? Explain in 1-2 sentences.');
   setCell(header, 'AL', 'Rate your social setting from 1 to 5');
   setCell(header, 'AN', 'Are you an introvert, ambivert, or extrovert?');
+  setCell(header, 'AA', "What's your ideal hangout?");
   setCell(header, 'BY', "List your favorite hobbies/activities. (5 minimum) Please don't put eating or sleeping :) 2");
   setCell(header, 'CC', 'What’s something you’re really passionate about and could talk about for hours? Explain in 1-2 sentences. 2');
   setCell(header, 'CD', 'Describe your personality in a tagline');
+  setCell(header, 'CZ', '[OPTIONAL] Upload your Subtle ACE Trait slide! (Please upload a link to your slide below! Canva or Google Slides)');
+  setCell(header, 'DA', "What's your ideal hangout?");
 
   const hazel = [];
   const hazelPublic = {
@@ -77,6 +80,8 @@ function fall2026SheetFixture() {
     AQ: 'https://drive.google.com/file/d/1HazelTranProfileImage2026/view',
     BL: 'I am a creative person who loves making thoughtful gifts.',
     CC: 'PRIVATE BIG BLOCK PASSION',
+    CZ: 'https://docs.google.com/presentation/d/1PrivateLittleSubtleTraitSlide/edit',
+    DA: 'PRIVATE BIG IDEAL HANGOUT',
   };
   for (const [column, value] of Object.entries(hazelPublic)) setCell(hazel, column, value);
   for (const [column, value] of Object.entries({
@@ -110,6 +115,7 @@ function fall2026SheetFixture() {
     CU: 'Extrovert',
     CV: 'I enjoy bringing people together and helping friends feel included.',
     CX: 'https://drive.google.com/drive/folders/1LoganHoProfileFolder2026',
+    DA: 'An escape room, boba, a local market, dinner, and a concert.',
   })) setCell(big, column, value);
 
   return { title: 'Form Responses 1', values: [header, hazel, big], hazelPublic };
@@ -318,6 +324,7 @@ assert.equal(hazelProfile.public.interests.includes('Little'), false, 'Fall 2026
 assert.equal(hazelProfile.public.hobbies, sheetFixture.hazelPublic.S);
 assert.equal(hazelProfile.public.hobbyDetails, sheetFixture.hazelPublic.T);
 assert.equal(hazelProfile.public.bio, sheetFixture.hazelPublic.BL);
+assert.equal(hazelProfile.public.idealHangout, sheetFixture.hazelPublic.AA);
 assert.equal(
   hazelProfile.public.passion,
   'I could talk about crafts and concert memories for hours. Contact [email removed] or [phone removed].',
@@ -334,6 +341,7 @@ assert.equal(bigProfile.public.hobbies, 'Exploring new places, hiking, gaming, a
 assert.deepEqual(bigProfile.public.interests, ['Hiking', 'Gaming']);
 assert.equal(bigProfile.public.passion, 'Psychology and helping people grow.');
 assert.equal(bigProfile.public.tagline, 'Be the change you want to see.');
+assert.equal(bigProfile.public.idealHangout, 'An escape room, boba, a local market, dinner, and a concert.');
 assert.equal(bigProfile.public.socialLevel, 4);
 assert.equal(bigProfile.public.socialStyle, 'Extrovert');
 assert.equal(bigProfile.imageKind, 'drive-folder');
@@ -348,6 +356,7 @@ for (const privateValue of [
   'PRIVATE NEARBY FRIEND QUALITIES',
   'PRIVATE NEARBY LIFE GOALS',
   'PRIVATE BIG BLOCK PASSION',
+  'PRIVATE BIG IDEAL HANGOUT',
 ]) assert.doesNotMatch(publicSheetText, new RegExp(privateValue), 'private conditional answers must not enter public profiles');
 for (const privateKey of ['imageSourceUrl', 'driveFileId', 'driveFolderId', 'imageIssue', 'imageKind', 'sourceGroup', 'sourceRow', 'vibeScores', 'vibeEvidence', 'evidence']) {
   assert.equal(privateKey in hazelProfile.public, false, `${privateKey} must remain outside public profile data`);
@@ -363,6 +372,52 @@ const emptyLittlePassion = analyzeSheetValues(
 assert.equal(emptyLittlePassion.role, 'Little');
 assert.equal(emptyLittlePassion.passion, '', 'an empty Little passion must remain empty instead of falling through to the Big block');
 assert.doesNotMatch(JSON.stringify(emptyLittlePassion), /PRIVATE BIG BLOCK PASSION MUST NOT FALL BACK/);
+
+const oldBigIdealFixture = fall2026SheetFixture();
+setCell(oldBigIdealFixture.values[2], 'AA', 'COMMON IDEAL HANGOUT MUST NOT FALL BACK');
+setCell(oldBigIdealFixture.values[2], 'CZ', 'https://docs.google.com/presentation/d/1NearbySubtleTraitSlide/edit');
+setCell(oldBigIdealFixture.values[2], 'DA', '');
+const oldBigIdeal = analyzeSheetValues(
+  oldBigIdealFixture.title,
+  [oldBigIdealFixture.values[0], oldBigIdealFixture.values[2]],
+).profiles[0].public;
+assert.equal(oldBigIdeal.role, 'Big');
+assert.equal(oldBigIdeal.idealHangout, '', 'an older Big response must not fall back to the Common/Little column');
+assert.doesNotMatch(JSON.stringify(oldBigIdeal), /COMMON IDEAL HANGOUT|NearbySubtleTraitSlide/);
+
+const familyIdealFixture = fall2026SheetFixture();
+setCell(familyIdealFixture.values[1], 'E', 'Fall');
+setCell(familyIdealFixture.values[1], 'F', 'Family');
+setCell(familyIdealFixture.values[1], 'R', 'FAMILY PROGRAM / FAMILY ONLY');
+setCell(familyIdealFixture.values[1], 'DA', 'PRIVATE BIG FAMILY IDEAL HANGOUT');
+const familyIdeal = analyzeSheetValues(
+  familyIdealFixture.title,
+  [familyIdealFixture.values[0], familyIdealFixture.values[1]],
+).profiles[0].public;
+assert.equal(familyIdeal.role, 'Family');
+assert.equal(familyIdeal.idealHangout, familyIdealFixture.hazelPublic.AA);
+assert.doesNotMatch(JSON.stringify(familyIdeal), /PRIVATE BIG FAMILY IDEAL HANGOUT/);
+
+const khoaIdealFixture = fall2026SheetFixture();
+setCell(khoaIdealFixture.values[2], 'E', 'Khoa');
+setCell(khoaIdealFixture.values[2], 'F', 'Nguyen');
+setCell(khoaIdealFixture.values[2], 'AA', 'COMMON KHOA VALUE MUST NOT BE USED');
+setCell(khoaIdealFixture.values[2], 'DA', 'A morning gym session, food, an escape room, boba, dinner, and a concert.');
+const khoaIdeal = analyzeSheetValues(
+  khoaIdealFixture.title,
+  [khoaIdealFixture.values[0], khoaIdealFixture.values[2]],
+).profiles[0].public;
+assert.equal(khoaIdeal.role, 'Big');
+assert.equal(khoaIdeal.idealHangout, 'A morning gym session, food, an escape room, boba, dinner, and a concert.');
+assert.doesNotMatch(JSON.stringify(khoaIdeal), /COMMON KHOA VALUE MUST NOT BE USED/);
+
+const ambiguousIdealFixture = fall2026SheetFixture();
+setCell(ambiguousIdealFixture.values[0], 'DB', "What's your ideal hangout?");
+assert.throws(
+  () => analyzeSheetValues(ambiguousIdealFixture.title, ambiguousIdealFixture.values),
+  /Little and Big ideal hangout headers could not be resolved safely/,
+  'ambiguous duplicate Ideal Hangout headers must fail closed',
+);
 
 const parityDirectory = await mkdtemp(join(tmpdir(), 'ace-sheet-parity-'));
 try {

@@ -303,6 +303,92 @@ class PublicProfileTests(unittest.TestCase):
             repr(IMPORTER.public_profiles(profiles)),
         )
 
+    def test_fall_2026_ideal_hangout_is_selected_by_role(self):
+        workbook = pathlib.Path(__file__).parents[1] / 'FALL 26 MASTER APPS TEST.xlsx'
+        values = logical_sheet_values(workbook, 'BIGS')
+        header = list(values[0])
+        set_cell(
+            header,
+            'CZ',
+            '[OPTIONAL] Upload your Subtle ACE Trait slide! '
+            '(Please upload a link to your slide below! Canva or Google Slides)',
+        )
+        set_cell(header, 'DA', "What's your ideal hangout?")
+
+        def imported_profile(label, row):
+            with tempfile.TemporaryDirectory() as directory:
+                adapted = pathlib.Path(directory) / f'{label}.xlsx'
+                SHEET_ANALYZER.write_tabular_xlsx(
+                    adapted,
+                    'Form Responses 1',
+                    [header, row],
+                )
+                profiles, _ = IMPORTER.build_profiles(adapted)
+                self.assertEqual(len(profiles), 1)
+                return profiles[0]
+
+        little_row = list(values[1])
+        set_cell(little_row, 'R', 'FAM/ACE LITTLE Program')
+        set_cell(little_row, 'AA', 'Common cafe and crafts hangout.')
+        set_cell(little_row, 'CZ', 'https://docs.google.com/presentation/d/1LittleSubtleTraitSlide/edit')
+        set_cell(little_row, 'DA', 'PRIVATE BIG IDEAL HANGOUT')
+        little = imported_profile('little-ideal', little_row)
+        self.assertEqual(little['role'], 'Little')
+        self.assertEqual(little['idealHangout'], 'Common cafe and crafts hangout.')
+        self.assertNotIn('PRIVATE BIG IDEAL HANGOUT', repr(IMPORTER.public_profiles([little])))
+
+        khoa_row = list(values[1])
+        set_cell(khoa_row, 'E', 'Khoa')
+        set_cell(khoa_row, 'F', 'Nguyen')
+        set_cell(khoa_row, 'R', 'ACE BIG ONLY PROGRAM')
+        set_cell(khoa_row, 'AA', 'COMMON VALUE MUST NOT BE USED')
+        set_cell(khoa_row, 'CZ', 'https://docs.google.com/presentation/d/1KhoaSubtleTraitSlide/edit')
+        set_cell(
+            khoa_row,
+            'DA',
+            'A morning gym session, food, an escape room, boba, dinner, and a concert.',
+        )
+        khoa = imported_profile('khoa-ideal', khoa_row)
+        self.assertEqual(khoa['role'], 'Big')
+        self.assertEqual(
+            khoa['idealHangout'],
+            'A morning gym session, food, an escape room, boba, dinner, and a concert.',
+        )
+        self.assertNotIn('COMMON VALUE MUST NOT BE USED', repr(IMPORTER.public_profiles([khoa])))
+        self.assertNotIn('KhoaSubtleTraitSlide', repr(IMPORTER.public_profiles([khoa])))
+
+        older_big_row = list(khoa_row)
+        set_cell(older_big_row, 'E', 'Older')
+        set_cell(older_big_row, 'F', 'Big')
+        set_cell(older_big_row, 'DA', '')
+        older_big = imported_profile('older-big-ideal', older_big_row)
+        self.assertEqual(older_big['role'], 'Big')
+        self.assertEqual(older_big['idealHangout'], '')
+
+        family_row = list(little_row)
+        set_cell(family_row, 'E', 'Fall')
+        set_cell(family_row, 'F', 'Family')
+        set_cell(family_row, 'R', 'FAMILY PROGRAM / FAMILY ONLY')
+        set_cell(family_row, 'DA', 'PRIVATE BIG FAMILY IDEAL HANGOUT')
+        family = imported_profile('family-ideal', family_row)
+        self.assertEqual(family['role'], 'Family')
+        self.assertEqual(family['idealHangout'], 'Common cafe and crafts hangout.')
+
+        with tempfile.TemporaryDirectory() as directory:
+            adapted = pathlib.Path(directory) / 'role-columns.xlsx'
+            SHEET_ANALYZER.write_tabular_xlsx(adapted, 'Form Responses 1', [header, khoa_row])
+            with zipfile.ZipFile(adapted) as archive:
+                paths = IMPORTER.resolve_worksheet_paths(archive)
+                config = IMPORTER.select_sheet_configs(archive, [], paths)['BIGS']
+        self.assertEqual(
+            config['idealHangoutByRole'],
+            {'Little': 'AA', 'Family': 'AA', 'Big': 'DA'},
+        )
+        self.assertEqual(
+            config['passionByRole'],
+            {'Little': 'AH', 'Family': 'AH', 'Big': 'CC'},
+        )
+
     def test_legacy_sheet_roles_remain_authoritative(self):
         self.assertEqual(IMPORTER.derive_profile_role('', 'Little'), 'Little')
         self.assertEqual(IMPORTER.derive_profile_role('FAM/ACE LITTLE Program', 'Big'), 'Big')
