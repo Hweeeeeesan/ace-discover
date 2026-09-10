@@ -232,6 +232,12 @@ const interestRegressionFixtures = [
   { hobbies: 'I enjoy coding', interests: ['Coding'] },
   { hobbies: 'The codpiece exhibit was unusual', interests: [] },
   { hobbies: 'Floral design: I make bouquets...', interests: ['Floral Design'] },
+  { hobbies: 'Lion Dance: I perform with a team', interests: ['Lion Dance'] },
+  { hobbies: 'Beach Volleyball: I play every weekend', interests: ['Beach Volleyball'] },
+  {
+    hobbies: 'Exploring new places\nLion Dance\nVolleyball\nGoing to the beach\nGoing to the gym',
+    interests: ['Exploring New Places', 'Lion Dance', 'Volleyball'],
+  },
   { hobbies: "I don't like pickleball", interests: [] },
   { hobbies: 'Whenever I have time, traveling is fun', interests: ['Travel'] },
   { hobbies: 'I listen to Laufey, Beach Bunny, and Good Kid.', interests: [] },
@@ -325,6 +331,7 @@ const bigProfile = nodeOnlyPayload.profiles[1];
 assert.equal(bigProfile.public.name, 'Logan Ho');
 assert.equal(bigProfile.public.role, 'Big');
 assert.equal(bigProfile.public.hobbies, 'Exploring new places, hiking, gaming, and trying new food.');
+assert.deepEqual(bigProfile.public.interests, ['Hiking', 'Gaming']);
 assert.equal(bigProfile.public.passion, 'Psychology and helping people grow.');
 assert.equal(bigProfile.public.tagline, 'Be the change you want to see.');
 assert.equal(bigProfile.public.socialLevel, 4);

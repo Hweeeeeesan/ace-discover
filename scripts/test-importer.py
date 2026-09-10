@@ -141,6 +141,11 @@ class PublicProfileTests(unittest.TestCase):
             'I enjoy coding': ['Coding'],
             'The codpiece exhibit was unusual': [],
             'Floral design: I make bouquets...': ['Floral Design'],
+            'Lion Dance: I perform with a team': ['Lion Dance'],
+            'Beach Volleyball: I play every weekend': ['Beach Volleyball'],
+            'Exploring new places\nLion Dance\nVolleyball\nGoing to the beach\nGoing to the gym': [
+                'Exploring New Places', 'Lion Dance', 'Volleyball',
+            ],
             "I don't like pickleball": [],
             'Whenever I have time, traveling is fun': ['Travel'],
             'I listen to Laufey, Beach Bunny, and Good Kid.': [],
@@ -312,7 +317,7 @@ class PublicProfileTests(unittest.TestCase):
         self.assertEqual(profile['role'], 'Big')
         self.assertEqual(
             profile['interests'],
-            IMPORTER.interest_tags(profile['hobbies']),
+            ['Exploring New Places', 'Lion Dance', 'Volleyball'],
         )
         self.assertEqual(profile['tagline'], 'Be the change you want to see.')
         self.assertIn('1. I am both a morning and a night person', profile['uniqueThings'])

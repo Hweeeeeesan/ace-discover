@@ -1021,6 +1021,17 @@ def is_negated_interest(text, start):
     return bool(INTEREST_NEGATION_PATTERN.search(normalized))
 
 
+def is_known_heading(heading):
+    key = normalize_interest_key(heading['text'])
+    return any(
+        key in {
+            normalize_interest_key(item)
+            for item in [rule['label'], *rule.get('aliases', [])]
+        }
+        for rule in INTEREST_TAXONOMY['rules']
+    )
+
+
 def interest_tags(hobbies):
     text = normalize_hobby_text(redact_multiline(hobbies))
     normalized_text = normalize_interest_key(text)
@@ -1044,6 +1055,15 @@ def interest_tags(hobbies):
         heading
         for segment in segments
         if (heading := heading_for_segment(segment, len(segments), list_like)) is not None
+    ]
+    protected_explicit_headings = [
+        heading for heading in headings
+        if (
+            heading['explicit']
+            and heading['customEligible']
+            and not is_known_heading(heading)
+            and is_safe_custom_interest(heading['text'])
+        )
     ]
     matches_by_label = {}
 
@@ -1121,7 +1141,16 @@ def interest_tags(hobbies):
 
     known = []
     for item in matches_by_label.values():
-        best = sorted(item['matches'], key=lambda match: (match['priority'], match['position']))[0]
+        available_matches = [
+            match for match in item['matches']
+            if not any(
+                heading['start'] <= match['position'] < heading['end']
+                for heading in protected_explicit_headings
+            )
+        ]
+        if not available_matches:
+            continue
+        best = sorted(available_matches, key=lambda match: (match['priority'], match['position']))[0]
         known.append({
             'label': item['rule']['label'],
             'priority': best['priority'],
@@ -1133,21 +1162,19 @@ def interest_tags(hobbies):
     custom = []
     for index, heading in enumerate(headings):
         key = normalize_interest_key(heading['text'])
-        is_known_heading = any(
-            key in {
-                normalize_interest_key(item)
-                for item in [rule['label'], *rule.get('aliases', [])]
-            }
-            for rule in INTEREST_TAXONOMY['rules']
-        )
+        known_heading = is_known_heading(heading)
         contains_known_match = any(
             heading['start'] <= match['position'] < heading['end']
+            and not any(
+                protected_heading['start'] <= match['position'] < protected_heading['end']
+                for protected_heading in protected_explicit_headings
+            )
             for item in matches_by_label.values()
             for match in item['matches']
         )
         if (
             not heading['customEligible']
-            or is_known_heading
+            or known_heading
             or contains_known_match
             or key in known_keys
             or not is_safe_custom_interest(heading['text'])
