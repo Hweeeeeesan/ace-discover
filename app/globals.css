@@ -352,6 +352,33 @@ select:focus-visible {
   font-size: 12px;
   font-weight: 750;
 }
+.match-context {
+  max-width: 570px;
+  margin-top: 13px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 13px;
+  color: rgba(255,255,255,.9);
+  background: rgba(8,8,8,.42);
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+}
+.match-context-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 7px; }
+.match-context-heading span { color: #b9dcff; font-size: 9px; font-weight: 900; letter-spacing: .13em; text-transform: uppercase; }
+.match-context-heading strong { font-size: 11px; font-weight: 850; }
+.match-context p {
+  margin: 4px 0 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: rgba(255,255,255,.82);
+  font-size: 11px;
+  line-height: 1.38;
+}
+.match-context p b { color: rgba(255,255,255,.66); font-weight: 800; }
+.match-context mark { padding: 0; color: white; background: transparent; font-weight: 900; text-decoration: underline; text-decoration-color: #b9dcff; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+.match-context small { display: block; margin-top: 4px; color: rgba(255,255,255,.58); font-size: 9px; font-weight: 750; }
 .card-actions { margin-top: 19px; display: flex; gap: 10px; }
 .primary-button {
   min-height: 50px;
@@ -678,6 +705,28 @@ select:focus-visible {
 .admin-issue { margin-top: 8px; border: 1px solid #e0ddd5; border-radius: 18px; overflow: hidden; background: white; }.admin-issue summary { padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 20px; cursor: pointer; list-style: none; }.admin-issue summary span { display: flex; flex-direction: column; gap: 3px; }.admin-issue summary small { color: #827d74; font-size: 11px; font-weight: 500; }.admin-issue summary b { min-width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; background: #eeeae3; }.admin-issue-body { padding: 0 18px 18px; }.admin-issue-body input { width: 100%; height: 43px; padding: 0 12px; border: 1px solid #dedbd3; border-radius: 12px; background: #faf9f6; }.admin-issue-list { max-height: 330px; margin-top: 9px; overflow-y: auto; }.admin-issue-list a { padding: 10px 3px; border-bottom: 1px solid #eeeae3; display: flex; flex-direction: column; gap: 2px; }.admin-issue-list a span,.admin-issue-list p { color: #777168; font-size: 11px; }
 .vibe-distribution { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px 20px; }.vibe-distribution div { position: relative; padding: 13px 13px 17px; border-radius: 14px; display: flex; justify-content: space-between; overflow: hidden; background: white; }.vibe-distribution i { position: absolute; left: 0; bottom: 0; width: var(--vibe-width); height: 4px; background: #111; }.admin-footer { margin-top: 28px; color: #817c73; font-size: 11px; }
 
+.admin-app-preview { margin-top: 18px; border: 1px solid #d8d4cc; border-radius: 24px; overflow: hidden; background: #e8e6e0; box-shadow: 0 18px 50px rgba(17,17,17,.08); }
+.admin-app-preview-toolbar { min-height: 66px; padding: 11px 13px 11px 16px; display: flex; align-items: center; gap: 12px; color: #f8f7f3; background: #181817; }
+.admin-app-preview-heading { min-width: 0; margin-right: auto; display: grid; grid-template-columns: auto minmax(0,1fr); align-items: baseline; gap: 2px 8px; }
+.admin-app-preview-heading > span { color: #9fc0e1; font-size: 9px; font-weight: 850; letter-spacing: .13em; text-transform: uppercase; }
+.admin-app-preview-heading > strong { font-size: 13px; }
+.admin-app-preview-heading > small { grid-column: 1/-1; max-width: 320px; overflow: hidden; color: rgba(255,255,255,.5); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-preview-device-toggle { flex: 0 0 auto; padding: 3px; border-radius: 11px; display: flex; background: rgba(255,255,255,.09); }
+.admin-preview-device-toggle button, .admin-app-preview-actions button, .admin-app-preview-actions a { min-height: 34px; border: 0; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer; color: rgba(255,255,255,.68); background: transparent; font-size: 11px; font-weight: 800; }
+.admin-preview-device-toggle button { padding: 0 10px; }
+.admin-preview-device-toggle button[aria-pressed=true] { color: #171717; background: white; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.admin-preview-device-toggle button:focus-visible, .admin-app-preview-actions button:focus-visible, .admin-app-preview-actions a:focus-visible { outline: 2px solid #9fc0e1; outline-offset: 2px; }
+.admin-app-preview-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 3px; }
+.admin-app-preview-actions > span { margin-right: 4px; color: rgba(255,255,255,.48); font-size: 9px; font-variant-numeric: tabular-nums; }
+.admin-app-preview-actions button, .admin-app-preview-actions a { padding: 0 8px; }
+.admin-app-preview-actions button:hover, .admin-app-preview-actions a:hover { color: white; background: rgba(255,255,255,.09); }
+.admin-app-preview-stage { width: 100%; min-height: 560px; padding: 18px; display: flex; align-items: flex-start; justify-content: center; overflow: auto; background: repeating-conic-gradient(#ddd9d1 0 25%,#e5e2dc 0 50%) 50%/18px 18px; overscroll-behavior: contain; }
+.admin-app-preview-stage.is-mobile { min-height: min(880px,82svh); }
+.admin-app-preview-size { flex: 0 0 auto; position: relative; }
+.admin-app-preview-frame { position: absolute; inset: 0 auto auto 0; max-width: none; border: 0; display: block; background: white; transform-origin: top left; box-shadow: 0 14px 44px rgba(17,17,17,.24); }
+.admin-app-preview-stage:focus-within .admin-app-preview-frame { outline: 4px solid #7aa9d5; outline-offset: 3px; }
+.admin-app-preview-note { margin: 0; padding: 9px 14px; color: #68645d; background: #f8f7f3; font-size: 10px; text-align: center; }
+
 .admin-auth-shell { min-height: 100svh; padding: 24px; display: grid; place-items: center; color: #171717; background: radial-gradient(circle at 50% 18%, #dcecff, #f4f3ef 48%); }
 .admin-auth-card { width: min(100%, 480px); padding: 34px; border: 1px solid #dedbd3; border-radius: 28px; display: flex; flex-direction: column; align-items: flex-start; background: white; box-shadow: 0 24px 80px rgba(0,0,0,.09); }
 .admin-auth-card > span { font-size: 10px; font-weight: 850; letter-spacing: .15em; text-transform: uppercase; }
@@ -897,6 +946,8 @@ select:focus-visible {
   .profile-copy h2 { font-size: clamp(34px, 9.5vw, 52px); }
   .tag-row { margin-top: 12px; }
   .tag { padding: 7px 10px; }
+  .match-context { margin-top: 9px; padding-block: 8px; }
+  .match-context p { -webkit-line-clamp: 1; }
   .card-actions { margin-top: 14px; }
   .primary-button, .icon-button, .saved-profile-button { min-height: 46px; height: 46px; }
 }
@@ -921,6 +972,14 @@ select:focus-visible {
   .admin-reset-card { grid-template-columns: 1fr; }
   .admin-reset-card button { width: 100%; }
   .vibe-distribution { grid-template-columns: 1fr; }
+  .admin-app-preview-toolbar { align-items: stretch; flex-wrap: wrap; }
+  .admin-app-preview-heading { width: 100%; flex-basis: 100%; }
+  .admin-preview-device-toggle { flex: 1 1 auto; }
+  .admin-preview-device-toggle button { flex: 1; }
+  .admin-app-preview-actions { margin-left: auto; }
+  .admin-app-preview-actions > span { display: none; }
+  .admin-app-preview-stage { min-height: 460px; padding: 18px; }
+  .admin-app-preview-stage.is-mobile { min-height: min(760px,76svh); }
   .admin-header-actions { width: 100%; flex-direction: column; align-items: stretch; }
   .admin-header-actions > a, .admin-header-actions > button { width: 100%; }
   .dataset-import-form { grid-template-columns: 1fr; }

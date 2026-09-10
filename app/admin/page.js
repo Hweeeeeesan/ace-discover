@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import AdminAppPreview from '../../components/AdminAppPreview';
 import AdminIssueList from '../../components/AdminIssueList';
 import { AdminLogin, AdminSignOut } from '../../components/AdminAuth';
 import DatasetManager from '../../components/DatasetManager';
@@ -89,6 +90,7 @@ export default async function AdminPage({ searchParams }) {
       </header>
       {databaseError && <p className="admin-setup-warning" role="alert">Database setup is incomplete: {databaseError}</p>}
       <DatasetManager datasets={datasets} selectedDatasetId={selected?.id || ''} />
+      <AdminAppPreview />
       {selected && health && (
         <>
           <section className="admin-dataset-heading"><span>Inspecting dataset</span><h2>{selected.name}</h2><b>{selected.status}</b></section>
