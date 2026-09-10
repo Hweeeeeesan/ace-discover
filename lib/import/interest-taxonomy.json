@@ -1,0 +1,226 @@
+{
+  "version": 1,
+  "maxInterests": 3,
+  "placeholders": [
+    "", ".", "..", "-", "--", "n/a", "na", "none", "no", "nope", "null",
+    "not applicable", "not available", "did not submit", "didn't submit", "asdf"
+  ],
+  "blockedCustom": [
+    "big", "little", "family", "role", "program", "hobby", "hobbies", "interest",
+    "interests", "currently", "games", "shows", "interests personality", "friendship",
+    "mentorship", "spending quality time", "hanging out", "trying out new things",
+    "meeting new people"
+  ],
+  "rules": [
+    {
+      "label": "Gym",
+      "aliases": ["working out", "weightlifting", "weight lifting"],
+      "patterns": ["\\b(?:gym(?:ming)?|work(?:ing)? out|weight ?lift(?:ing)?)\\b"]
+    },
+    {
+      "label": "Gaming",
+      "aliases": ["video games", "video gaming"],
+      "patterns": ["\\b(?:video gam(?:e|es|ing)|pc games?|gaming|gamers?|valorant|league of legends|roblox|minecraft|tft|fortnite|overwatch|call of duty|cod|clash royale?|brawl stars?|genshin(?: impact)?|marvel rivals|helldivers?|borderlands)\\b"]
+    },
+    {
+      "label": "Board Games",
+      "patterns": ["\\bboard games?\\b"]
+    },
+    {
+      "label": "Music",
+      "generic": true,
+      "patterns": ["\\b(?:music|spotify|playlists?)\\b"]
+    },
+    {
+      "label": "Concerts",
+      "aliases": ["live music", "music festivals"],
+      "patterns": ["\\b(?:concerts?|live music|music festivals?)\\b"]
+    },
+    {
+      "label": "Raves",
+      "aliases": ["raving"],
+      "patterns": ["\\b(?:raves?|raving)\\b"]
+    },
+    {
+      "label": "Dance",
+      "patterns": ["\\bdanc(?:e|es|ed|ing|er|ers)\\b"]
+    },
+    {
+      "label": "Cooking",
+      "patterns": ["\\bcook(?:s|ed|ing)?\\b"]
+    },
+    {
+      "label": "Baking",
+      "patterns": ["\\bbak(?:e|es|ed|ing)\\b"]
+    },
+    {
+      "label": "Reading",
+      "aliases": ["books", "novels"],
+      "patterns": ["\\b(?:read(?:s|ing|er|ers)?|books?|novels?)\\b"]
+    },
+    {
+      "label": "Anime",
+      "aliases": ["manga"],
+      "patterns": ["\\b(?:anime|manga)\\b"]
+    },
+    {
+      "label": "K-pop",
+      "aliases": ["kpop", "k pop"],
+      "patterns": ["\\bk[- ]?pop\\b"]
+    },
+    {
+      "label": "Cars",
+      "aliases": ["automotive", "car meets"],
+      "patterns": ["\\b(?:cars?|automotive|car meets?)\\b"]
+    },
+    {
+      "label": "Hiking",
+      "patterns": ["\\bhik(?:e|es|ed|ing|er|ers)\\b"]
+    },
+    {
+      "label": "Rock Climbing",
+      "aliases": ["climbing", "bouldering"],
+      "patterns": ["\\b(?:rock climb(?:s|ed|ing)?|climb(?:s|ed|ing)|bouldering)\\b"]
+    },
+    {
+      "label": "Running",
+      "aliases": ["jogging", "track"],
+      "patterns": ["\\b(?:running|jogging|track)\\b"]
+    },
+    {
+      "label": "Swimming",
+      "patterns": ["\\bswim(?:s|ming|mer|mers)?\\b"]
+    },
+    {
+      "label": "Snowboarding",
+      "patterns": ["\\bsnowboard(?:s|ed|ing|er|ers)?\\b"]
+    },
+    {
+      "label": "Surfing",
+      "patterns": ["\\bsurf(?:s|ed|ing|er|ers)?\\b"]
+    },
+    {
+      "label": "Bowling",
+      "patterns": ["\\bbowl(?:s|ed|ing|er|ers)?\\b"]
+    },
+    {
+      "label": "Sports",
+      "generic": true,
+      "patterns": ["\\bsports?\\b"]
+    },
+    {
+      "label": "Basketball",
+      "patterns": ["\\bbasketball\\b"]
+    },
+    {
+      "label": "Volleyball",
+      "patterns": ["\\bvolleyball\\b"]
+    },
+    {
+      "label": "Soccer",
+      "patterns": ["\\bsoccer\\b"]
+    },
+    {
+      "label": "Badminton",
+      "patterns": ["\\bbadminton\\b"]
+    },
+    {
+      "label": "Pickleball",
+      "patterns": ["\\bpickleball\\b"]
+    },
+    {
+      "label": "Football",
+      "patterns": ["\\bfootball\\b"]
+    },
+    {
+      "label": "Tennis",
+      "patterns": ["\\btennis\\b"]
+    },
+    {
+      "label": "Art",
+      "generic": true,
+      "aliases": ["visual art", "fine art", "arts and crafts"],
+      "patterns": ["\\b(?:arts?|visual arts?|fine arts?|arts and crafts|artwork|drawing|painting|sketching|illustration)\\b"]
+    },
+    {
+      "label": "Photography",
+      "aliases": ["photo", "photos", "taking photos", "taking pictures"],
+      "patterns": ["\\b(?:photograph(?:y|er|ers|ing)?|photos?|tak(?:e|es|ing) (?:pics?|photos?|pictures?)|cameras?)\\b"]
+    },
+    {
+      "label": "Coding",
+      "aliases": ["programming", "software development"],
+      "patterns": ["\\b(?:coding|programming|software development)\\b"]
+    },
+    {
+      "label": "Travel",
+      "aliases": ["traveling", "travelling"],
+      "patterns": ["\\btravel(?:s|ed|ing|ling)?\\b"]
+    },
+    {
+      "label": "Cafes",
+      "aliases": ["cafe hopping", "coffee shops"],
+      "patterns": ["\\b(?:cafes?|cafe hopping|coffee shops?)\\b"]
+    },
+    {
+      "label": "Fashion",
+      "aliases": ["thrifting", "styling outfits"],
+      "patterns": ["\\b(?:fashion|thrifting|styling outfits?)\\b"]
+    },
+    {
+      "label": "Movies",
+      "generic": true,
+      "aliases": ["films", "movies and shows", "tv shows"],
+      "patterns": ["\\b(?:movies?|films?|cinema|tv shows?)\\b"]
+    },
+    {
+      "label": "Fitness",
+      "generic": true,
+      "aliases": ["exercise", "fitness training"],
+      "patterns": ["\\b(?:fitness|exercis(?:e|es|ed|ing)|fitness training)\\b"]
+    },
+    {
+      "label": "Guitar",
+      "patterns": ["\\bguitars?\\b"]
+    },
+    {
+      "label": "Piano",
+      "patterns": ["\\bpianos?\\b"]
+    },
+    {
+      "label": "Drums",
+      "aliases": ["drumming"],
+      "patterns": ["\\b(?:drums?|drumming|drummers?)\\b"]
+    },
+    {
+      "label": "Singing",
+      "patterns": ["\\bsing(?:s|ing|er|ers)?\\b"]
+    },
+    {
+      "label": "DJing",
+      "aliases": ["dj"],
+      "patterns": ["\\bdj(?:ing)?\\b"]
+    },
+    {
+      "label": "Journaling",
+      "patterns": ["\\bjournal(?:s|ed|ing)?\\b"]
+    },
+    {
+      "label": "Crochet",
+      "aliases": ["crocheting"],
+      "patterns": ["\\bcrochet(?:s|ed|ing)?\\b"]
+    },
+    {
+      "label": "Nails",
+      "aliases": ["doing nails", "nail art"],
+      "patterns": ["\\b(?:doing (?:my |their |your )?nails|nail art|gel[- ]?x nails?|press[- ]?ons?)\\b"]
+    }
+  ],
+  "genericSuppression": [
+    { "generic": "Sports", "specifics": ["Basketball", "Volleyball", "Soccer", "Badminton", "Pickleball", "Football", "Tennis", "Rock Climbing", "Running", "Swimming", "Snowboarding", "Surfing", "Bowling"] },
+    { "generic": "Fitness", "specifics": ["Gym", "Rock Climbing", "Running", "Swimming"] },
+    { "generic": "Music", "specifics": ["Concerts", "Guitar", "Piano", "Drums", "Singing", "DJing"] },
+    { "generic": "Movies", "specifics": ["Anime"] },
+    { "generic": "Art", "specifics": ["Photography"] }
+  ]
+}

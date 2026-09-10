@@ -20,6 +20,7 @@ import {
 import {
   analyzeSheetValues,
   inferVibes,
+  interestTags,
   scoreVibeEvidence,
   VIBE_FIELD_WEIGHTS,
   VIBE_ORDER,
@@ -223,6 +224,54 @@ assert.equal(
   'repeating identical evidence must not multiply its score',
 );
 
+const interestRegressionFixtures = [
+  { hobbies: 'Gym, dance, volleyball', interests: ['Gym', 'Dance', 'Volleyball'] },
+  { hobbies: 'Photography, hiking, gaming', interests: ['Photography', 'Hiking', 'Gaming'] },
+  { hobbies: 'I love volleyball and basketball', interests: ['Volleyball', 'Basketball'] },
+  { hobbies: 'I like playing board games', interests: ['Board Games'] },
+  { hobbies: 'I enjoy coding', interests: ['Coding'] },
+  { hobbies: 'The codpiece exhibit was unusual', interests: [] },
+  { hobbies: 'Floral design: I make bouquets...', interests: ['Floral Design'] },
+  { hobbies: "I don't like pickleball", interests: [] },
+  { hobbies: 'Whenever I have time, traveling is fun', interests: ['Travel'] },
+  { hobbies: 'I listen to Laufey, Beach Bunny, and Good Kid.', interests: [] },
+  { hobbies: 'Floral design, pottery', interests: ['Floral Design', 'Pottery'] },
+  {
+    hobbies: '1. Content Creation - filming tutorials 2. Doing nails - nail art 3. Going to the gym',
+    interests: ['Content Creation', 'Nails', 'Gym'],
+  },
+  { hobbies: '', interests: [] },
+  { hobbies: 'Little', interests: [] },
+  { hobbies: 'FAM/ACE LITTLE Program', interests: [] },
+  { hobbies: 'Volleyball is my favorite sport', interests: ['Volleyball'] },
+  { hobbies: 'Music: I play guitar', interests: ['Guitar'] },
+  { hobbies: 'Music, guitar', interests: ['Music', 'Guitar'] },
+  { hobbies: 'I play guitar and listen to music', interests: ['Guitar', 'Music'] },
+  { hobbies: 'Anime and movies', interests: ['Anime', 'Movies'] },
+  { hobbies: 'Floral design<br>hiking<br>gaming', interests: ['Floral Design', 'Hiking', 'Gaming'] },
+  { hobbies: 'Floral design\nperson@example.com\n408-555-1234', interests: ['Floral Design'] },
+  { hobbies: 'photo, Photography, traveling, travelling, cooking', interests: ['Photography', 'Travel', 'Cooking'] },
+];
+for (const fixture of interestRegressionFixtures) {
+  assert.deepEqual(interestTags(fixture.hobbies), fixture.interests);
+}
+const pythonInterestResults = JSON.parse(execFileSync('python3', [
+  '-c',
+  `import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location('ace_importer', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+fixtures = json.loads(sys.argv[2])
+print(json.dumps([module.interest_tags(item['hobbies']) for item in fixtures]))`,
+  fileURLToPath(new URL('../scripts/import-master-apps.py', import.meta.url)),
+  JSON.stringify(interestRegressionFixtures),
+], { encoding: 'utf8' }));
+assert.deepEqual(
+  interestRegressionFixtures.map(({ hobbies }) => interestTags(hobbies)),
+  pythonInterestResults,
+  'JavaScript and Python must return identical Interest labels and ordering',
+);
+
 const pythonVibeResults = JSON.parse(execFileSync('python3', [
   '-c',
   `import importlib.util, json, sys
@@ -258,7 +307,8 @@ assert.equal(nodeOnlyPayload.profiles.length, 2, 'Sheet analysis must run in-pro
 const hazelProfile = nodeOnlyPayload.profiles[0];
 assert.equal(hazelProfile.public.name, 'Hazel Tran');
 assert.equal(hazelProfile.public.role, 'Little');
-assert.equal(hazelProfile.public.interests[0], 'Little', 'Fall 2026 Little interests must keep the role prefix');
+assert.deepEqual(hazelProfile.public.interests, ['Baking', 'Crochet', 'Concerts']);
+assert.equal(hazelProfile.public.interests.includes('Little'), false, 'Fall 2026 roles must not become Interests');
 assert.equal(hazelProfile.public.hobbies, sheetFixture.hazelPublic.S);
 assert.equal(hazelProfile.public.hobbyDetails, sheetFixture.hazelPublic.T);
 assert.equal(hazelProfile.public.bio, sheetFixture.hazelPublic.BL);

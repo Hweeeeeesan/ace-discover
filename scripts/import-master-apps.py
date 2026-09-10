@@ -25,6 +25,14 @@ DOC_REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationship
 PLACEHOLDER_IMAGE = '/profile-placeholder.svg'
 VIBE_SCORING_PATH = Path(__file__).resolve().parents[1] / 'lib' / 'import' / 'vibe-scoring.json'
 VIBE_SCORING = json.loads(VIBE_SCORING_PATH.read_text(encoding='utf-8'))
+INTEREST_TAXONOMY_PATH = Path(__file__).resolve().parents[1] / 'lib' / 'import' / 'interest-taxonomy.json'
+INTEREST_TAXONOMY = json.loads(INTEREST_TAXONOMY_PATH.read_text(encoding='utf-8'))
+INTEREST_NEGATION_PATTERN = re.compile(
+    r"\b(?:do not|don't|dont|never|hate(?:s|d)?|dislik(?:e|es|ed)|not into|"
+    r"not a fan of|no interest in|can't stand|cant stand|cannot stand|"
+    r"avoid(?:s|ed|ing)?)(?:\s+[a-z0-9']+){0,6}$",
+    re.I,
+)
 VIBE_ORDER = [config['name'] for config in VIBE_SCORING['vibes']]
 VIBE_SCORE_THRESHOLD = VIBE_SCORING['threshold']
 MAX_INFERRED_VIBES = VIBE_SCORING['maxVibes']
@@ -829,37 +837,341 @@ def image_candidates(image):
     return list(dict.fromkeys(candidate for candidate in candidates if candidate))
 
 
-def interest_tags(hobbies, role, program):
-    text = redact_pii(hobbies)
-    candidates = []
-    keyword_map = [
-        ('Gym', 'gym'), ('Gaming', 'game'), ('Music', 'music'), ('Concerts', 'concert'),
-        ('Dance', 'danc'), ('Cooking', 'cook'), ('Baking', 'bak'), ('Reading', 'read'),
-        ('Anime', 'anime'), ('K-pop', 'kpop'), ('Cars', 'car'), ('Hiking', 'hik'),
-        ('Sports', 'sport'), ('Basketball', 'basketball'), ('Volleyball', 'volleyball'),
-        ('Art', 'draw'), ('Photography', 'photo'), ('Coding', 'cod'), ('Travel', 'travel'),
-        ('Cafes', 'cafe'), ('Fashion', 'fashion'), ('Movies', 'movie'), ('Fitness', 'fitness'),
-        ('Guitar', 'guitar'), ('Singing', 'sing'),
+def normalize_interest_key(value=''):
+    text = unicodedata.normalize('NFKD', str(value or ''))
+    text = ''.join(char for char in text if not unicodedata.combining(char)).lower()
+    text = text.replace('&', ' and ')
+    return re.sub(r'\s+', ' ', re.sub(r'[^a-z0-9]+', ' ', text)).strip()
+
+
+def normalize_hobby_text(value=''):
+    text = re.sub(r'<br\s*/?>', '\n', str(value or ''), flags=re.I)
+    return text.replace('\r\n', '\n').replace('\r', '\n').replace('\0', ' ').strip()
+
+
+def segment_hobbies(text):
+    numbered_markers = len(re.findall(r'(?:^|\s)\d+[.)]\s+', text))
+    star_markers = len(re.findall(r'(?:^|\s)\*\s+\S', text))
+    delimiter = re.compile(
+        r'\n+|[•;]+|\s+(?=\d+[.)]\s+)|\s+(?=\*\s+\S)'
+        if numbered_markers >= 2 or star_markers >= 2
+        else r'\n+|[•;]+|,\s+|\s+(?=\d+[.)]\s+)'
+    )
+    ranges = []
+    start = 0
+    before_kind = 'start'
+    for match in delimiter.finditer(text):
+        value = match.group(0)
+        following_text = text[match.end():]
+        if '\n' in value:
+            after_kind = 'newline'
+        elif '•' in value:
+            after_kind = 'bullet'
+        elif ';' in value:
+            after_kind = 'semicolon'
+        elif ',' in value:
+            after_kind = 'comma'
+        elif re.match(r'^\d+[.)]\s+', following_text):
+            after_kind = 'numbered'
+        elif re.match(r'^\*\s+\S', following_text):
+            after_kind = 'bullet'
+        else:
+            after_kind = 'separator'
+        ranges.append((start, match.start(), before_kind, after_kind))
+        start = match.end()
+        before_kind = after_kind
+    ranges.append((start, len(text), before_kind, 'end'))
+
+    segments = []
+    for segment_index, (range_start, range_end, before_kind, after_kind) in enumerate(ranges):
+        raw = text[range_start:range_end]
+        leading_whitespace = len(raw) - len(raw.lstrip())
+        trimmed = raw.strip()
+        aside = re.match(r'^\((?:in\s+)?no particular order\)\s*', trimmed, re.I)
+        aside_length = len(aside.group(0)) if aside else 0
+        prefix = re.match(r'^(?:[-–—*]\s+|\d+[.)]\s+)', trimmed[aside_length:])
+        prefix_length = aside_length + (len(prefix.group(0)) if prefix else 0)
+        after_prefix = trimmed[prefix_length:]
+        prefix_whitespace = len(after_prefix) - len(after_prefix.lstrip())
+        content = after_prefix.lstrip()
+        if not content:
+            continue
+        content_offset = range_start + leading_whitespace + prefix_length + prefix_whitespace
+        segments.append({
+            'segmentIndex': segment_index,
+            'start': content_offset,
+            'end': content_offset + len(content),
+            'text': content,
+            'beforeKind': before_kind,
+            'afterKind': after_kind,
+            'prefixKind': (
+                'numbered' if prefix and prefix.group(0)[0].isdigit()
+                else 'bullet' if prefix else None
+            ),
+        })
+    return segments
+
+
+def segment_for_position(segments, position):
+    for segment in segments:
+        if segment['start'] <= position <= segment['end']:
+            return segment['segmentIndex']
+    return -1
+
+
+def heading_for_segment(segment, total_segments, list_like):
+    strong_structure = bool(segment['prefixKind']) or any(
+        kind in {'newline', 'bullet', 'numbered'}
+        for kind in (segment['beforeKind'], segment['afterKind'])
+    )
+    list_separated = list_like and any(
+        kind in {'comma', 'semicolon'}
+        for kind in (segment['beforeKind'], segment['afterKind'])
+    )
+    container = re.match(
+        r'^(?:hobbies?|interests?|currently|wanna (?:get back into|do|learn))\s*:\s*(.*)$',
+        segment['text'],
+        re.I,
+    )
+    if container:
+        if not container.group(1).strip():
+            return None
+        remainder = container.group(1).lstrip()
+        nested = dict(segment)
+        nested['text'] = remainder
+        nested['start'] = (
+            segment['start'] + container.start(1)
+            + (len(container.group(1)) - len(remainder))
+        )
+        return heading_for_segment(nested, total_segments, list_like)
+    labeled = re.match(r'^([^.!?\n]{2,80}?)[!?]?(?:\s*:\s*|\s+[–—-]\s+)(?=\S)', segment['text'])
+    if labeled:
+        text = labeled.group(1).strip()
+        return {
+            'text': text,
+            'start': segment['start'],
+            'end': segment['start'] + len(text),
+            'segmentIndex': segment['segmentIndex'],
+            'explicit': True,
+            'customEligible': True,
+        }
+    if (
+        len(segment['text']) <= 30
+        and not re.search(r'[.!?]', segment['text'])
+        and (strong_structure or list_separated or total_segments == 1)
+    ):
+        return {
+            'text': segment['text'],
+            'start': segment['start'],
+            'end': segment['end'],
+            'segmentIndex': segment['segmentIndex'],
+            'explicit': strong_structure or list_separated,
+            'customEligible': strong_structure or list_separated or total_segments == 1,
+        }
+    return None
+
+
+def title_custom_interest(value):
+    parts = re.split(r'(\s+|-)', value)
+    return ''.join(
+        f'{part[0].upper()}{part[1:].lower()}' if part and part[0].isalnum() else part
+        for part in parts
+    )
+
+
+def is_safe_custom_interest(value):
+    text = value.strip()
+    key = normalize_interest_key(text)
+    words = [word for word in key.split(' ') if word]
+    placeholders = {normalize_interest_key(item) for item in INTEREST_TAXONOMY['placeholders']}
+    blocked = {
+        normalize_interest_key(item)
+        for item in INTEREST_TAXONOMY['blockedCustom']
+    }
+    prose_pattern = re.compile(
+        r'\b(?:i|im|ive|my|we|our|you|love|like|enjoy|play|playing|go|going|make|making|'
+        r'watch|watching|listen|listening|have|has|been|because|when|while|with|for|to|'
+        r'since|about|ago)\b',
+        re.I,
+    )
+    return (
+        2 <= len(text) <= 30
+        and len(words) <= 5
+        and not (len(words) == 1 and re.fullmatch(r'[a-z]{2}', key))
+        and key not in placeholders
+        and key not in blocked
+        and text[0].isalpha()
+        and not re.match(r'^(?:and|or|but)\b', text, re.I)
+        and 'program' not in words
+        and not prose_pattern.search(key)
+        and bool(re.fullmatch(r"[\w\s&/'’+-]+", text, re.UNICODE))
+        and not re.search(r'https?://', text, re.I)
+        and not re.search(r'\[(?:email|phone|private|embedded).*removed\]', text, re.I)
+        and not re.search(r'\d{7,}', text)
+    )
+
+
+def is_negated_interest(text, start):
+    prefix = text[max(0, start - 140):start]
+    sentence_start = max(
+        prefix.rfind('.'), prefix.rfind('!'), prefix.rfind('?'),
+        prefix.rfind(';'), prefix.rfind('\n'),
+    ) + 1
+    normalized = re.sub(r"[^a-z0-9']+", ' ', prefix[sentence_start:].replace('’', "'")).strip()
+    return bool(INTEREST_NEGATION_PATTERN.search(normalized))
+
+
+def interest_tags(hobbies):
+    text = normalize_hobby_text(redact_multiline(hobbies))
+    normalized_text = normalize_interest_key(text)
+    placeholders = {normalize_interest_key(item) for item in INTEREST_TAXONOMY['placeholders']}
+    if not normalized_text or normalized_text in placeholders:
+        return []
+
+    segments = segment_hobbies(text)
+    list_like = (
+        len(text) <= 180
+        and not re.search(r'[.!?]', text)
+        and not re.search(
+            r'\b(?:i|im|ive|my|we|our|you|love|like|enjoy|play|playing|go|going|make|making|'
+            r'watch|watching|listen|listening|have|has|been|because|when|while|with|for|to|'
+            r'since|about|ago)\b',
+            normalize_interest_key(text),
+            re.I,
+        )
+    )
+    headings = [
+        heading
+        for segment in segments
+        if (heading := heading_for_segment(segment, len(segments), list_like)) is not None
     ]
+    matches_by_label = {}
 
-    lower = text.lower()
-    for label, keyword in keyword_map:
-        if keyword in lower and label not in candidates:
-            candidates.append(label)
-        if len(candidates) >= 3:
-            break
+    for taxonomy_index, rule in enumerate(INTEREST_TAXONOMY['rules']):
+        heading_keys = {
+            normalize_interest_key(item)
+            for item in [rule['label'], *rule.get('aliases', [])]
+        }
+        matches = []
+        for heading in headings:
+            if normalize_interest_key(heading['text']) in heading_keys:
+                matches.append({
+                    'position': heading['start'],
+                    'end': heading['end'],
+                    'segmentIndex': heading['segmentIndex'],
+                    'priority': 0,
+                    'inHeading': True,
+                })
+        for pattern in rule['patterns']:
+            for match in re.finditer(pattern, text, flags=re.I):
+                position = match.start()
+                if is_negated_interest(text, position):
+                    continue
+                in_heading = any(
+                    heading['start'] <= position < heading['end']
+                    for heading in headings
+                )
+                matches.append({
+                    'position': position,
+                    'end': match.end(),
+                    'segmentIndex': segment_for_position(segments, position),
+                    'priority': 0 if in_heading else (2 if rule.get('generic') else 1),
+                    'inHeading': in_heading,
+                })
+        if matches:
+            matches_by_label[rule['label']] = {
+                'rule': rule,
+                'taxonomyIndex': taxonomy_index,
+                'matches': matches,
+            }
 
-    if not candidates:
-        parts = re.split(r'[,;•\n]|\s+-\s+', text)
-        for part in parts:
-            part = clean_text(re.sub(r'^[-–—\d.)\s]+', '', part))
-            part = re.split(r'\bbecause\b|\bI like\b|\bI love\b', part, flags=re.I)[0].strip(' .:-')
-            if 2 <= len(part) <= 26 and part.lower() not in {'n/a', 'none'}:
-                candidates.append(part[:26])
-            if len(candidates) >= 3:
-                break
+    for suppression in INTEREST_TAXONOMY['genericSuppression']:
+        generic_match = matches_by_label.get(suppression['generic'])
+        if not generic_match:
+            continue
+        specific_matches = [
+            match
+            for label in suppression['specifics']
+            for match in matches_by_label.get(label, {}).get('matches', [])
+        ]
 
-    return (candidates or [role])[:3]
+        def is_redundant(generic_evidence):
+            for specific_evidence in specific_matches:
+                if generic_evidence['segmentIndex'] != specific_evidence['segmentIndex']:
+                    continue
+                left, right = (
+                    (generic_evidence, specific_evidence)
+                    if generic_evidence['position'] <= specific_evidence['position']
+                    else (specific_evidence, generic_evidence)
+                )
+                bridge = text[left['end']:right['position']]
+                independent = re.search(
+                    r'\b(?:and|or|also|plus|along with|as well as)\b', bridge, re.I
+                )
+                if len(bridge) <= 80 and not independent:
+                    return True
+            return False
+
+        generic_match['matches'] = [
+            match for match in generic_match['matches']
+            if not is_redundant(match)
+        ]
+        if not generic_match['matches']:
+            del matches_by_label[suppression['generic']]
+
+    known = []
+    for item in matches_by_label.values():
+        best = sorted(item['matches'], key=lambda match: (match['priority'], match['position']))[0]
+        known.append({
+            'label': item['rule']['label'],
+            'priority': best['priority'],
+            'position': best['position'],
+            'taxonomyIndex': item['taxonomyIndex'],
+        })
+
+    known_keys = {normalize_interest_key(item['label']) for item in known}
+    custom = []
+    for index, heading in enumerate(headings):
+        key = normalize_interest_key(heading['text'])
+        is_known_heading = any(
+            key in {
+                normalize_interest_key(item)
+                for item in [rule['label'], *rule.get('aliases', [])]
+            }
+            for rule in INTEREST_TAXONOMY['rules']
+        )
+        contains_known_match = any(
+            heading['start'] <= match['position'] < heading['end']
+            for item in matches_by_label.values()
+            for match in item['matches']
+        )
+        if (
+            not heading['customEligible']
+            or is_known_heading
+            or contains_known_match
+            or key in known_keys
+            or not is_safe_custom_interest(heading['text'])
+        ):
+            continue
+        label = title_custom_interest(heading['text'])
+        normalized_label = normalize_interest_key(label)
+        if normalized_label in known_keys or any(item['key'] == normalized_label for item in custom):
+            continue
+        custom.append({
+            'label': label,
+            'key': normalized_label,
+            'priority': 0 if heading['explicit'] else 3,
+            'position': heading['start'],
+            'taxonomyIndex': len(INTEREST_TAXONOMY['rules']) + index,
+        })
+
+    candidates = sorted(
+        [*known, *custom],
+        key=lambda item: (
+            item['priority'], item['position'], item['taxonomyIndex'], item['label'].lower(),
+        ),
+    )
+    return [item['label'] for item in candidates[:INTEREST_TAXONOMY['maxInterests']]]
 
 
 def is_negated_evidence(text, start):
@@ -1078,9 +1390,7 @@ def build_profiles(xlsx_path, allow_partial=False):
 
                 bio = redact_pii(story or hobbies or perfect_day)
                 image = parse_image_source(raw_image)
-                interests = interest_tags(hobbies, role, program)
-                if config.get('f26') and role == 'Little':
-                    interests = [role] + [item for item in interests if item != role][:2]
+                interests = interest_tags(hobbies)
 
                 profile = {
                     'id': profile_id,

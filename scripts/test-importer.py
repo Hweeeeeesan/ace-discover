@@ -132,6 +132,49 @@ class ImageClassificationTests(unittest.TestCase):
 
 
 class PublicProfileTests(unittest.TestCase):
+    def test_interest_extraction_is_specific_ordered_and_has_no_role_fallback(self):
+        cases = {
+            'Gym, dance, volleyball': ['Gym', 'Dance', 'Volleyball'],
+            'Photography, hiking, gaming': ['Photography', 'Hiking', 'Gaming'],
+            'I love volleyball and basketball': ['Volleyball', 'Basketball'],
+            'I like playing board games': ['Board Games'],
+            'I enjoy coding': ['Coding'],
+            'The codpiece exhibit was unusual': [],
+            'Floral design: I make bouquets...': ['Floral Design'],
+            "I don't like pickleball": [],
+            'Whenever I have time, traveling is fun': ['Travel'],
+            'I listen to Laufey, Beach Bunny, and Good Kid.': [],
+            'Floral design, pottery': ['Floral Design', 'Pottery'],
+            '1. Content Creation - filming tutorials 2. Doing nails - nail art 3. Going to the gym': [
+                'Content Creation', 'Nails', 'Gym',
+            ],
+            'Volleyball is my favorite sport': ['Volleyball'],
+            'Music: I play guitar': ['Guitar'],
+            'Music, guitar': ['Music', 'Guitar'],
+            'I play guitar and listen to music': ['Guitar', 'Music'],
+            'Anime and movies': ['Anime', 'Movies'],
+            'Floral design<br>hiking<br>gaming': ['Floral Design', 'Hiking', 'Gaming'],
+            'Floral design\nperson@example.com\n408-555-1234': ['Floral Design'],
+            '': [],
+            'N/A': [],
+            'Little': [],
+            'FAM/ACE LITTLE Program': [],
+        }
+        for hobbies, expected in cases.items():
+            with self.subTest(hobbies=hobbies):
+                self.assertEqual(IMPORTER.interest_tags(hobbies), expected)
+
+    def test_interest_extraction_deduplicates_equivalent_forms_and_caps_at_three(self):
+        self.assertEqual(
+            IMPORTER.interest_tags('photo, Photography, traveling, travelling, cooking'),
+            ['Photography', 'Travel', 'Cooking'],
+        )
+        self.assertEqual(
+            IMPORTER.interest_tags('1. Volleyball\n2. Sports\n3. Basketball'),
+            ['Volleyball', 'Sports', 'Basketball'],
+            'an independently listed generic interest remains grounded',
+        )
+
     def test_fall_2026_program_choices_map_to_roles_explicitly(self):
         cases = {
             'FAM/ACE LITTLE Program': 'Little',
@@ -221,7 +264,7 @@ class PublicProfileTests(unittest.TestCase):
         self.assertEqual(profile['bucketList'], little_public_values['AB'])
         self.assertEqual(profile['passion'], little_public_values['AH'])
         self.assertEqual(profile['bio'], little_public_values['BL'])
-        self.assertEqual(profile['interests'][0], 'Little')
+        self.assertEqual(profile['interests'], ['Baking', 'Crochet', 'Concerts'])
         self.assertEqual(profile['imageKind'], 'drive-file')
         self.assertEqual(profile['driveFileId'], '1HazelTranProfileImage2026')
         staged = IMPORTER.build_dataset_payload(profiles)['profiles'][0]
@@ -269,7 +312,7 @@ class PublicProfileTests(unittest.TestCase):
         self.assertEqual(profile['role'], 'Big')
         self.assertEqual(
             profile['interests'],
-            IMPORTER.interest_tags(profile['hobbies'], 'Big', profile['program']),
+            IMPORTER.interest_tags(profile['hobbies']),
         )
         self.assertEqual(profile['tagline'], 'Be the change you want to see.')
         self.assertIn('1. I am both a morning and a night person', profile['uniqueThings'])
