@@ -47,6 +47,9 @@ function EditorialStory({ story }) {
 export default function ProfileDetail({ profile, datasetSlug, adminPreview = null }) {
   const story = normalizeProfileStory(profile);
   const intro = normalizeProfileIntro(profile, story);
+  const interests = Array.isArray(profile.interests)
+    ? profile.interests.filter((interest) => !['Big', 'Little', 'Family'].includes(interest))
+    : [];
   const adminBackHref = adminPreview?.backHref || '';
   const editableImage = profile.profileImages?.find((image) => image.isPrimary)
     || profile.profileImages?.[0];
@@ -99,9 +102,11 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
           {intro.tagline
             ? <p className="detail-tagline">“{intro.tagline}”</p>
             : intro.bio ? <p className="detail-bio">{intro.bio}</p> : null}
-          <div className="tag-row detail-tags">
-            {profile.interests.map((interest) => <span className="tag light" key={interest}>{interest}</span>)}
-          </div>
+          {interests.length > 0 && (
+            <div className="tag-row detail-tags">
+              {interests.map((interest) => <span className="tag light" key={interest}>{interest}</span>)}
+            </div>
+          )}
           <div className="profile-meta">
             {profile.school && <span>{profile.school}</span>}
             {profile.family && <span>{profile.family}</span>}

@@ -70,6 +70,7 @@ for (const title of [
 const editorialSource = detailSource.slice(detailSource.indexOf('function EditorialStory'), detailSource.indexOf('export default function ProfileDetail'));
 assert.doesNotMatch(editorialSource, /profile\.role/, 'general story sections must not branch on role');
 assert.match(detailSource, /className="detail-role-pill">\{profile\.role\}/, 'the image role badge remains');
-assert.match(detailSource, /profile\.interests\.map[\s\S]*className="tag light"/, 'the standalone role/interests chip row remains');
+assert.match(detailSource, /interests\.filter\(\(interest\) => !\['Big', 'Little', 'Family'\]\.includes\(interest\)\)/, 'the standalone role chip is excluded from the detail chip row');
+assert.match(detailSource, /interests\.length > 0[\s\S]*className="tag light"/, 'the detail chip row is omitted when no non-role chips remain');
 assert.match(detailSource, /profile\.program && <span>\{profile\.program\}<\/span>/, 'the program context pill remains');
 console.log('Profile story normalization tests passed.');

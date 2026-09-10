@@ -13,4 +13,7 @@ assert.match(styles, /\.profile-tagline[\s\S]*?-webkit-line-clamp: 2/);
 assert.match(styles, /@media \(max-width: 360px\)[\s\S]*?\.profile-tagline \{ -webkit-line-clamp: 1; \}/);
 assert.ok(component.includes('SavedProfileButton'), 'bookmark behavior remains present');
 assert.ok(component.includes('onOpenProfile?.(profile.id)'), 'profile navigation callback remains present');
+assert.match(component, /filter\(\(interest\) => !\['Big', 'Little', 'Family'\]\.includes\(interest\)\)/, 'role chips must be excluded from the discovery chip row');
+assert.match(component, /interests\.length > 0/, 'empty chip rows must remain omitted');
+assert.ok(component.includes('profile.role.toUpperCase()'), 'the top role badge remains present');
 console.log('Profile card tagline tests passed.');

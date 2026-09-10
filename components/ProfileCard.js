@@ -14,7 +14,9 @@ export default function ProfileCard({
   onOpenProfile,
   datasetSlug = 'fall-2025',
 }) {
-  const interests = Array.isArray(profile.interests) ? profile.interests.slice(0, 3) : [];
+  const interests = Array.isArray(profile.interests)
+    ? profile.interests.filter((interest) => !['Big', 'Little', 'Family'].includes(interest)).slice(0, 3)
+    : [];
 
   return (
     <section
