@@ -1,9 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { AlertTriangle, Archive, CheckCircle2, Database, FileSpreadsheet, Link2, Pencil, Plus, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react';
+import { AlertTriangle, Archive, CheckCircle2, Database, FileSpreadsheet, Images, Link2, Pencil, Plus, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 async function postJson(url, body) {
   const response = await fetch(url, {
@@ -231,11 +231,34 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
   const [removeConfirmation, setRemoveConfirmation] = useState('');
   const [editingDatasetId, setEditingDatasetId] = useState('');
   const [datasetNameDraft, setDatasetNameDraft] = useState('');
+  const [imageImportStatus, setImageImportStatus] = useState(null);
+  const [imageImportResult, setImageImportResult] = useState(null);
+  const [imageImportError, setImageImportError] = useState('');
+  const [imageStatusVersion, setImageStatusVersion] = useState(0);
   const active = datasets.find((dataset) => dataset.status === 'active');
   const selected = datasets.find((dataset) => dataset.id === selectedDatasetId) || active || datasets[0];
   const defaultYear = new Date().getFullYear();
   const defaultTerm = new Date().getMonth() >= 6 ? 'Fall' : 'Spring';
   const suggestedName = useMemo(() => `${defaultTerm} ${defaultYear}`, [defaultTerm, defaultYear]);
+
+  useEffect(() => {
+    setImageImportResult(null);
+    setImageImportError('');
+  }, [selected?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setImageImportError('');
+    if (!selected || selected.status === 'archived') {
+      setImageImportStatus(null);
+      return () => { cancelled = true; };
+    }
+    setImageImportStatus(null);
+    postJson('/api/admin/datasets/images/import/status', { datasetId: selected.id })
+      .then((result) => { if (!cancelled) setImageImportStatus(result); })
+      .catch((statusError) => { if (!cancelled) setImageImportError(statusError.message); });
+    return () => { cancelled = true; };
+  }, [selected?.id, selected?.status, imageStatusVersion]);
 
   function openAddSemester() {
     const next = !showImport;
@@ -273,6 +296,40 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
       setPreview(await postJson('/api/admin/datasets/sheets/analyze', { datasetId: selected.id }));
     } catch (checkError) {
       setError(checkError.message);
+    } finally {
+      setPendingAction('');
+    }
+  }
+
+  async function previewMissingImages() {
+    if (!selected) return;
+    setPendingAction('preview-images');
+    setImageImportError('');
+    try {
+      setImageImportResult(await postJson('/api/admin/datasets/images/import/preview', {
+        datasetId: selected.id,
+      }));
+    } catch (previewError) {
+      setImageImportError(previewError.message);
+    } finally {
+      setPendingAction('');
+    }
+  }
+
+  async function importMissingImages() {
+    if (!selected || imageImportResult?.mode !== 'preview') return;
+    setPendingAction('apply-images');
+    setImageImportError('');
+    try {
+      const result = await postJson('/api/admin/datasets/images/import/apply', {
+        datasetId: selected.id,
+        confirm: true,
+      });
+      setImageImportResult(result);
+      setImageStatusVersion((value) => value + 1);
+      router.refresh();
+    } catch (applyError) {
+      setImageImportError(applyError.message);
     } finally {
       setPendingAction('');
     }
@@ -486,6 +543,30 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
           {showSourceEditor && selected.sourceType !== 'google_sheet' && <SheetConnector dataset={selected} onPreview={setPreview} onError={setError} setPendingAction={setPendingAction} pendingAction={pendingAction} />}
         </section>
       )}
+      {selected && (
+        <section className="dataset-image-import-card" aria-labelledby="dataset-images-title">
+          <div className="dataset-image-import-heading">
+            <span>Images</span>
+            <h3 id="dataset-images-title">Missing profile galleries</h3>
+          </div>
+          {selected.status === 'archived' ? (
+            <p>Restore this archived dataset before importing images.</p>
+          ) : (
+            <p>
+              <strong>{imageImportStatus ? imageImportStatus.profilesNeedingImport : '—'}</strong>
+              {' '}profile{imageImportStatus?.profilesNeedingImport === 1 ? '' : 's'} need image import
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={previewMissingImages}
+            disabled={selected.status === 'archived' || !imageImportStatus?.profilesNeedingImport || Boolean(pendingAction)}
+          >
+            <Images size={16} /> {pendingAction === 'preview-images' ? 'Previewing…' : 'Preview missing images'}
+          </button>
+          {imageImportError && !imageImportResult && <small role="alert">{imageImportError}</small>}
+        </section>
+      )}
       <button className="dataset-import-toggle" type="button" onClick={openAddSemester} aria-expanded={showImport}><Plus size={17} /> {showImport ? 'Close Add Semester' : 'Add Semester'}</button>
       {showImport && (
         <form className="dataset-import-form" onSubmit={addSource === 'excel' ? analyze : analyzeNewSheet}>
@@ -513,8 +594,51 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
       )}
       {error && <p className="admin-form-error" role="alert">{error}</p>}
       {message && <p className="admin-form-success" role="status"><CheckCircle2 size={16} /> {message}</p>}
-      {preview?.mode === 'sync' && <SyncPreview preview={preview} onCancel={() => setPreview(null)} onApplied={(dataset) => { setPreview(null); setShowManualUpdate(false); setShowSourceEditor(false); setMessage(`${dataset.name} was updated atomically${dataset.status === 'active' ? ' and is now reflected on the public site' : ''}.`); router.refresh(); }} />}
-      {preview && preview.mode !== 'sync' && <ImportPreview preview={preview} onSaved={(dataset) => { setPreview(null); setShowImport(false); setMessage(`${dataset.name} was saved as READY and is not live.`); router.refresh(); }} />}
+      {preview?.mode === 'sync' && <SyncPreview preview={preview} onCancel={() => setPreview(null)} onApplied={(dataset) => { setPreview(null); setShowManualUpdate(false); setShowSourceEditor(false); setMessage(`${dataset.name} was updated atomically${dataset.status === 'active' ? ' and is now reflected on the public site' : ''}.`); setImageStatusVersion((value) => value + 1); router.refresh(); }} />}
+      {preview && preview.mode !== 'sync' && <ImportPreview preview={preview} onSaved={(dataset) => { setPreview(null); setShowImport(false); setMessage(`${dataset.name} was saved as READY and is not live.`); setImageStatusVersion((value) => value + 1); router.refresh(); }} />}
+      {imageImportResult && (
+        <div className="dataset-image-import-backdrop" role="presentation">
+          <section className="dataset-image-import-dialog" role="dialog" aria-modal="true" aria-labelledby="image-import-title">
+            <span>{imageImportResult.mode === 'preview' ? 'Missing image preview' : 'Image import complete'}</span>
+            <h3 id="image-import-title">
+              {imageImportResult.mode === 'preview'
+                ? `${imageImportResult.summary.readyProfiles} profile${imageImportResult.summary.readyProfiles === 1 ? '' : 's'} ready`
+                : `Imported images for ${imageImportResult.summary.profilesImported} profile${imageImportResult.summary.profilesImported === 1 ? '' : 's'}`}
+            </h3>
+            <div className="dataset-image-import-summary">
+              <article><strong>{imageImportResult.mode === 'preview' ? imageImportResult.summary.readyProfiles : imageImportResult.summary.profilesImported}</strong><span>{imageImportResult.mode === 'preview' ? 'Ready profiles' : 'Profiles imported'}</span></article>
+              <article><strong>{imageImportResult.mode === 'preview' ? imageImportResult.summary.validImagesDiscovered : imageImportResult.summary.imagesUploaded}</strong><span>{imageImportResult.mode === 'preview' ? 'Valid images' : 'Images uploaded'}</span></article>
+              <article><strong>{imageImportResult.summary.rejectedFiles}</strong><span>Warnings</span></article>
+              <article><strong>{imageImportResult.summary.failedProfiles}</strong><span>Failures</span></article>
+            </div>
+            <p className="dataset-image-import-skipped">
+              Scanned {imageImportResult.summary.profilesScanned} profiles · preserved {imageImportResult.summary.profilesSkippedExistingGallery} existing galler{imageImportResult.summary.profilesSkippedExistingGallery === 1 ? 'y' : 'ies'}
+              {imageImportResult.mode === 'preview' ? ` · ${imageImportResult.summary.inaccessibleSources} inaccessible Drive source${imageImportResult.summary.inaccessibleSources === 1 ? '' : 's'}` : ''}
+            </p>
+            {imageImportResult.profiles.length > 0 && (
+              <ul className="dataset-image-import-results">
+                {imageImportResult.profiles.map((profile) => (
+                  <li key={profile.id} className={profile.status === 'failed' ? 'is-failed' : ''}>
+                    <strong>{profile.name}</strong>
+                    <span>{profile.imagesReady} image{profile.imagesReady === 1 ? '' : 's'} {imageImportResult.mode === 'preview' ? 'ready' : 'imported'}{profile.rejectedFiles ? ` · ${profile.rejectedFiles} unsupported/rejected` : ''}</span>
+                    {profile.dimensions.length > 0 && <small>{profile.dimensions.map((size) => `${size.width}×${size.height}`).join(' · ')}</small>}
+                    {profile.status === 'failed' && <small>{profile.message}</small>}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {imageImportError && <p className="admin-form-error" role="alert">{imageImportError}</p>}
+            <div className="dataset-image-import-actions">
+              {imageImportResult.mode === 'preview' ? (
+                <>
+                  <button type="button" onClick={() => { setImageImportResult(null); setImageImportError(''); }} disabled={pendingAction === 'apply-images'}>Cancel</button>
+                  <button className="dataset-primary-action" type="button" onClick={importMissingImages} disabled={!imageImportResult.summary.readyProfiles || pendingAction === 'apply-images'}><Images size={16} /> {pendingAction === 'apply-images' ? 'Importing…' : 'Import missing images'}</button>
+                </>
+              ) : <button className="dataset-primary-action" type="button" onClick={() => { setImageImportResult(null); setImageImportError(''); }}>Done</button>}
+            </div>
+          </section>
+        </div>
+      )}
       {removeTarget && (
         <div className="dataset-remove-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeRemoveDialog(); }} onKeyDown={(event) => { if (event.key === 'Escape') closeRemoveDialog(); }}>
           <section className="dataset-remove-dialog" role="dialog" aria-modal="true" aria-labelledby="dataset-remove-title" aria-describedby="dataset-remove-description">

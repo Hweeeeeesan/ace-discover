@@ -17,6 +17,12 @@ import {
   migrateDatasetProfileGalleries,
   migrateDatasetProfiles,
 } from '../lib/profile-image-migration.js';
+import {
+  assertImageImportDataset,
+  imageImportStatus,
+  presentImageImportResult,
+  profileNeedsImageImport,
+} from '../lib/profile-image-batch.js';
 import { parseArguments as parseImageMigrationArguments } from './migrate-drive-images-to-supabase.mjs';
 import {
   PROFILE_IMAGE_PLACEHOLDER,
@@ -592,6 +598,143 @@ const missingGallery = await migrateDatasetProfileGalleries({
 });
 assert.equal(missingGallery.rows[0].category, 'missing_source');
 
+const batchDataset = {
+  id: '11111111-1111-4111-8111-111111111111',
+  slug: 'fall-2026',
+  name: 'Fall 2026',
+  status: 'ready',
+};
+const eligibleBatchProfile = {
+  id: 'hazel-tran',
+  name: 'Hazel Tran',
+  driveFolderId: '1234567890FOLDER',
+  profileImages: [],
+};
+assert.equal(profileNeedsImageImport(eligibleBatchProfile), true, 'Drive source plus no gallery must be eligible');
+assert.equal(profileNeedsImageImport({ ...eligibleBatchProfile, profileImages: [{ id: imageId }] }), false, 'any relational gallery must be preserved');
+assert.equal(profileNeedsImageImport({ id: 'no-source', profileImages: [] }), false, 'profiles without Drive sources must be ignored');
+assert.equal(profileNeedsImageImport({ ...eligibleBatchProfile, storageImagePath: 'fall-2026/hazel-tran/primary.jpg' }), false, 'legacy/Admin image state must not be appended to');
+assert.deepEqual(imageImportStatus(batchDataset, [
+  eligibleBatchProfile,
+  { ...eligibleBatchProfile, id: 'has-gallery', profileImages: [{ id: imageId }] },
+  { id: 'no-source', profileImages: [] },
+]), {
+  dataset: { id: batchDataset.id, name: 'Fall 2026', slug: 'fall-2026' },
+  profilesScanned: 3,
+  profilesNeedingImport: 1,
+  profilesSkippedExistingGallery: 1,
+});
+assert.throws(
+  () => assertImageImportDataset({ ...batchDataset, status: 'archived' }),
+  /Archived datasets must be restored/,
+  'Admin batch import must reject archived datasets',
+);
+
+let previewMutationCalls = 0;
+const batchPreviewMigration = await migrateDatasetProfileGalleries({
+  dataset: batchDataset,
+  profiles: [eligibleBatchProfile],
+  dryRun: true,
+  ingestGallery: async () => ({
+    sourceKind: 'folder',
+    filesDiscovered: 2,
+    supportedImages: 1,
+    images: [{
+      ...galleryCandidates[0],
+      resolvedDriveFileId: 'PRIVATE_DRIVE_FILE_ID',
+      storagePath: 'fall-2026/hazel-tran/11111111-1111-4111-8111-111111111111.jpg',
+      width: 1081,
+      height: 1497,
+      byteLength: 400000,
+    }],
+    rejected: [{ driveFileId: 'PRIVATE_UNSUPPORTED_ID', name: 'notes.pdf', category: 'unsupported_file_type' }],
+    diagnostics: [],
+  }),
+  createGallery: async () => { previewMutationCalls += 1; },
+  recheckGallery: async () => { previewMutationCalls += 1; },
+  removeStorage: async () => { previewMutationCalls += 1; },
+});
+assert.equal(previewMutationCalls, 0, 'preview must perform zero DB or Storage mutations');
+const batchPreview = presentImageImportResult(batchDataset, batchPreviewMigration, { dryRun: true });
+assert.equal(batchPreview.summary.readyProfiles, 1);
+assert.equal(batchPreview.summary.validImagesDiscovered, 1);
+assert.equal(batchPreview.summary.rejectedFiles, 1);
+assert.deepEqual(batchPreview.profiles[0].dimensions, [{ width: 1081, height: 1497 }]);
+assert.doesNotMatch(JSON.stringify(batchPreview), /PRIVATE_DRIVE_FILE_ID|PRIVATE_UNSUPPORTED_ID|storagePath|resolvedDriveFileId/, 'Admin preview must not expose Drive IDs or Storage paths');
+
+const atomicGalleryCalls = [];
+const atomicApply = await migrateDatasetProfileGalleries({
+  dataset: batchDataset,
+  profiles: [eligibleBatchProfile],
+  dryRun: false,
+  recheckGallery: async () => false,
+  ingestGallery: async () => ({
+    sourceKind: 'folder', filesDiscovered: 3, supportedImages: 2, rejected: [], diagnostics: [],
+    images: galleryCandidates.slice(0, 2).map((image, index) => ({
+      ...image,
+      storagePath: image.storagePath.replace('/gallery/', '/hazel-tran/'),
+      width: 1000 + index,
+      height: 1500 + index,
+    })),
+  }),
+  createGallery: async ({ profile, images }) => {
+    atomicGalleryCalls.push({ profile: profile.id, paths: images.map((image) => image.storagePath) });
+    return { created: true, imageCount: images.length };
+  },
+  createImage: async () => assert.fail('Admin apply must use atomic gallery creation, not append rows'),
+});
+assert.equal(atomicApply.summary.uploaded, 2);
+assert.equal(atomicApply.rows[0].status, 'uploaded');
+assert.deepEqual(atomicGalleryCalls[0].paths, galleryCandidates.slice(0, 2).map((image) => image.storagePath.replace('/gallery/', '/hazel-tran/')), 'natural ingestion order must reach the atomic gallery write unchanged');
+
+let concurrentIngestions = 0;
+const concurrentPrecheck = await migrateDatasetProfileGalleries({
+  dataset: batchDataset,
+  profiles: [eligibleBatchProfile],
+  dryRun: false,
+  recheckGallery: async () => true,
+  ingestGallery: async () => { concurrentIngestions += 1; },
+  createGallery: async () => assert.fail('a gallery found during recheck must not be mutated'),
+});
+assert.equal(concurrentPrecheck.rows[0].category, 'existing_relational_gallery_after_preview');
+assert.equal(concurrentIngestions, 0);
+
+const concurrentCleanup = [];
+const concurrentAfterUpload = await migrateDatasetProfileGalleries({
+  dataset: batchDataset,
+  profiles: [eligibleBatchProfile],
+  dryRun: false,
+  recheckGallery: async () => false,
+  ingestGallery: async () => ({
+    sourceKind: 'file', filesDiscovered: 1, supportedImages: 1, rejected: [], diagnostics: [],
+    images: [{ ...galleryCandidates[0], storagePath: galleryCandidates[0].storagePath.replace('/gallery/', '/hazel-tran/') }],
+  }),
+  createGallery: async () => ({ created: false, reason: 'gallery_exists' }),
+  removeStorage: async (storagePath) => concurrentCleanup.push(storagePath),
+});
+assert.equal(concurrentAfterUpload.rows[0].status, 'gallery_preserved');
+assert.deepEqual(concurrentCleanup, [galleryCandidates[0].storagePath.replace('/gallery/', '/hazel-tran/')], 'a concurrent winner must cause all staged objects to be cleaned up');
+
+const continuationRun = await migrateDatasetProfileGalleries({
+  dataset: batchDataset,
+  profiles: [
+    { id: 'inaccessible', name: 'Inaccessible', driveFolderId: '1234567890FOLDER', profileImages: [] },
+    { id: 'healthy', name: 'Healthy', driveFileId: '1234567890ABCDE', profileImages: [] },
+  ],
+  dryRun: true,
+  ingestGallery: async (profile) => {
+    if (profile.id === 'inaccessible') throw new ProfileImageIngestionError('folder_inaccessible', 'Drive denied access.');
+    return {
+      sourceKind: 'file', filesDiscovered: 1, supportedImages: 1, rejected: [], diagnostics: [],
+      images: [{ ...galleryCandidates[0], width: 800, height: 1200 }],
+    };
+  },
+});
+const continuationPreview = presentImageImportResult(batchDataset, continuationRun, { dryRun: true });
+assert.equal(continuationPreview.summary.failedProfiles, 1);
+assert.equal(continuationPreview.summary.inaccessibleSources, 1);
+assert.equal(continuationPreview.summary.readyProfiles, 1, 'one inaccessible profile must not stop healthy profiles');
+
 const migrationSql = await readFile(new URL('../supabase/migrations/202608200001_profile_image_storage.sql', import.meta.url), 'utf8');
 assert.match(migrationSql, /storage_image_path text/);
 assert.match(migrationSql, /bucket_id = 'profile-images'/);
@@ -632,6 +775,13 @@ assert.match(replacementMigrationSql, /for update/);
 assert.match(replacementMigrationSql, /existing_image_ids is distinct from expected_existing_image_ids/);
 assert.match(replacementMigrationSql, /delete from public\.profile_images[\s\S]*insert into public\.profile_images/);
 assert.match(replacementMigrationSql, /grant execute on function public\.replace_profile_image_gallery\(uuid, text, uuid\[\], jsonb\)[\s\S]*to service_role/);
+const missingImageBatchSql = await readFile(new URL('../supabase/migrations/202609090001_missing_profile_image_batch.sql', import.meta.url), 'utf8');
+assert.match(missingImageBatchSql, /create or replace function public\.create_profile_image_gallery_if_empty/);
+assert.match(missingImageBatchSql, /for update of dp/, 'concurrent gallery creation must serialize on the dataset profile');
+assert.match(missingImageBatchSql, /existing_storage_path is not null or exists[\s\S]*from public\.profile_images/, 'any existing gallery must make atomic creation a no-op');
+assert.match(missingImageBatchSql, /image\.position = 0[\s\S]*update public\.dataset_profiles[\s\S]*set storage_image_path = primary_storage_path/, 'the first ordered image must become relational and compatibility primary');
+assert.match(missingImageBatchSql, /revoke all on function public\.create_profile_image_gallery_if_empty[\s\S]*from public, anon, authenticated/);
+assert.match(missingImageBatchSql, /grant execute on function public\.create_profile_image_gallery_if_empty\(uuid, text, jsonb\)[\s\S]*to service_role/);
 
 const browserGraphSources = await Promise.all([
   '../components/ProfileImage.js',
@@ -715,6 +865,29 @@ assert.match(imageActionRouteSource, /buildProfileImageStoragePath/);
 assert.match(imageActionRouteSource, /replaceAdminProfileImageStoragePath/);
 assert.match(imageActionRouteSource, /upsert: false/);
 assert.doesNotMatch(imageActionRouteSource, /SUPABASE_SERVICE_ROLE_KEY/);
+const batchImageRouteSources = await Promise.all([
+  '../app/api/admin/datasets/images/import/status/route.js',
+  '../app/api/admin/datasets/images/import/preview/route.js',
+  '../app/api/admin/datasets/images/import/apply/route.js',
+].map((path) => readFile(new URL(path, import.meta.url), 'utf8')));
+for (const source of batchImageRouteSources) {
+  assert.match(source, /authorizeAdminRequest\(request\)/, 'every batch image endpoint must use Admin authorization and trusted-origin protection');
+  assert.doesNotMatch(source, /SUPABASE_SERVICE_ROLE_KEY|GOOGLE_SERVICE_ACCOUNT/, 'routes must not expose or handle credentials directly');
+}
+assert.match(batchImageRouteSources[2], /body\?\.confirm !== true/, 'apply must require explicit Admin confirmation');
+const batchImageServerSource = await readFile(new URL('../lib/profile-image-batch-server.js', import.meta.url), 'utf8');
+assert.match(batchImageServerSource, /import 'server-only'/);
+assert.match(batchImageServerSource, /\.eq\('id', datasetId\)/, 'dataset lookup must use the selected dataset ID');
+assert.match(batchImageServerSource, /\.eq\('dataset_id', dataset\.id\)/, 'profile and gallery reads must remain dataset-scoped');
+assert.match(batchImageServerSource, /getDriveAuth\(\{ strict: true, serviceAccountOnly: true \}\)/, 'Admin Drive credentials must stay server-side');
+assert.match(batchImageServerSource, /ingestProfileImages/, 'Admin batch must reuse canonical Drive download, validation, EXIF, path, and upload logic');
+assert.match(batchImageServerSource, /create_profile_image_gallery_if_empty/, 'Admin batch must use the atomic empty-gallery RPC');
+assert.doesNotMatch(batchImageServerSource, /spawn|python3|python\b/, 'Admin batch must not shell out to external executables');
+const datasetManagerSource = await readFile(new URL('../components/DatasetManager.js', import.meta.url), 'utf8');
+assert.match(datasetManagerSource, /Preview missing images/);
+assert.match(datasetManagerSource, /Import missing images/);
+assert.match(datasetManagerSource, /confirm: true/);
+assert.doesNotMatch(datasetManagerSource, /driveFileId|driveFolderId|storagePath/, 'the image batch UI must not receive sensitive Drive or Storage identifiers');
 const imageManagerSource = await readFile(new URL('../components/AdminImageManager.js', import.meta.url), 'utf8');
 assert.match(imageManagerSource, /api\/admin\/datasets\/images/);
 assert.match(imageManagerSource, /FocalPointEditor/);
