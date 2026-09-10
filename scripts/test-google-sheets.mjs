@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   chooseWorksheet,
   fetchSpreadsheetMetadata,
@@ -13,6 +16,249 @@ import {
   preserveMissingSourceProfiles,
   validateSyncApplyAcknowledgement,
 } from '../lib/datasets/sync.js';
+import { analyzeSheetValues } from '../lib/import/profile-normalization.js';
+
+function columnIndex(column) {
+  let index = 0;
+  for (const character of column) index = index * 26 + character.charCodeAt(0) - 64;
+  return index - 1;
+}
+
+function setCell(row, column, value) {
+  const index = columnIndex(column);
+  if (row.length <= index) row.push(...Array(index + 1 - row.length).fill(''));
+  row[index] = value;
+}
+
+function fall2026SheetFixture() {
+  const header = [];
+  setCell(header, 'E', 'First name');
+  setCell(header, 'F', 'Last name');
+  setCell(header, 'K', 'Instagram username');
+  setCell(header, 'AL', 'Rate your social setting from 1 to 5');
+  setCell(header, 'AN', 'Are you an introvert, ambivert, or extrovert?');
+  setCell(header, 'CD', 'Describe your personality in a tagline');
+
+  const hazel = [];
+  const hazelPublic = {
+    E: 'Hazel',
+    F: 'Tran',
+    N: 'Second',
+    P: 'SJSU',
+    Q: 'Computer Science',
+    R: 'FAM/ACE LITTLE Program',
+    S: 'Baking\nCrocheting\nConcerts\nMovies\nTraveling',
+    T: 'Baking: I make treats for friends.\nCrocheting: I make gifts for people.',
+    U: 'R&B and pop; SZA, Wave to Earth, and Laufey.',
+    V: 'Criminal Minds, One Piece, and Legally Blonde.',
+    W: '1. I make handmade gifts\n2. I collect blind boxes\n3. I love creative nails',
+    X: 'Creative, caring, and always curious.',
+    Y: 'A beach picnic, crafts, and dinner with friends.',
+    Z: 'Cake pops are better than cupcakes.',
+    AA: 'Trying a new cafe and doing crafts together.',
+    AB: 'Visit Japan to explore the food and art.',
+    AH: 'I could talk about crafts and concert memories for hours. Contact hazel.private@example.com or (408) 555-1212.',
+    AL: '3',
+    AN: 'Ambivert',
+    AQ: 'https://drive.google.com/file/d/1HazelTranProfileImage2026/view',
+    BL: 'I am a creative person who loves making thoughtful gifts.',
+  };
+  for (const [column, value] of Object.entries(hazelPublic)) setCell(hazel, column, value);
+  for (const [column, value] of Object.entries({
+    AE: 'PRIVATE DISLIKED ACTIVITY',
+    AF: 'PRIVATE PET PEEVE',
+    AT: 'PRIVATE PAIRING PREFERENCE',
+    BI: 'PRIVATE CURFEW',
+    BJ: 'PRIVATE CONFIDENTIAL RESPONSE',
+  })) setCell(hazel, column, value);
+
+  const big = [];
+  for (const [column, value] of Object.entries({
+    E: 'Logan',
+    F: 'Ho',
+    K: '@logan.example',
+    N: 'Third',
+    P: 'SJSU',
+    Q: 'Psychology',
+    R: 'ACE BIG ONLY PROGRAM',
+    BY: 'Exploring new places, hiking, gaming, and trying new food.',
+    BZ: 'Exploring new places: I like finding memorable local spots.',
+    CA: 'R&B, indie, and live concerts.',
+    CB: 'Comedy movies and TV shows.',
+    CC: 'Psychology and helping people grow.',
+    CD: 'Be the change you want to see.',
+    CE: 'A road trip, good food, and time with friends.',
+    CF: '1. I am both a morning and a night person.',
+    CG: 'Travel through Japan.',
+    CH: 'Putting too many toppings on pizza ruins it.',
+    CS: '4',
+    CU: 'Extrovert',
+    CV: 'I enjoy bringing people together and helping friends feel included.',
+    CX: 'https://drive.google.com/drive/folders/1LoganHoProfileFolder2026',
+  })) setCell(big, column, value);
+
+  return { title: 'Form Responses 1', values: [header, hazel, big], hazelPublic };
+}
+
+function mappedSheetFixture(title, headers, cells) {
+  const header = [];
+  const row = [];
+  for (const [column, value] of Object.entries(headers)) setCell(header, column, value);
+  for (const [column, value] of Object.entries(cells)) setCell(row, column, value);
+  return { title, values: [header, row] };
+}
+
+function legacyParityFixtures() {
+  return [
+    mappedSheetFixture('LITTLES', {
+      E: 'First name', F: 'Last name', BD: 'Instagram', AU: 'Social setting', AW: 'Introvert or extrovert',
+    }, {
+      E: 'Fall', F: 'Little', M: 'First', O: 'SJSU', P: 'MIS', R: 'ACE Little',
+      AA: 'Baking, music, and hiking with friends.', AG: 'Pop music', AH: 'Comedy movies',
+      AJ: 'A beach day and dinner.', BA: 'I enjoy making new friends through shared hobbies.',
+      BD: '@fall.little', BE: 'https://drive.google.com/file/d/1FallLittleProfileImage/view',
+      BG: 'https://docs.google.com/presentation/d/1FallLittleSlideDeck/edit', BH: 'Blue Fam',
+      AU: '2', AW: 'Introvert',
+    }),
+    mappedSheetFixture('BIGS', {
+      E: 'First name', F: 'Last name', BG: 'Instagram', AY: 'Social setting', BA: 'Introvert or extrovert',
+    }, {
+      E: 'Fall', F: 'Big', M: 'Fourth', O: 'SJSU', P: 'Mechanical Engineering', R: 'ACE Big',
+      AE: 'Gym, basketball, and cooking with friends.', AK: 'Hip hop music', AL: 'Action movies',
+      AN: 'A full day exploring the city.', BD: 'I like helping others feel welcome and connected.',
+      BG: '@fall.big', BH: 'https://drive.google.com/file/d/1FallBigProfileImage26/view',
+      BJ: 'https://docs.google.com/presentation/d/1FallBigSlideDeck26/edit', T: 'Green Fam',
+      AY: '5', BA: 'Extrovert',
+    }),
+    mappedSheetFixture('FAMS', {
+      E: 'First name', F: 'Last name', AK: 'Instagram', AH: 'Social setting', BP: 'Introvert or extrovert',
+    }, {
+      E: 'Fall', F: 'Family', M: 'Graduate', O: 'SJSU', P: 'Public Health', R: 'Family only',
+      S: 'Volunteering, cooking, and movies with the family.', U: 'R&B music', V: 'Family movies',
+      W: 'A picnic and games with everyone.', AK: '@fall.family',
+      AL: 'https://drive.google.com/drive/folders/1FallFamilyFolder2026',
+      BZ: 'https://docs.google.com/presentation/d/1FallFamilySlides26/edit', AN: 'Gold Fam',
+      AH: '4', BP: 'Ambivert',
+    }),
+    mappedSheetFixture('Little Applications', {
+      E: 'First name', F: 'Last name', BC: 'Instagram', AT: 'Social setting', AV: 'Introvert or extrovert',
+    }, {
+      E: 'Spring', F: 'Little', M: 'Second', O: 'SJSU', P: 'Data Science', R: 'ACE Little',
+      S: 'Purple Fam', Y: 'Gaming, cafes, and photography.', AE: 'Indie music', AF: 'Anime and movies',
+      AH: 'Cafe hopping followed by a movie.', AZ: 'I like documenting fun memories with friends.',
+      BC: '@spring.little', BD: 'https://drive.google.com/file/d/1SpringLittleImage2026/view',
+      AT: '3', AV: 'Ambivert',
+    }),
+    mappedSheetFixture('Big Applications', {
+      E: 'First name', F: 'Last name', DN: 'Instagram', DF: 'Social setting', DH: 'Introvert or extrovert',
+    }, {
+      E: 'Spring', F: 'Big', M: 'Third', O: 'SJSU', P: 'Finance', R: 'ACE Big', CA: 'Red Fam',
+      CL: 'Travel, volleyball, and trying new food.', CR: 'Live music', CS: 'TV shows',
+      CU: 'A road trip and a new restaurant.', DK: 'I love planning adventures that bring people together.',
+      DN: '@spring.big', DO: 'https://drive.google.com/file/d/1SpringBigImage2026/view',
+      DQ: 'https://docs.google.com/presentation/d/1SpringBigSlides26/edit', DF: '4', DH: 'Extrovert',
+    }),
+  ];
+}
+
+function withoutGeneratedAt(payload) {
+  const comparable = structuredClone(payload);
+  delete comparable.health.generatedAt;
+  return comparable;
+}
+
+const sheetFixture = fall2026SheetFixture();
+const originalPath = process.env.PATH;
+let nodeOnlyPayload;
+try {
+  process.env.PATH = '/no-python-executable-is-available';
+  nodeOnlyPayload = analyzeSheetValues(sheetFixture.title, sheetFixture.values);
+} finally {
+  process.env.PATH = originalPath;
+}
+
+assert.equal(nodeOnlyPayload.profiles.length, 2, 'Sheet analysis must run in-process without a Python executable');
+const hazelProfile = nodeOnlyPayload.profiles[0];
+assert.equal(hazelProfile.public.name, 'Hazel Tran');
+assert.equal(hazelProfile.public.role, 'Little');
+assert.equal(hazelProfile.public.interests[0], 'Little', 'Fall 2026 Little interests must keep the role prefix');
+assert.equal(hazelProfile.public.hobbies, sheetFixture.hazelPublic.S);
+assert.equal(hazelProfile.public.hobbyDetails, sheetFixture.hazelPublic.T);
+assert.equal(hazelProfile.public.bio, sheetFixture.hazelPublic.BL);
+assert.equal(hazelProfile.public.passion.includes('hazel.private@example.com'), false);
+assert.equal(hazelProfile.public.passion.includes('(408) 555-1212'), false);
+assert.match(hazelProfile.public.passion, /\[email removed\].*\[phone removed\]/);
+assert.equal(hazelProfile.driveFileId, '1HazelTranProfileImage2026');
+
+const bigProfile = nodeOnlyPayload.profiles[1];
+assert.equal(bigProfile.public.name, 'Logan Ho');
+assert.equal(bigProfile.public.role, 'Big');
+assert.equal(bigProfile.public.hobbies, 'Exploring new places, hiking, gaming, and trying new food.');
+assert.equal(bigProfile.public.tagline, 'Be the change you want to see.');
+assert.equal(bigProfile.public.socialLevel, 4);
+assert.equal(bigProfile.public.socialStyle, 'Extrovert');
+assert.equal(bigProfile.imageKind, 'drive-folder');
+
+const publicSheetText = JSON.stringify(nodeOnlyPayload.profiles.map((profile) => profile.public));
+for (const privateValue of [
+  'PRIVATE DISLIKED ACTIVITY',
+  'PRIVATE PET PEEVE',
+  'PRIVATE PAIRING PREFERENCE',
+  'PRIVATE CURFEW',
+  'PRIVATE CONFIDENTIAL RESPONSE',
+]) assert.doesNotMatch(publicSheetText, new RegExp(privateValue), 'private conditional answers must not enter public profiles');
+for (const privateKey of ['imageSourceUrl', 'driveFileId', 'driveFolderId', 'imageIssue', 'imageKind', 'sourceGroup', 'sourceRow']) {
+  assert.equal(privateKey in hazelProfile.public, false, `${privateKey} must remain outside public profile data`);
+}
+
+const parityDirectory = await mkdtemp(join(tmpdir(), 'ace-sheet-parity-'));
+try {
+  const parityInput = join(parityDirectory, 'sheet.json');
+  await writeFile(parityInput, JSON.stringify(sheetFixture), { mode: 0o600 });
+  const adapterResult = JSON.parse(execFileSync(process.execPath, [
+    '--conditions=react-server',
+    '--input-type=module',
+    '-e',
+    `import { readFile } from 'node:fs/promises';
+     import { analyzeGoogleSheetValues } from './lib/import/google-sheet.js';
+     const fixture = JSON.parse(await readFile(process.env.ACE_SHEET_PARITY_FIXTURE, 'utf8'));
+     process.stdout.write(JSON.stringify(await analyzeGoogleSheetValues(fixture.title, fixture.values)));`,
+  ], {
+    cwd: new URL('..', import.meta.url),
+    env: {
+      ...process.env,
+      PATH: '/no-python-executable-is-available',
+      ACE_SHEET_PARITY_FIXTURE: parityInput,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    encoding: 'utf8',
+  }));
+  assert.deepEqual(
+    withoutGeneratedAt(adapterResult.payload),
+    withoutGeneratedAt(nodeOnlyPayload),
+    'the production Sheet adapter must run without Python and preserve the normalized payload',
+  );
+  assert.match(adapterResult.sourceHash, /^[a-f0-9]{64}$/);
+
+  const parityFixtures = [sheetFixture, ...legacyParityFixtures()];
+  for (const [index, fixture] of parityFixtures.entries()) {
+    const inputPath = join(parityDirectory, `sheet-${index}.json`);
+    const outputPath = join(parityDirectory, `normalized-${index}.json`);
+    await writeFile(inputPath, JSON.stringify(fixture), { mode: 0o600 });
+    execFileSync('python3', ['scripts/analyze-sheet-values.py', inputPath, outputPath], {
+      cwd: new URL('..', import.meta.url),
+      stdio: 'pipe',
+    });
+    const excelImporterPayload = JSON.parse(await readFile(outputPath, 'utf8'));
+    assert.deepEqual(
+      withoutGeneratedAt(analyzeSheetValues(fixture.title, fixture.values)),
+      withoutGeneratedAt(excelImporterPayload),
+      `Node Sheet normalization must match the canonical Python/Excel importer for ${fixture.title}`,
+    );
+  }
+} finally {
+  await rm(parityDirectory, { recursive: true, force: true });
+}
 
 assert.deepEqual(
   buildDatasetImportTargetFields(),
@@ -183,6 +429,9 @@ assert.doesNotMatch(checkRoute, /applyDatasetSyncImport/, 'checking for updates 
 assert.doesNotMatch(checkRoute, /createDatasetSyncImport|createDatasetImport\(\{[\s\S]*targetDatasetId/, 'checking for updates must not write a staging row');
 assert.match(checkRoute, /prepareDatasetSync/, 'checking for updates should compute a read-only preview');
 assert.match(checkRoute, /analyzeGoogleSheetValues/, 'Sheets must use the canonical importer adapter');
+const sheetAnalyzer = await readFile(new URL('../lib/import/google-sheet.js', import.meta.url), 'utf8');
+assert.doesNotMatch(sheetAnalyzer, /node:child_process|spawn\(|python3|analyze-sheet-values\.py/, 'deployed Sheet analysis must not invoke Python');
+assert.match(sheetAnalyzer, /analyzeSheetValues/, 'deployed Sheet analysis must normalize values in-process');
 const excelRoute = await readFile(new URL('../app/api/admin/datasets/analyze/route.js', import.meta.url), 'utf8');
 assert.match(excelRoute, /analyzeWorkbookUpload/, 'manual Excel analysis must remain first-class');
 assert.match(excelRoute, /if \(datasetId\) {[\s\S]*createDatasetSyncImport\(/, 'existing-dataset Excel previews must keep using shared sync targeting');
