@@ -9,6 +9,8 @@
 -- supabase/migrations/202609020001_targeted_profile_gallery_replacement.sql
 -- supabase/migrations/202609040001_google_sheet_sync.sql
 -- supabase/migrations/202609040002_dataset_name_edit.sql
+-- supabase/migrations/202609100001_public_profile_overrides.sql
+-- supabase/migrations/202609100002_public_primary_image_metadata.sql
 --
 -- Run those complete migrations in order in the Supabase SQL editor or with
 -- the Supabase CLI. This compatibility pointer intentionally contains no partial/legacy

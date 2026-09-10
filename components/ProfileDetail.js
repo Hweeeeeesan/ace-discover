@@ -3,6 +3,7 @@ import { ExternalLink, Instagram, Presentation } from 'lucide-react';
 import DiscoveryBackButton from './DiscoveryBackButton';
 import FocalPointEditor from './FocalPointEditor';
 import AdminImageManager from './AdminImageManager';
+import AdminProfileEditor from './AdminProfileEditor';
 import ProfileGallery from './ProfileGallery';
 import SeenProfileMarker from './SeenProfileMarker';
 import SavedProfileButton from './SavedProfileButton';
@@ -112,6 +113,17 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
             {profile.family && <span>{profile.family}</span>}
             {profile.program && <span>{profile.program}</span>}
           </div>
+          {adminPreview && <AdminProfileEditor
+            datasetId={adminPreview.datasetId}
+            datasetSlug={datasetSlug}
+            profileId={profile.id}
+            profile={profile}
+            importedPublicData={adminPreview.importedPublicData}
+            publicOverrides={adminPreview.publicOverrides}
+            publicOverridesUpdatedAt={adminPreview.publicOverridesUpdatedAt}
+            vibeReasoning={adminPreview.vibeReasoning}
+            vibeThreshold={adminPreview.vibeThreshold}
+          />}
           {profile.instagram && (
             <a className="instagram-button" href={profile.instagram} target="_blank" rel="noopener noreferrer">
               <span className="instagram-icon"><Instagram size={20} /></span>

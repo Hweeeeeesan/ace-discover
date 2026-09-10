@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import ProfileDetail from '../../../../../components/ProfileDetail';
 import { getAdminIdentity } from '../../../../../lib/admin/authorization';
 import { getAdminDatasetProfile } from '../../../../../lib/datasets/admin';
+import { VIBE_SCORE_THRESHOLD } from '../../../../../lib/import/profile-normalization';
 
 export const metadata = { title: 'Dataset preview · ACE Discover', robots: { index: false, follow: false } };
 export const dynamic = 'force-dynamic';
@@ -29,6 +30,11 @@ export default async function AdminDatasetProfilePreview({ params }) {
         datasetName: result.dataset.name,
         status: result.dataset.status,
         imageId: editableImage?.id || '',
+        importedPublicData: result.importedPublicData,
+        publicOverrides: result.publicOverrides,
+        publicOverridesUpdatedAt: result.publicOverridesUpdatedAt,
+        vibeReasoning: result.vibeReasoning,
+        vibeThreshold: VIBE_SCORE_THRESHOLD,
       }}
     />
   );

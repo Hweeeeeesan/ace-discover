@@ -16,4 +16,7 @@ assert.ok(component.includes('onOpenProfile?.(profile.id)'), 'profile navigation
 assert.match(component, /filter\(\(interest\) => !\['Big', 'Little', 'Family'\]\.includes\(interest\)\)/, 'role chips must be excluded from the discovery chip row');
 assert.match(component, /interests\.length > 0/, 'empty chip rows must remain omitted');
 assert.ok(component.includes('profile.role.toUpperCase()'), 'the top role badge remains present');
+assert.match(component, /focalX=\{profile\.focalX\}/, 'cards must pass primary focalX through');
+assert.match(component, /focalY=\{profile\.focalY\}/, 'cards must pass primary focalY through');
+assert.match(component, /displayMode=\{profile\.displayMode\}/, 'cards must pass primary display mode through');
 console.log('Profile card tagline tests passed.');

@@ -39,6 +39,7 @@ import {
   resolveProfileImageSourcesForImage,
   withResolvedProfileImage,
 } from '../lib/profile-images.js';
+import { resolveEffectivePublicProfile } from '../lib/profile-overrides.js';
 
 const supabaseOptions = {
   supabaseUrl: 'https://ace-discover.supabase.co',
@@ -126,6 +127,28 @@ assert.deepEqual(getProfileImages(relationalProfile).map((image) => image.id), [
 assert.equal(getPrimaryProfileImage(relationalProfile).id, 'second');
 assert.equal(getPrimaryProfileImage(relationalProfile).focalY, 35);
 assert.equal(getPrimaryProfileImage(relationalProfile).displayMode, 'portrait');
+const changedSecondary = structuredClone(relationalProfile);
+changedSecondary.profileImages[1].focalX = 4;
+changedSecondary.profileImages[1].focalY = 96;
+assert.equal(withResolvedProfileImage(changedSecondary, supabaseOptions).focalX, 50, 'secondary focal edits must not affect discovery metadata');
+assert.equal(withResolvedProfileImage(changedSecondary, supabaseOptions).focalY, 35, 'discovery keeps using the relational primary until primary changes');
+const changedPrimary = structuredClone(relationalProfile);
+changedPrimary.profileImages[0].focalX = 61;
+changedPrimary.profileImages[0].focalY = 22;
+changedPrimary.profileImages[0].displayMode = 'cover';
+const resolvedChangedPrimary = withResolvedProfileImage(changedPrimary, supabaseOptions);
+assert.equal(resolvedChangedPrimary.focalX, 61);
+assert.equal(resolvedChangedPrimary.focalY, 22);
+assert.equal(resolvedChangedPrimary.displayMode, 'cover');
+assert.match(resolvedChangedPrimary.image, new RegExp(`${imageId}\\.png$`), 'discovery must use the latest relational primary source');
+const imageOverrideAttempt = resolveEffectivePublicProfile(relationalProfile, {
+  focalX: 1,
+  focalY: 2,
+  displayMode: 'cover',
+  storageImagePath: 'fall-2025/other/primary.jpg',
+});
+assert.equal(imageOverrideAttempt.focalX, undefined, 'public profile overrides cannot provide image metadata');
+assert.equal(getPrimaryProfileImage(imageOverrideAttempt).id, 'second');
 const secondaryResolved = resolveProfileImageSourcesForImage(
   { storageImagePath: `spring-2026/same-person/${imageId}.png` },
   supabaseOptions,
@@ -782,6 +805,12 @@ assert.match(missingImageBatchSql, /existing_storage_path is not null or exists[
 assert.match(missingImageBatchSql, /image\.position = 0[\s\S]*update public\.dataset_profiles[\s\S]*set storage_image_path = primary_storage_path/, 'the first ordered image must become relational and compatibility primary');
 assert.match(missingImageBatchSql, /revoke all on function public\.create_profile_image_gallery_if_empty[\s\S]*from public, anon, authenticated/);
 assert.match(missingImageBatchSql, /grant execute on function public\.create_profile_image_gallery_if_empty\(uuid, text, jsonb\)[\s\S]*to service_role/);
+const publicPrimaryMetadataSql = await readFile(new URL('../supabase/migrations/202609100002_public_primary_image_metadata.sql', import.meta.url), 'utf8');
+assert.match(publicPrimaryMetadataSql, /resolve_effective_public_data\(dp\.public_data, dp\.public_overrides\)[\s\S]*\{storageImagePath\}[\s\S]*primary_image\.storage_path/);
+assert.match(publicPrimaryMetadataSql, /\{focalX\}[\s\S]*primary_image\.focal_x[\s\S]*\{focalY\}[\s\S]*primary_image\.focal_y/);
+assert.match(publicPrimaryMetadataSql, /\{displayMode\}[\s\S]*primary_image\.display_mode/);
+assert.match(publicPrimaryMetadataSql, /from public\.profile_images pi[\s\S]*and pi\.is_primary/, 'discovery must read presentation metadata only from the primary row');
+assert.match(publicPrimaryMetadataSql, /'profileImages'[\s\S]*order by pi\.position, pi\.id/, 'detail payloads retain the ordered relational gallery');
 
 const browserGraphSources = await Promise.all([
   '../components/ProfileImage.js',
@@ -848,6 +877,7 @@ assert.match(focalRouteSource, /isValidFocalCoordinate\(body\?\.focalY\)/);
 assert.match(focalRouteSource, /return Response\.json\(\{ error: 'Focal coordinates must be numbers from 0 to 100\.' \}, \{ status: 400 \}\)/);
 assert.doesNotMatch(focalRouteSource, /SUPABASE_SERVICE_ROLE_KEY/);
 assert.match(focalRouteSource, /Display mode must be cover or portrait/);
+assert.match(focalRouteSource, /revalidatePath\('\/'\)/, 'focal saves must invalidate the public homepage without a redeploy');
 const uploadRouteSource = await readFile(new URL('../app/api/admin/datasets/images/route.js', import.meta.url), 'utf8');
 assert.match(uploadRouteSource, /authorizeAdminRequest\(request\)/);
 assert.match(uploadRouteSource, /normalizeImageOrientation/);
