@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { profileImagePresentationStyle } from '../lib/profile-images';
 
 const FALLBACK_IMAGE = '/profile-placeholder.svg';
 
@@ -35,7 +36,7 @@ export default function ProfileImage({
   return (
     <img
       className={className}
-      style={{ objectFit: displayMode === 'portrait' ? 'contain' : 'cover', objectPosition: `${focalX}% ${focalY}%` }}
+      style={profileImagePresentationStyle({ focalX, focalY, displayMode })}
       src={imageSrc}
       alt={alt}
       loading={eager ? 'eager' : 'lazy'}

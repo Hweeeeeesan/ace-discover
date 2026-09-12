@@ -5,10 +5,13 @@ import { readFile } from 'node:fs/promises';
 import sharp from 'sharp';
 import {
   MAX_PROFILE_IMAGE_BYTES,
+  MAX_PROFILE_IMAGE_INPUT_BYTES,
   ProfileImageIngestionError,
   classifyProfileImageSource,
   detectImageContentType,
+  ingestProfileImages,
   normalizeImageOrientation,
+  normalizeProfileImage,
   rotateImage,
   validatedImageFromResponse,
 } from '../lib/profile-image-ingestion.js';
@@ -35,16 +38,34 @@ import {
   isValidStorageImagePath,
   normalizeDisplayMode,
   normalizeFocalCoordinate,
+  profileImagePresentationStyle,
   resolveProfileImageSources,
   resolveProfileImageSourcesForImage,
   withResolvedProfileImage,
 } from '../lib/profile-images.js';
+import { buildDiscoveryResults } from '../lib/discovery.js';
+import { discoveryProfile } from '../lib/datasets/model.js';
 import { resolveEffectivePublicProfile } from '../lib/profile-overrides.js';
 
 const supabaseOptions = {
   supabaseUrl: 'https://ace-discover.supabase.co',
   bucket: 'profile-images',
 };
+
+function deterministicRaster(width, height, channels, { transparent = false } = {}) {
+  const pixels = Buffer.allocUnsafe(width * height * channels);
+  let state = 0x12345678;
+  for (let index = 0; index < pixels.length; index += channels) {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    pixels[index] = state & 0xff;
+    pixels[index + 1] = (state >>> 8) & 0xff;
+    pixels[index + 2] = (state >>> 16) & 0xff;
+    if (channels === 4) pixels[index + 3] = transparent && index % 44 === 0 ? 96 : 255;
+  }
+  return pixels;
+}
 
 const springPath = buildPrimaryStoragePath('spring-2026', 'same-person', 'image/webp');
 const fallPath = buildPrimaryStoragePath('fall-2025', 'same-person', 'image/webp');
@@ -69,7 +90,13 @@ assert.equal(futurePath, `spring-2026/same-person/${imageId}.png`);
 assert.equal(isValidStorageImagePath(futurePath), true);
 assert.equal(normalizeFocalCoordinate(), 50);
 assert.equal(normalizeFocalCoordinate(undefined, 35), 35);
-assert.equal(normalizeFocalCoordinate('35.5'), 50);
+assert.equal(normalizeFocalCoordinate('35.5'), 35.5, 'database numeric strings must normalize to percentages');
+assert.equal(normalizeFocalCoordinate(0), 0, 'zero is a valid focal boundary');
+assert.equal(normalizeFocalCoordinate('0'), 0, 'a database zero string must not fall back');
+assert.equal(normalizeFocalCoordinate(0.5), 0.5, 'fractional percentages remain percentages, not 0..1 coordinates');
+assert.equal(normalizeFocalCoordinate(1), 1, 'one means one percent in the canonical 0..100 contract');
+assert.equal(normalizeFocalCoordinate(50), 50);
+assert.equal(normalizeFocalCoordinate(100), 100);
 assert.equal(normalizeFocalCoordinate(-1), 50);
 assert.equal(normalizeFocalCoordinate(101), 50);
 assert.equal(normalizeFocalCoordinate(' '), 50);
@@ -84,6 +111,16 @@ assert.equal(normalizeDisplayMode('portrait'), 'portrait');
 assert.equal(normalizeDisplayMode('cover'), 'cover');
 assert.equal(normalizeDisplayMode('contain'), 'cover');
 assert.equal(normalizeDisplayMode(true), 'cover');
+assert.deepEqual(
+  profileImagePresentationStyle({ focalX: '0', focalY: '100', displayMode: 'cover' }),
+  { objectFit: 'cover', objectPosition: '0% 100%' },
+  'cover crops must apply normalized focal percentages through object-position',
+);
+assert.deepEqual(
+  profileImagePresentationStyle({ focalX: 50, focalY: 0.5, displayMode: 'portrait' }),
+  { objectFit: 'contain', objectPosition: '50% 0.5%' },
+  'portrait mode intentionally contains the full image while preserving focal metadata',
+);
 assert.notEqual(
   futurePath,
   buildProfileImageStoragePath('fall-2025', 'same-person', imageId, 'image/png'),
@@ -127,6 +164,22 @@ assert.deepEqual(getProfileImages(relationalProfile).map((image) => image.id), [
 assert.equal(getPrimaryProfileImage(relationalProfile).id, 'second');
 assert.equal(getPrimaryProfileImage(relationalProfile).focalY, 35);
 assert.equal(getPrimaryProfileImage(relationalProfile).displayMode, 'portrait');
+const databaseStringCoordinates = structuredClone(relationalProfile);
+databaseStringCoordinates.profileImages[0].focalX = '0';
+databaseStringCoordinates.profileImages[0].focalY = '100';
+assert.deepEqual(
+  getPrimaryProfileImage(databaseStringCoordinates),
+  {
+    id: 'second',
+    storageImagePath: `spring-2026/same-person/${imageId}.png`,
+    position: 1,
+    isPrimary: true,
+    focalX: 0,
+    focalY: 100,
+    displayMode: 'portrait',
+  },
+  'relational image coordinates must normalize once without losing zero',
+);
 const changedSecondary = structuredClone(relationalProfile);
 changedSecondary.profileImages[1].focalX = 4;
 changedSecondary.profileImages[1].focalY = 96;
@@ -172,6 +225,85 @@ assert.deepEqual(
 );
 assert.equal(withResolvedProfileImage({ storageImagePath: springPath }, supabaseOptions).focalY, 35);
 assert.equal(withResolvedProfileImage({ storageImagePath: springPath }, supabaseOptions).displayMode, 'cover');
+
+const initialFocalProfile = {
+  id: 'focal-regression',
+  name: 'Focal Regression',
+  role: 'Little',
+  major: 'Testing',
+  year: 'First year',
+  storageImagePath: springPath,
+  focalX: 50,
+  focalY: 35,
+  displayMode: 'cover',
+  profileImages: [{
+    id: imageId,
+    storageImagePath: futurePath,
+    position: 0,
+    isPrimary: true,
+    focalX: 50,
+    focalY: 35,
+    displayMode: 'cover',
+  }],
+};
+const initialResolvedFocal = withResolvedProfileImage(initialFocalProfile, supabaseOptions);
+assert.deepEqual(
+  { focalX: initialResolvedFocal.focalX, focalY: initialResolvedFocal.focalY },
+  { focalX: 50, focalY: 35 },
+);
+const savedFocalProfile = structuredClone(initialFocalProfile);
+savedFocalProfile.profileImages[0].focalX = 20;
+savedFocalProfile.profileImages[0].focalY = 70;
+const detailAfterSave = withResolvedProfileImage(savedFocalProfile, supabaseOptions);
+assert.deepEqual(
+  {
+    src: detailAfterSave.image,
+    focalX: detailAfterSave.focalX,
+    focalY: detailAfterSave.focalY,
+    displayMode: detailAfterSave.displayMode,
+  },
+  {
+    src: `https://ace-discover.supabase.co/storage/v1/object/public/profile-images/${futurePath}`,
+    focalX: 20,
+    focalY: 70,
+    displayMode: 'cover',
+  },
+  'ProfileDetail resolution must use saved relational primary metadata over stale profile-level values',
+);
+
+// Mirrors the bulk RPC -> discoveryProfile -> resolveProfileImages path in
+// lib/datasets/public.js. The RPC projects the current primary row onto these
+// top-level fields before the profile enters Discovery.
+const activeDatasetRpcProfile = {
+  ...discoveryProfile(initialFocalProfile),
+  storageImagePath: futurePath,
+  focalX: 20,
+  focalY: 70,
+  displayMode: 'cover',
+};
+delete activeDatasetRpcProfile.profileImages;
+const discoveryDatasetProfile = withResolvedProfileImage(activeDatasetRpcProfile, supabaseOptions);
+const discoveryCardProfile = buildDiscoveryResults([discoveryDatasetProfile], { seed: 1 })[0].profile;
+assert.deepEqual(
+  {
+    src: discoveryCardProfile.image,
+    focalX: discoveryCardProfile.focalX,
+    focalY: discoveryCardProfile.focalY,
+    displayMode: discoveryCardProfile.displayMode,
+  },
+  {
+    src: detailAfterSave.image,
+    focalX: 20,
+    focalY: 70,
+    displayMode: 'cover',
+  },
+  'Discovery dataset normalization and filtering must preserve the latest primary metadata for ProfileCard',
+);
+assert.deepEqual(
+  profileImagePresentationStyle(discoveryCardProfile),
+  { objectFit: 'cover', objectPosition: '20% 70%' },
+  'ProfileImage must render the saved Discovery focal point through object-position',
+);
 
 const mixedProfiles = [
   { id: 'stored', storageImagePath: 'spring-2026/stored/primary.jpg', image: driveImage },
@@ -222,13 +354,158 @@ assert.equal(rotatedMetadata.width, 2);
 assert.equal(rotatedMetadata.height, 2);
 assert.equal(rotatedMetadata.orientation, undefined, 'rotated output should not retain EXIF orientation');
 assert.equal(rotated.contentType, 'image/jpeg');
+
+const underLimitJpeg = await normalizeProfileImage(jpeg);
+const underLimitPng = await normalizeProfileImage(png);
+assert.deepEqual(underLimitJpeg.bytes, jpeg, 'under-limit upright JPEG input must remain byte-for-byte unchanged');
+assert.deepEqual(underLimitPng.bytes, png, 'under-limit upright PNG input must remain byte-for-byte unchanged');
+assert.deepEqual(underLimitJpeg.diagnostics, []);
+assert.deepEqual(underLimitPng.diagnostics, []);
+
+const noisyWidth = 1200;
+const noisyHeight = 800;
+const noisyRgb = deterministicRaster(noisyWidth, noisyHeight, 3);
+const noisyRgba = deterministicRaster(noisyWidth, noisyHeight, 4, { transparent: true });
+const noisyOpaquePng = await sharp(noisyRgb, {
+  raw: { width: noisyWidth, height: noisyHeight, channels: 3 },
+}).png({ compressionLevel: 0 }).toBuffer();
+const noisyTransparentPng = await sharp(noisyRgba, {
+  raw: { width: noisyWidth, height: noisyHeight, channels: 4 },
+}).png({ compressionLevel: 0 }).toBuffer();
+const noisyJpeg = await sharp(noisyRgb, {
+  raw: { width: noisyWidth, height: noisyHeight, channels: 3 },
+}).jpeg({ quality: 100 }).toBuffer();
+const noisyWebp = await sharp(noisyRgb, {
+  raw: { width: noisyWidth, height: noisyHeight, channels: 3 },
+}).webp({ lossless: true }).toBuffer();
+
+const compressedAt92 = {
+  png: await sharp(noisyOpaquePng).autoOrient().webp({
+    quality: 92, alphaQuality: 100, effort: 4, smartSubsample: true,
+  }).toBuffer(),
+  transparentPng: await sharp(noisyTransparentPng).autoOrient().webp({
+    quality: 92, alphaQuality: 100, effort: 4, smartSubsample: true,
+  }).toBuffer(),
+  jpeg: await sharp(noisyJpeg).autoOrient().jpeg({
+    quality: 92, chromaSubsampling: '4:2:0', mozjpeg: true, progressive: true,
+  }).toBuffer(),
+  webp: await sharp(noisyWebp).autoOrient().webp({
+    quality: 92, alphaQuality: 100, effort: 4, smartSubsample: true,
+  }).toBuffer(),
+};
+
+async function normalizeWithoutResize(input, firstAttemptBytes) {
+  assert.ok(input.length > firstAttemptBytes.length + 64, 'the fixture must begin above its simulated final limit');
+  return normalizeProfileImage(input, {
+    finalByteLimit: firstAttemptBytes.length + 64,
+    inputByteLimit: input.length + 1024,
+    qualityStages: [92],
+    resizeScales: [],
+    minLongEdge: 1,
+  });
+}
+
+const oversizedOpaquePng = await normalizeWithoutResize(noisyOpaquePng, compressedAt92.png);
+assert.equal(oversizedOpaquePng.contentType, 'image/webp');
+assert.equal(oversizedOpaquePng.resized, false, 'compression sufficient at full dimensions must not resize');
+assert.deepEqual(
+  { width: oversizedOpaquePng.width, height: oversizedOpaquePng.height },
+  { width: noisyWidth, height: noisyHeight },
+);
+assert.ok(oversizedOpaquePng.diagnostics.some((entry) => entry.category === 'oversized_png_converted_to_webp'));
+assert.ok(oversizedOpaquePng.diagnostics.some((entry) => entry.category === 'oversized_image_normalized'));
+
+const oversizedTransparentPng = await normalizeWithoutResize(
+  noisyTransparentPng,
+  compressedAt92.transparentPng,
+);
+assert.equal(oversizedTransparentPng.contentType, 'image/webp');
+const transparentOutput = sharp(oversizedTransparentPng.bytes);
+const transparentMetadata = await transparentOutput.metadata();
+const transparentStats = await transparentOutput.ensureAlpha().stats();
+assert.equal(transparentMetadata.hasAlpha, true, 'transparent oversized PNG output must retain an alpha channel');
+assert.ok(transparentStats.channels.at(-1).min < 255, 'transparent pixels must survive normalization');
+assert.match(
+  oversizedTransparentPng.diagnostics.find((entry) => entry.category === 'oversized_png_converted_to_webp').detail,
+  /preserving transparency/,
+);
+
+const oversizedJpeg = await normalizeWithoutResize(noisyJpeg, compressedAt92.jpeg);
+assert.equal(oversizedJpeg.contentType, 'image/jpeg', 'oversized JPEG input must remain JPEG');
+assert.equal(oversizedJpeg.resized, false);
+const oversizedWebp = await normalizeWithoutResize(noisyWebp, compressedAt92.webp);
+assert.equal(oversizedWebp.contentType, 'image/webp', 'oversized WebP input must remain WebP');
+assert.equal(oversizedWebp.resized, false);
+
+const halfSizeWebp = await sharp(noisyOpaquePng)
+  .autoOrient()
+  .resize({ width: noisyWidth / 2, height: noisyHeight / 2, fit: 'inside', kernel: sharp.kernel.lanczos3 })
+  .webp({ quality: 92, alphaQuality: 100, effort: 4, smartSubsample: true })
+  .toBuffer();
+const resizeOnlyLimit = Math.floor((compressedAt92.png.length + halfSizeWebp.length) / 2);
+const resizeRequired = await normalizeProfileImage(noisyOpaquePng, {
+  finalByteLimit: resizeOnlyLimit,
+  inputByteLimit: noisyOpaquePng.length + 1024,
+  qualityStages: [92],
+  resizeScales: [0.5],
+  minLongEdge: 1,
+});
+assert.equal(resizeRequired.resized, true, 'dimensions must change only after the full-size encoding misses the limit');
+assert.ok(resizeRequired.bytes.length <= resizeOnlyLimit);
+assert.ok(resizeRequired.width < noisyWidth && resizeRequired.height < noisyHeight);
+assert.ok(
+  Math.abs((resizeRequired.width / resizeRequired.height) - (noisyWidth / noisyHeight)) < 0.01,
+  'high-quality resizing must preserve aspect ratio',
+);
+assert.ok(resizeRequired.diagnostics.some((entry) => entry.category === 'oversized_image_resized'));
+
+await assert.rejects(
+  normalizeProfileImage(noisyOpaquePng, {
+    finalByteLimit: 100,
+    inputByteLimit: noisyOpaquePng.length + 1024,
+    qualityStages: [92],
+    resizeScales: [],
+    minLongEdge: 1,
+  }),
+  (error) => error instanceof ProfileImageIngestionError
+    && error.code === 'image_too_large_after_normalization'
+    && error.details.originalBytes === noisyOpaquePng.length
+    && error.details.finalBytes > 100,
+  'an image that cannot meet the final limit must fail with an explicit post-normalization category',
+);
+await assert.rejects(
+  normalizeProfileImage(noisyOpaquePng, {
+    inputByteLimit: noisyOpaquePng.length + 1024,
+    maxInputPixels: 100,
+  }),
+  (error) => error instanceof ProfileImageIngestionError && error.code === 'image_dimensions_too_large',
+  'decode pixel limits must guard against decompression bombs',
+);
+
+const andrewWidth = 2050;
+const andrewHeight = 2050;
+const andrewOpaqueRgba = deterministicRaster(andrewWidth, andrewHeight, 4);
+const andrewOversizedPng = await sharp(andrewOpaqueRgba, {
+  raw: { width: andrewWidth, height: andrewHeight, channels: 4 },
+}).png({ compressionLevel: 0 }).toBuffer();
+assert.ok(andrewOversizedPng.length > MAX_PROFILE_IMAGE_BYTES, 'Andrew-like PNG fixture must exceed the real 15 MiB final limit');
+assert.ok(andrewOversizedPng.length < MAX_PROFILE_IMAGE_INPUT_BYTES);
+const andrewNormalized = await normalizeProfileImage(andrewOversizedPng);
+assert.equal(andrewNormalized.contentType, 'image/webp');
+assert.ok(andrewNormalized.bytes.length <= MAX_PROFILE_IMAGE_BYTES, 'production normalization must enforce the real 15 MiB final limit');
+assert.deepEqual(
+  { width: andrewNormalized.width, height: andrewNormalized.height },
+  { width: andrewWidth, height: andrewHeight },
+  'an Andrew-like oversized PNG must retain dimensions when compression alone succeeds',
+);
+
 await assert.rejects(
   validatedImageFromResponse(new Response('not an image', { headers: { 'Content-Type': 'image/jpeg' } })),
   (error) => error instanceof ProfileImageIngestionError && error.code === 'unsupported_file_type',
 );
 await assert.rejects(
-  validatedImageFromResponse(new Response(jpeg, { headers: { 'Content-Length': String(MAX_PROFILE_IMAGE_BYTES + 1) } })),
-  /15 MiB/,
+  validatedImageFromResponse(new Response(jpeg, { headers: { 'Content-Length': String(MAX_PROFILE_IMAGE_INPUT_BYTES + 1) } })),
+  (error) => error instanceof ProfileImageIngestionError && error.code === 'image_input_too_large',
 );
 await assert.rejects(
   validatedImageFromResponse(new Response(Buffer.from([0xff, 0xd8, 0xff, 0xdb]), { headers: { 'Content-Type': 'image/jpeg' } })),
@@ -427,6 +704,151 @@ const replacementExisting = [
     displayMode: 'cover',
   },
 ];
+
+const andrewFiles = [
+  { id: '1234567890ANDREW4', name: 'Photo4.png', mimeType: 'image/png', size: andrewOversizedPng.length },
+  { id: '1234567890ANDREW1', name: 'Photo1.png', mimeType: 'image/png', size: andrewOversizedPng.length },
+  { id: '1234567890ANDREWJ', name: '000003790016.jpg', mimeType: 'image/jpeg', size: noisyJpeg.length },
+  { id: '1234567890ANDREW3', name: 'Photo3.png', mimeType: 'image/png', size: andrewOversizedPng.length },
+];
+const andrewImageIds = [
+  '10000000-0000-4000-8000-000000000001',
+  '10000000-0000-4000-8000-000000000002',
+  '10000000-0000-4000-8000-000000000003',
+  '10000000-0000-4000-8000-000000000004',
+];
+const andrewReplacement = await ingestProfileImages({
+  profile: { id: 'andrew-cam', driveFolderId: '1234567890FOLDER', imageKind: 'drive-folder' },
+  datasetSlug: 'fall-2026',
+  driveAuth: {},
+  dryRun: true,
+  requireAllSupported: true,
+  createImageId: () => andrewImageIds.shift(),
+  driveClient: {
+    listFilesInFolder: async () => andrewFiles,
+    fetchDriveImage: async (fileId) => new Response(
+      fileId.endsWith('ANDREWJ') ? noisyJpeg : andrewOversizedPng,
+      { headers: { 'Content-Type': fileId.endsWith('ANDREWJ') ? 'image/jpeg' : 'image/png' } },
+    ),
+  },
+});
+assert.equal(andrewReplacement.allSupportedValidated, true, 'Andrew-like mixed replacement set must validate completely');
+assert.equal(andrewReplacement.rejected.length, 0);
+assert.deepEqual(
+  andrewReplacement.images.map((image) => image.name),
+  ['000003790016.jpg', 'Photo1.png', 'Photo3.png', 'Photo4.png'],
+  'normalization must not change natural Drive ordering',
+);
+assert.deepEqual(
+  andrewReplacement.images.map((image) => image.contentType),
+  ['image/jpeg', 'image/webp', 'image/webp', 'image/webp'],
+  'the under-limit JPEG stays JPEG while the three oversized opaque PNGs become WebP',
+);
+assert.ok(andrewReplacement.images.every((image) => image.byteLength <= MAX_PROFILE_IMAGE_BYTES));
+assert.equal(
+  andrewReplacement.diagnostics.filter((entry) => entry.category === 'oversized_image_normalized').length,
+  3,
+);
+assert.ok(
+  andrewReplacement.diagnostics
+    .filter((entry) => entry.category === 'oversized_image_normalized')
+    .every((entry) => entry.originalBytes > MAX_PROFILE_IMAGE_BYTES
+      && entry.finalBytes <= MAX_PROFILE_IMAGE_BYTES
+      && entry.finalMime === 'image/webp'),
+  'normalization diagnostics must include original/final sizes, dimensions, and MIME',
+);
+
+const andrewExisting = [
+  ...replacementExisting,
+  {
+    id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    storagePath: 'fall-2026/andrew-cam/cccccccc-cccc-4ccc-8ccc-cccccccccccc.png',
+    position: 2,
+    isPrimary: false,
+    focalX: 0,
+    focalY: 100,
+    displayMode: 'cover',
+  },
+  {
+    id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    storagePath: 'fall-2026/andrew-cam/dddddddd-dddd-4ddd-8ddd-dddddddddddd.png',
+    position: 3,
+    isPrimary: false,
+    focalX: 31,
+    focalY: 59,
+    displayMode: 'portrait',
+  },
+].map((image, position) => ({
+  ...image,
+  storagePath: image.storagePath.replace('/repair/', '/andrew-cam/'),
+  position,
+}));
+const andrewReplacementPreview = await migrateDatasetProfileGalleries({
+  dataset: { slug: 'fall-2026' },
+  profiles: [{
+    id: 'andrew-cam',
+    driveFolderId: '1234567890FOLDER',
+    profileImages: andrewExisting,
+  }],
+  dryRun: true,
+  replaceExisting: true,
+  ingestGallery: async () => andrewReplacement,
+});
+assert.equal(andrewReplacementPreview.rows[0].status, 'dry_run_replacement_validated');
+assert.equal(andrewReplacementPreview.rows[0].metadataStrategy, 'preserve_by_position');
+const andrewMetadataPlan = buildGalleryReplacementPlan(andrewExisting, andrewReplacement.images);
+assert.deepEqual(
+  andrewMetadataPlan.replacementRows.map(({ isPrimary, focalX, focalY, displayMode }) => ({
+    isPrimary, focalX, focalY, displayMode,
+  })),
+  andrewExisting.map(({ isPrimary, focalX, focalY, displayMode }) => ({
+    isPrimary, focalX, focalY, displayMode,
+  })),
+  're-encoding and resizing must not alter focal, display, primary, or positional metadata',
+);
+
+let irreducibleReplacementUploads = 0;
+const irreducibleReplacement = await ingestProfileImages({
+  profile: { id: 'andrew-cam', driveFolderId: '1234567890FOLDER', imageKind: 'drive-folder' },
+  datasetSlug: 'fall-2026',
+  driveAuth: {},
+  dryRun: false,
+  requireAllSupported: true,
+  normalizationOptions: {
+    finalByteLimit: 300,
+    inputByteLimit: noisyOpaquePng.length + 1024,
+    qualityStages: [92],
+    resizeScales: [],
+    minLongEdge: 1,
+  },
+  upload: async () => { irreducibleReplacementUploads += 1; },
+  driveClient: {
+    listFilesInFolder: async () => [
+      { id: '1234567890SMALL', name: 'one.jpg', mimeType: 'image/jpeg', size: jpeg.length },
+      { id: '1234567890LARGE', name: 'two.png', mimeType: 'image/png', size: noisyOpaquePng.length },
+    ],
+    fetchDriveImage: async (fileId) => new Response(fileId.endsWith('SMALL') ? jpeg : noisyOpaquePng),
+  },
+});
+assert.equal(irreducibleReplacement.allSupportedValidated, false);
+assert.equal(irreducibleReplacementUploads, 0, 'one irreducible image must prevent every staged replacement upload');
+assert.equal(irreducibleReplacement.rejected[0]?.category, 'image_too_large_after_normalization');
+const irreducibleMigration = await migrateDatasetProfileGalleries({
+  dataset: { slug: 'fall-2026' },
+  profiles: [{
+    id: 'andrew-cam',
+    driveFolderId: '1234567890FOLDER',
+    profileImages: andrewExisting,
+  }],
+  dryRun: false,
+  replaceExisting: true,
+  ingestGallery: async () => irreducibleReplacement,
+  replaceGallery: async () => assert.fail('incomplete normalized replacement must not mutate metadata'),
+  removeStorage: async () => assert.fail('validation failure occurs before any staged object exists'),
+});
+assert.equal(irreducibleMigration.rows[0].status, 'replacement_failed_preserved');
+assert.equal(irreducibleMigration.rows[0].primaryStoragePath, andrewExisting[1].storagePath);
+
 const replacementNew = galleryCandidates.slice(0, 2).map((image) => ({
   ...image,
   storagePath: image.storagePath.replace('/gallery/', '/repair/'),
@@ -830,22 +1252,36 @@ assert.doesNotMatch(imageServerSource, /SUPABASE_SERVICE_ROLE_KEY/);
 const homepageSource = await readFile(new URL('../app/page.js', import.meta.url), 'utf8');
 assert.match(homepageSource, /export const dynamic = ['"]force-dynamic['"]/,
   'homepage must read current public image metadata instead of a static dataset snapshot');
+const publicDatasetSource = await readFile(new URL('../lib/datasets/public.js', import.meta.url), 'utf8');
+assert.match(publicDatasetSource, /resolveProfileImages\(payload\.profiles\.map\(discoveryProfile\)\)/,
+  'the bulk RPC profiles must use the shared primary-image resolver');
+assert.doesNotMatch(publicDatasetSource, /unstable_cache|force-cache|cacheTag|cacheLife/,
+  'Discovery dataset reads must not retain a separate stale data cache');
+const discoveryFeedSource = await readFile(new URL('../components/DiscoveryFeed.js', import.meta.url), 'utf8');
+assert.match(discoveryFeedSource, /router\.refresh\(\)/,
+  'a restored or refocused Discovery client must request the revalidated root payload');
+assert.match(discoveryFeedSource, /navigation\?\.at[\s\S]*refreshDiscoveryData\(\)/,
+  'returning from ProfileDetail must refresh stale Router Cache props');
+assert.match(discoveryFeedSource, /event\.persisted[\s\S]*refreshDiscoveryData\(\)/,
+  'BFCache restoration must refresh Discovery metadata');
+assert.match(discoveryFeedSource, /visibilitychange[\s\S]*handleVisibilityChange/,
+  'a backgrounded Discovery tab must refresh when it becomes visible');
 const adminDatasetSource = await readFile(new URL('../lib/datasets/admin.js', import.meta.url), 'utf8');
 assert.match(adminDatasetSource, /from\('profile_images'\)/, 'READY/Admin detail preview must load relational image metadata');
 assert.match(adminDatasetSource, /focalX: image\.focal_x[\s\S]*focalY: image\.focal_y/);
 assert.match(adminDatasetSource, /displayMode: image\.display_mode/);
-assert.match(adminDatasetSource, /resolveProfileImage\(\{ \.\.\.row\.public_data, profileImages \}\)/, 'READY/Admin detail preview must use shared image resolution');
+assert.match(adminDatasetSource, /resolveProfileImage\(\{ \.\.\.effectivePublicData, profileImages \}\)/, 'READY/Admin detail preview must apply overrides before shared image resolution');
+assert.doesNotMatch(adminDatasetSource, /Object\.assign\(resolvedProfile, effectivePublicData\)/, 'effective-profile overrides must not overwrite resolved image metadata');
 assert.match(adminDatasetSource, /updateAdminProfileImageFocal[\s\S]*\.eq\('dataset_id', datasetId\)[\s\S]*\.eq\('profile_id', profileId\)/);
 assert.match(adminDatasetSource, /if \(imageError\)[\s\S]*\.select\('id,storage_path,position,is_primary,focal_x,focal_y'\)/, 'Admin preview should remain compatible before display_mode is applied');
 assert.match(adminDatasetSource, /if \(fallback\.error\)[\s\S]*\.select\('id,storage_path,position,is_primary'\)/, 'Admin preview must retain image IDs when focal columns are not deployed yet');
-assert.match(adminDatasetSource, /resolveProfileImageSourcesForImage\(image/, 'Admin image cards must resolve each relational row independently');
-assert.match(adminDatasetSource, /src: resolved\.src[\s\S]*candidates: resolved\.candidates/);
 const adminProfilePreviewSource = await readFile(new URL('../app/admin/preview/[datasetId]/[profileId]/page.js', import.meta.url), 'utf8');
-assert.match(adminProfilePreviewSource, /editableImage[\s\S]*imageId: editableImage\?\.id/);
+assert.doesNotMatch(adminProfilePreviewSource, /editableImage|imageId:/, 'the top Admin preview must not select an editable image');
 const profileDetailSource = await readFile(new URL('../components/ProfileDetail.js', import.meta.url), 'utf8');
 assert.match(profileDetailSource, /import ProfileGallery from ['"]\.\/ProfileGallery['"]/);
 assert.match(profileDetailSource, /<ProfileGallery[\s\S]*images=\{profile\.profileImages\}/);
-assert.match(profileDetailSource, /\{adminPreview && hasEditableImage\s*\n\s*\? <FocalPointEditor/, 'Admin previews must mount the focal editor only for relational images');
+assert.equal((profileDetailSource.match(/<ProfileGallery/g) || []).length, 1, 'Admin and public detail must share one gallery rendering path');
+assert.doesNotMatch(profileDetailSource, /FocalPointEditor|focal-editor|hasEditableImage/, 'the top profile preview must be read-only');
 const profileGallerySource = await readFile(new URL('../components/ProfileGallery.js', import.meta.url), 'utf8');
 assert.match(profileGallerySource, /isPrimary/);
 assert.match(profileGallerySource, /ArrowLeft/);
@@ -859,17 +1295,19 @@ assert.match(profileGallerySource, /setActiveIndex\(Math\.max\(0, Math\.min\(nex
 assert.match(profileGallerySource, /focalX=\{image\.focalX\}[\s\S]*focalY=\{image\.focalY\}[\s\S]*displayMode=\{image\.displayMode\}/);
 assert.match(profileGallerySource, /aria-label="Previous image"/);
 assert.match(profileGallerySource, /View image \$\{index \+ 1\} of/);
+assert.doesNotMatch(profileGallerySource, /fetch\(|FocalPointEditor|focal-editor|onPointerDown/, 'gallery navigation must never edit or persist focal metadata');
 const profileGalleryStyles = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
 assert.match(profileGalleryStyles, /\.profile-gallery-viewport[\s\S]*scroll-snap-type: x mandatory/);
 assert.match(profileGalleryStyles, /\.profile-gallery-viewport[\s\S]*touch-action: pan-x pan-y/);
 assert.match(profileGalleryStyles, /\.profile-gallery-slide[\s\S]*flex: 0 0 100%[\s\S]*width: 100%[\s\S]*min-width: 100%[\s\S]*scroll-snap-align: start/);
 assert.match(profileGalleryStyles, /prefers-reduced-motion: reduce/);
 const profileImageSource = browserGraphSources[0];
-assert.match(profileImageSource, /objectPosition: `\$\{focalX\}% \$\{focalY\}%`/);
-assert.match(profileImageSource, /objectFit: displayMode === 'portrait' \? 'contain' : 'cover'/);
+assert.match(profileImageSource, /profileImagePresentationStyle\(\{ focalX, focalY, displayMode \}\)/, 'all image surfaces must share canonical crop styling');
 const focalEditorSource = await readFile(new URL('../components/FocalPointEditor.js', import.meta.url), 'utf8');
 assert.match(focalEditorSource, /role="slider"/);
 assert.match(focalEditorSource, /api\/admin\/datasets\/focal/);
+assert.match(focalEditorSource, /normalizeFocalCoordinate\(focalX, DEFAULT_FOCAL_X\)/, 'editor props must normalize database coordinate strings');
+assert.match(focalEditorSource, /router\.refresh\(\)/, 'a successful focal save must refresh the read-only Admin gallery');
 const focalRouteSource = await readFile(new URL('../app/api/admin/datasets/focal/route.js', import.meta.url), 'utf8');
 assert.match(focalRouteSource, /authorizeAdminRequest\(request\)/);
 assert.match(focalRouteSource, /isValidFocalCoordinate\(body\?\.focalX\)/);
@@ -877,12 +1315,22 @@ assert.match(focalRouteSource, /isValidFocalCoordinate\(body\?\.focalY\)/);
 assert.match(focalRouteSource, /return Response\.json\(\{ error: 'Focal coordinates must be numbers from 0 to 100\.' \}, \{ status: 400 \}\)/);
 assert.doesNotMatch(focalRouteSource, /SUPABASE_SERVICE_ROLE_KEY/);
 assert.match(focalRouteSource, /Display mode must be cover or portrait/);
-assert.match(focalRouteSource, /revalidatePath\('\/'\)/, 'focal saves must invalidate the public homepage without a redeploy');
+assert.match(
+  focalRouteSource,
+  /const image = await updateAdminProfileImageFocal\([\s\S]*revalidatePath\('\/'\)/,
+  'a successful focal database update must invalidate the public homepage without a redeploy',
+);
 const uploadRouteSource = await readFile(new URL('../app/api/admin/datasets/images/route.js', import.meta.url), 'utf8');
 assert.match(uploadRouteSource, /authorizeAdminRequest\(request\)/);
-assert.match(uploadRouteSource, /normalizeImageOrientation/);
+assert.match(uploadRouteSource, /normalizeProfileImage/, 'Admin uploads must use the canonical oversized-image normalizer');
+assert.match(uploadRouteSource, /MAX_PROFILE_IMAGE_INPUT_BYTES/);
+assert.match(uploadRouteSource, /image_too_large_after_normalization/);
 assert.match(uploadRouteSource, /buildProfileImageStoragePath/);
+assert.match(uploadRouteSource, /revalidatePath\('\/'\)/, 'uploads must invalidate Discovery when primary metadata can change');
+assert.match(uploadRouteSource, /revalidatePath\(`\/profile\/\$\{dataset\.slug\}/, 'uploads must invalidate the public profile');
 assert.doesNotMatch(uploadRouteSource, /SUPABASE_SERVICE_ROLE_KEY/);
+const nextConfigSource = await readFile(new URL('../next.config.mjs', import.meta.url), 'utf8');
+assert.match(nextConfigSource, /proxyClientMaxBodySize: '53mb'/, 'multipart input must reach the bounded 50 MiB normalizer');
 const imageActionRouteSource = await readFile(new URL('../app/api/admin/datasets/images/action/route.js', import.meta.url), 'utf8');
 assert.match(imageActionRouteSource, /authorizeAdminRequest\(request\)/);
 assert.match(imageActionRouteSource, /set-primary/);
@@ -894,6 +1342,7 @@ assert.match(imageActionRouteSource, /rotateImage/);
 assert.match(imageActionRouteSource, /buildProfileImageStoragePath/);
 assert.match(imageActionRouteSource, /replaceAdminProfileImageStoragePath/);
 assert.match(imageActionRouteSource, /upsert: false/);
+assert.match(imageActionRouteSource, /revalidatePath\('\/'\)/, 'primary, rotation, order, and removal actions must invalidate Discovery');
 assert.doesNotMatch(imageActionRouteSource, /SUPABASE_SERVICE_ROLE_KEY/);
 const batchImageRouteSources = await Promise.all([
   '../app/api/admin/datasets/images/import/status/route.js',
@@ -922,8 +1371,10 @@ const imageManagerSource = await readFile(new URL('../components/AdminImageManag
 assert.match(imageManagerSource, /api\/admin\/datasets\/images/);
 assert.match(imageManagerSource, /FocalPointEditor/);
 assert.match(imageManagerSource, /controlsOutside/);
+assert.equal((imageManagerSource.match(/<FocalPointEditor/g) || []).length, 1, 'the lower image manager must be the only focal editor surface');
 assert.match(focalEditorSource, /focal-editor-canvas/);
 assert.match(focalEditorSource, /focal-editor-editing-image/);
+assert.doesNotMatch(profileGalleryStyles, /\.focal-editor-editing-image[^}]*object-fit:\s*contain\s*!important/, 'cover-mode focal previews must not be forced into contain mode');
 const profileSearchSource = await readFile(new URL('../components/AdminProfileSearch.js', import.meta.url), 'utf8');
 assert.match(profileSearchSource, /profile\.name, profile\.id, profile\.major, profile\.role/);
 assert.match(profileSearchSource, /No profiles match/);

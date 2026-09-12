@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { revalidatePath } from 'next/cache';
 import { authorizeAdminRequest } from '../../../../../lib/admin/authorization';
 import { createSupabaseServiceClient } from '../../../../../lib/supabase/server';
 import {
-  MAX_PROFILE_IMAGE_BYTES,
-  detectImageContentType,
-  normalizeImageOrientation,
+  MAX_PROFILE_IMAGE_INPUT_BYTES,
+  ProfileImageIngestionError,
+  normalizeProfileImage,
 } from '../../../../../lib/profile-image-ingestion';
 import { buildProfileImageStoragePath } from '../../../../../lib/profile-images';
 import {
@@ -31,24 +32,26 @@ export async function POST(request) {
     if (!UUID.test(datasetId) || !profileId || !file || typeof file.arrayBuffer !== 'function') {
       return Response.json({ error: 'A dataset, profile, and image file are required.' }, { status: 400 });
     }
-    if (Number(file.size) > MAX_PROFILE_IMAGE_BYTES) {
-      return Response.json({ error: 'The image exceeds the 15 MiB size limit.' }, { status: 413 });
+    if (Number(file.size) > MAX_PROFILE_IMAGE_INPUT_BYTES) {
+      return Response.json({
+        error: 'The image exceeds the 50 MiB safe normalization input limit.',
+        category: 'image_input_too_large',
+      }, { status: 413 });
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());
-    if (!bytes.length || bytes.length > MAX_PROFILE_IMAGE_BYTES) {
-      return Response.json({ error: 'The image exceeds the 15 MiB size limit.' }, { status: 413 });
-    }
-    const sourceType = detectImageContentType(bytes);
-    if (!sourceType) return Response.json({ error: 'The uploaded file is not a supported image.' }, { status: 400 });
+    if (!bytes.length) return Response.json({ error: 'The uploaded image is empty.' }, { status: 400 });
     let normalized;
     try {
-      normalized = await normalizeImageOrientation(bytes, sourceType);
-    } catch {
+      normalized = await normalizeProfileImage(bytes);
+    } catch (error) {
+      if (error instanceof ProfileImageIngestionError) {
+        const status = ['image_input_too_large', 'image_too_large_after_normalization'].includes(error.code)
+          ? 413
+          : 400;
+        return Response.json({ error: error.message, category: error.code }, { status });
+      }
       return Response.json({ error: 'The uploaded image is corrupt or could not be decoded safely.' }, { status: 400 });
-    }
-    if (normalized.bytes.length > MAX_PROFILE_IMAGE_BYTES) {
-      return Response.json({ error: 'The normalized image exceeds the 15 MiB size limit.' }, { status: 413 });
     }
 
     const { dataset } = await getAdminImageContext(datasetId, profileId);
@@ -68,7 +71,23 @@ export async function POST(request) {
       storagePath,
       makePrimary,
     });
-    return Response.json({ ok: true, image });
+    revalidatePath('/');
+    revalidatePath(`/profile/${dataset.slug}/${encodeURIComponent(profileId)}`);
+    revalidatePath(`/admin/preview/${datasetId}/${encodeURIComponent(profileId)}`);
+    return Response.json({
+      ok: true,
+      image,
+      normalization: {
+        originalBytes: normalized.originalByteLength,
+        finalBytes: normalized.bytes.length,
+        originalWidth: normalized.originalWidth,
+        originalHeight: normalized.originalHeight,
+        finalWidth: normalized.width,
+        finalHeight: normalized.height,
+        finalMime: normalized.contentType,
+        diagnostics: normalized.diagnostics,
+      },
+    });
   } catch (error) {
     if (storagePath && supabase) await supabase.storage.from(BUCKET).remove([storagePath]).catch(() => {});
     return Response.json({ error: error.message || 'The image could not be added.' }, { status: 422 });

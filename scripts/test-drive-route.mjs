@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { GET } from '../app/api/drive-image/route.js';
 import { proxyImageResponse } from '../lib/google-drive-server.js';
+import { MAX_PROFILE_IMAGE_INPUT_BYTES } from '../lib/profile-image-constraints.js';
 import {
   allowedDriveFileIds,
   allowedDriveFolderIds,
@@ -45,7 +46,7 @@ const oversizedChunkedImage = new Response(new ReadableStream({
   pull(controller) {
     chunksSent += 1;
     controller.enqueue(new Uint8Array(megabyte));
-    if (chunksSent === 26) controller.close();
+    if (chunksSent === (MAX_PROFILE_IMAGE_INPUT_BYTES / megabyte) + 1) controller.close();
   },
 }), { headers: { 'Content-Type': 'image/jpeg' } });
 const limitedResponse = proxyImageResponse(oversizedChunkedImage, 'drive-file');

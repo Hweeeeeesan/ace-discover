@@ -32,6 +32,49 @@ function PreviewDistribution({ title, values = {} }) {
   );
 }
 
+const IMAGE_HEALTH_LABELS = Object.freeze({
+  ready: 'Ready',
+  needs_import: 'Need import',
+  unsupported_source: 'Unsupported source',
+  degraded_source: 'Degraded fallback',
+  inaccessible: 'Inaccessible',
+  normalization_required: 'Need normalization',
+  failed: 'Failed',
+  no_source: 'No source',
+});
+
+function ImageSourceHealthSummary({ report, loading, error, showIssues, onToggleIssues, onRefresh }) {
+  const counts = report?.summary?.counts || {};
+  return (
+    <div className="dataset-image-health">
+      <div className="dataset-image-health-summary" aria-live="polite">
+        {Object.entries(IMAGE_HEALTH_LABELS).map(([state, label]) => (
+          <article key={state} className={`state-${state}`}>
+            <strong>{report ? counts[state] || 0 : '—'}</strong>
+            <span>{label}</span>
+          </article>
+        ))}
+      </div>
+      <div className="dataset-image-health-actions">
+        <button type="button" onClick={onRefresh} disabled={loading}>{loading ? 'Checking…' : 'Re-check sources'}</button>
+        <button type="button" onClick={onToggleIssues} disabled={!report?.issues?.length} aria-expanded={showIssues}>Review issues</button>
+      </div>
+      {error && <small className="dataset-image-health-error" role="alert">{error}</small>}
+      {showIssues && report?.issues?.length > 0 && (
+        <ul className="dataset-image-health-issues">
+          {report.issues.map((profile) => (
+            <li key={profile.id}>
+              <div><strong>{profile.name}</strong><span>{profile.health.label}</span></div>
+              <p>{profile.health.summary}</p>
+              {profile.health.dimensions?.length > 0 && <small>{profile.health.dimensions.map((item) => item.label).join(' · ')}</small>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function ImportPreview({ preview, onSaved }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
@@ -235,6 +278,10 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
   const [imageImportResult, setImageImportResult] = useState(null);
   const [imageImportError, setImageImportError] = useState('');
   const [imageStatusVersion, setImageStatusVersion] = useState(0);
+  const [imageHealth, setImageHealth] = useState(null);
+  const [imageHealthError, setImageHealthError] = useState('');
+  const [imageHealthLoading, setImageHealthLoading] = useState(false);
+  const [showImageHealthIssues, setShowImageHealthIssues] = useState(false);
   const active = datasets.find((dataset) => dataset.status === 'active');
   const selected = datasets.find((dataset) => dataset.id === selectedDatasetId) || active || datasets[0];
   const defaultYear = new Date().getFullYear();
@@ -244,6 +291,9 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
   useEffect(() => {
     setImageImportResult(null);
     setImageImportError('');
+    setImageHealth(null);
+    setImageHealthError('');
+    setShowImageHealthIssues(false);
   }, [selected?.id]);
 
   useEffect(() => {
@@ -259,6 +309,31 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
       .catch((statusError) => { if (!cancelled) setImageImportError(statusError.message); });
     return () => { cancelled = true; };
   }, [selected?.id, selected?.status, imageStatusVersion]);
+
+  async function checkImageSourceHealth() {
+    if (!selected) return;
+    setImageHealthLoading(true);
+    setImageHealthError('');
+    try {
+      setImageHealth(await postJson('/api/admin/datasets/images/health', { datasetId: selected.id }));
+    } catch (healthError) {
+      setImageHealthError(healthError.message);
+    } finally {
+      setImageHealthLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selected) return () => { cancelled = true; };
+    setImageHealthLoading(true);
+    setImageHealthError('');
+    postJson('/api/admin/datasets/images/health', { datasetId: selected.id })
+      .then((result) => { if (!cancelled) setImageHealth(result); })
+      .catch((healthError) => { if (!cancelled) setImageHealthError(healthError.message); })
+      .finally(() => { if (!cancelled) setImageHealthLoading(false); });
+    return () => { cancelled = true; };
+  }, [selected?.id, imageStatusVersion]);
 
   function openAddSemester() {
     const next = !showImport;
@@ -544,26 +619,33 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
         </section>
       )}
       {selected && (
-        <section className="dataset-image-import-card" aria-labelledby="dataset-images-title">
+        <section className="dataset-image-import-card" id="dataset-image-source-health" aria-labelledby="dataset-images-title">
           <div className="dataset-image-import-heading">
-            <span>Images</span>
-            <h3 id="dataset-images-title">Missing profile galleries</h3>
+            <span>Image source health</span>
+            <h3 id="dataset-images-title">Storage and Drive readiness</h3>
           </div>
-          {selected.status === 'archived' ? (
-            <p>Restore this archived dataset before importing images.</p>
-          ) : (
-            <p>
-              <strong>{imageImportStatus ? imageImportStatus.profilesNeedingImport : '—'}</strong>
-              {' '}profile{imageImportStatus?.profilesNeedingImport === 1 ? '' : 's'} need image import
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={previewMissingImages}
-            disabled={selected.status === 'archived' || !imageImportStatus?.profilesNeedingImport || Boolean(pendingAction)}
-          >
-            <Images size={16} /> {pendingAction === 'preview-images' ? 'Previewing…' : 'Preview missing images'}
-          </button>
+          <p>Read-only checks use the same Drive download, validation, thumbnail guard, and normalization path as image import.</p>
+          <ImageSourceHealthSummary
+            report={imageHealth}
+            loading={imageHealthLoading}
+            error={imageHealthError}
+            showIssues={showImageHealthIssues}
+            onToggleIssues={() => setShowImageHealthIssues((value) => !value)}
+            onRefresh={checkImageSourceHealth}
+          />
+          <div className="dataset-image-import-action-row">
+            <span>{selected.status === 'archived'
+              ? 'Restore this archived dataset before importing images.'
+              : `${imageImportStatus ? imageImportStatus.profilesNeedingImport : '—'} profile${imageImportStatus?.profilesNeedingImport === 1 ? '' : 's'} need image import.`}</span>
+            <button
+              type="button"
+              title="Preview missing images"
+              onClick={previewMissingImages}
+              disabled={selected.status === 'archived' || !imageImportStatus?.profilesNeedingImport || Boolean(pendingAction)}
+            >
+              <Images size={16} /> {pendingAction === 'preview-images' ? 'Previewing…' : 'Preview image import'}
+            </button>
+          </div>
           {imageImportError && !imageImportResult && <small role="alert">{imageImportError}</small>}
         </section>
       )}

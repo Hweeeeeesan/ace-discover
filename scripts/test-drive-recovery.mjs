@@ -11,10 +11,13 @@ import {
 } from '../lib/google-drive-server.js';
 import {
   ingestProfileImages,
-  MAX_PROFILE_IMAGE_BYTES,
+  MAX_PROFILE_IMAGE_INPUT_BYTES,
+  MIN_REPLACEMENT_FALLBACK_LONG_EDGE,
+  MIN_REPLACEMENT_FALLBACK_SHORT_EDGE,
   ProfileImageIngestionError,
   ingestProfileImage,
 } from '../lib/profile-image-ingestion.js';
+import { migrateDatasetProfileGalleries } from '../lib/profile-image-migration.js';
 
 const credentialKeys = [
   'GOOGLE_DRIVE_ACCESS_TOKEN',
@@ -50,6 +53,29 @@ credentialKeys.forEach((key) => {
 
 const jpegBytes = await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 80, g: 120, b: 160 } } }).jpeg().toBuffer();
 const imageResponse = () => new Response(jpegBytes, { headers: { 'Content-Type': 'image/jpeg' } });
+const acceptableFallbackPng = await sharp({
+  create: {
+    width: 1200,
+    height: 900,
+    channels: 4,
+    background: { r: 70, g: 120, b: 180, alpha: 0.7 },
+  },
+}).png().toBuffer();
+const tinyFallbackPng = await sharp({
+  create: {
+    width: 220,
+    height: 165,
+    channels: 4,
+    background: { r: 70, g: 120, b: 180, alpha: 1 },
+  },
+}).png().toBuffer();
+const acceptableFallbackResponse = () => new Response(acceptableFallbackPng, {
+  headers: {
+    'Content-Type': 'image/png',
+    'X-Drive-Download-Source': 'thumbnail_fallback',
+  },
+});
+const previouslyRejectedOriginalLength = (25 * 1024 * 1024) + 1;
 const authenticated = { accessToken: 'mock-access-token', apiKey: null, authenticated: true, mode: 'service-account' };
 const publicOnly = { accessToken: null, apiKey: null, authenticated: false, mode: 'public-only' };
 
@@ -68,10 +94,20 @@ try {
         thumbnailLink: 'https://thumbnail.example/should-not-run',
       });
     }
-    return imageResponse();
+    return new Response(jpegBytes, {
+      headers: {
+        'Content-Type': 'image/jpeg',
+        'Content-Length': String(previouslyRejectedOriginalLength),
+      },
+    });
   };
   const originalResponse = await fetchDriveImage('1234567890ORIGINAL', authenticated);
   assert.equal(originalResponse.headers.get('x-drive-download-source'), 'original_media');
+  assert.equal(
+    Number(originalResponse.headers.get('content-length')),
+    previouslyRejectedOriginalLength,
+    'original media between the obsolete 25 MiB gate and the 50 MiB normalization input limit must remain eligible',
+  );
   assert.equal(originalCalls.length, 2, 'metadata should be followed directly by original media');
   assert.match(originalCalls[1].url, /\/drive\/v3\/files\/1234567890ORIGINAL\?alt=media/);
   assert.equal(originalCalls[1].authorization, 'Bearer mock-access-token');
@@ -128,6 +164,25 @@ try {
       > fallbackCalls.findIndex((url) => url.includes('drive.google.com/uc?')),
     'metadata thumbnail must run only after original media and public full-file fallbacks',
   );
+
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (!url.includes('alt=media') && url.includes('googleapis.com/drive/v3/files/')) {
+      return Response.json({
+        id: '1234567890ACCEPTABLE',
+        name: 'acceptable.png',
+        mimeType: 'image/png',
+        thumbnailLink: 'https://thumbnail.example/acceptable',
+      });
+    }
+    if (url.includes('thumbnail.example/acceptable')) {
+      return new Response(acceptableFallbackPng, { headers: { 'Content-Type': 'image/png' } });
+    }
+    return new Response('unavailable', { status: 404, headers: { 'Content-Type': 'text/plain' } });
+  };
+  const acceptableFallback = await fetchDriveImage('1234567890ACCEPTABLE', authenticated);
+  assert.equal(acceptableFallback.headers.get('x-drive-download-source'), 'thumbnail_fallback');
+  assert.equal(acceptableFallback.headers.get('content-type'), 'image/png', 'PNG fallback support must remain unchanged');
 } finally {
   globalThis.fetch = nativeFetch;
 }
@@ -258,6 +313,78 @@ const thumbnailDiagnostic = await ingestProfileImages({
 });
 assert.equal(thumbnailDiagnostic.diagnostics[0]?.category, 'thumbnail_fallback_used');
 assert.equal(thumbnailDiagnostic.images[0]?.downloadSource, 'thumbnail_fallback');
+assert.equal(thumbnailDiagnostic.allSupportedValidated, true, 'normal ingestion may retain a tiny thumbnail fallback for resilience');
+
+const acceptableReplacementUploads = [];
+const acceptableThumbnailReplacement = await ingestProfileImages({
+  profile: { id: 'acceptable-thumbnail', driveFileId: '1234567890THUMB', imageKind: 'drive-file' },
+  datasetSlug: 'fall-2026',
+  driveAuth: authenticated,
+  dryRun: false,
+  requireAllSupported: true,
+  upload: async (upload) => acceptableReplacementUploads.push(upload),
+  driveClient: { fetchDriveImage: async () => acceptableFallbackResponse() },
+});
+assert.equal(acceptableThumbnailReplacement.allSupportedValidated, true);
+assert.equal(acceptableThumbnailReplacement.rejected.length, 0);
+assert.equal(acceptableThumbnailReplacement.images[0]?.contentType, 'image/png');
+assert.equal(acceptableReplacementUploads.length, 1, 'an adequately sized fallback remains usable for replacement');
+assert.ok(acceptableThumbnailReplacement.images[0].width >= MIN_REPLACEMENT_FALLBACK_LONG_EDGE);
+assert.ok(acceptableThumbnailReplacement.images[0].height >= MIN_REPLACEMENT_FALLBACK_SHORT_EDGE);
+
+let degradedReplacementUploads = 0;
+const degradedReplacement = await ingestProfileImages({
+  profile: { ...folderProfile, id: 'degraded-replacement' },
+  datasetSlug: 'fall-2026',
+  driveAuth: authenticated,
+  dryRun: false,
+  requireAllSupported: true,
+  upload: async () => { degradedReplacementUploads += 1; },
+  driveClient: {
+    listFilesInFolder: async () => [
+      { id: '1234567890ORIGINAL', name: 'one.jpg', mimeType: 'image/jpeg' },
+      { id: '1234567890TINYPNG', name: 'two.png', mimeType: 'image/png' },
+    ],
+    fetchDriveImage: async (fileId) => (
+      fileId.endsWith('TINYPNG')
+        ? new Response(tinyFallbackPng, {
+          headers: { 'Content-Type': 'image/png', 'X-Drive-Download-Source': 'thumbnail_fallback' },
+        })
+        : imageResponse()
+    ),
+  },
+});
+assert.equal(degradedReplacement.allSupportedValidated, false);
+assert.equal(degradedReplacementUploads, 0, 'a tiny fallback must prevent every transactional replacement upload');
+assert.equal(degradedReplacement.images.length, 0);
+assert.equal(degradedReplacement.rejected[0]?.category, 'thumbnail_too_small_for_replacement');
+assert.ok(degradedReplacement.diagnostics.some(
+  (diagnostic) => diagnostic.category === 'thumbnail_fallback_rejected_for_replacement',
+));
+
+const existingGalleryPath = 'fall-2026/degraded-replacement/11111111-1111-4111-8111-111111111111.jpg';
+let degradedReplacementMetadataCalls = 0;
+const preservedDegradedGallery = await migrateDatasetProfileGalleries({
+  dataset: { slug: 'fall-2026' },
+  profiles: [{
+    id: 'degraded-replacement',
+    driveFolderId: '1234567890FOLDER',
+    profileImages: [{
+      id: '11111111-1111-4111-8111-111111111111',
+      storagePath: existingGalleryPath,
+      position: 0,
+      isPrimary: true,
+    }],
+  }],
+  dryRun: false,
+  replaceExisting: true,
+  ingestGallery: async () => degradedReplacement,
+  replaceGallery: async () => { degradedReplacementMetadataCalls += 1; },
+  removeStorage: async () => assert.fail('no degraded replacement objects should have been staged'),
+});
+assert.equal(preservedDegradedGallery.rows[0].status, 'replacement_failed_preserved');
+assert.equal(preservedDegradedGallery.rows[0].primaryStoragePath, existingGalleryPath);
+assert.equal(degradedReplacementMetadataCalls, 0, 'degraded replacement metadata must never replace the existing gallery');
 
 const stagedEvents = [];
 const stagedRepair = await ingestProfileImages({
@@ -417,12 +544,12 @@ await assert.rejects(
     dryRun: true,
     driveClient: {
       fetchDriveImage: async () => new Response(jpegBytes, {
-        headers: { 'Content-Type': 'image/jpeg', 'Content-Length': String(MAX_PROFILE_IMAGE_BYTES + 1) },
+        headers: { 'Content-Type': 'image/jpeg', 'Content-Length': String(MAX_PROFILE_IMAGE_INPUT_BYTES + 1) },
       }),
       listImageFilesInFolder: async () => [],
     },
   }),
-  (error) => error instanceof ProfileImageIngestionError && error.code === 'image_too_large',
+  (error) => error instanceof ProfileImageIngestionError && error.code === 'image_input_too_large',
 );
 
 const browserSources = await Promise.all([

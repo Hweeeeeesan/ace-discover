@@ -1,7 +1,14 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import ProfileImage from './ProfileImage';
+import {
+  DEFAULT_FOCAL_X,
+  DEFAULT_FOCAL_Y,
+  normalizeDisplayMode,
+  normalizeFocalCoordinate,
+} from '../lib/profile-images';
 
 function clamp(value) {
   return Math.max(0, Math.min(100, value));
@@ -25,13 +32,25 @@ export default function FocalPointEditor({
   onSaved,
   controlsOutside = false,
 }) {
+  const router = useRouter();
   const targetRef = useRef(null);
-  const [point, setPoint] = useState({ x: focalX, y: focalY });
-  const [mode, setMode] = useState(displayMode === 'portrait' ? 'portrait' : 'cover');
+  const [point, setPoint] = useState(() => ({
+    x: normalizeFocalCoordinate(focalX, DEFAULT_FOCAL_X),
+    y: normalizeFocalCoordinate(focalY, DEFAULT_FOCAL_Y),
+  }));
+  const [mode, setMode] = useState(() => normalizeDisplayMode(displayMode));
   const [dragging, setDragging] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    setPoint({
+      x: normalizeFocalCoordinate(focalX, DEFAULT_FOCAL_X),
+      y: normalizeFocalCoordinate(focalY, DEFAULT_FOCAL_Y),
+    });
+    setMode(normalizeDisplayMode(displayMode));
+  }, [displayMode, focalX, focalY, imageId]);
 
   const updateFromPointer = useCallback((event) => {
     const bounds = targetRef.current?.getBoundingClientRect();
@@ -83,8 +102,15 @@ export default function FocalPointEditor({
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || 'Focal point could not be saved.');
+      const savedImage = payload.image || {};
+      setPoint({
+        x: normalizeFocalCoordinate(savedImage.focalX, point.x),
+        y: normalizeFocalCoordinate(savedImage.focalY, point.y),
+      });
+      setMode(normalizeDisplayMode(savedImage.displayMode ?? mode));
       setMessage('Focal point saved.');
-      onSaved?.(payload.image);
+      onSaved?.(savedImage);
+      router.refresh();
     } catch (saveError) {
       setError(saveError.message);
     } finally {

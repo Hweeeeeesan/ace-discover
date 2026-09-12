@@ -1,13 +1,11 @@
 import Link from 'next/link';
 import { ExternalLink, Instagram, Presentation } from 'lucide-react';
 import DiscoveryBackButton from './DiscoveryBackButton';
-import FocalPointEditor from './FocalPointEditor';
 import AdminImageManager from './AdminImageManager';
 import AdminProfileEditor from './AdminProfileEditor';
 import ProfileGallery from './ProfileGallery';
 import SeenProfileMarker from './SeenProfileMarker';
 import SavedProfileButton from './SavedProfileButton';
-import { isValidProfileImageId } from '../lib/profile-images';
 import { normalizeProfileIntro, normalizeProfileStory } from '../lib/profile-story';
 
 function InfoSection({ title, children }) {
@@ -52,10 +50,6 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
     ? profile.interests.filter((interest) => !['Big', 'Little', 'Family'].includes(interest))
     : [];
   const adminBackHref = adminPreview?.backHref || '';
-  const editableImage = profile.profileImages?.find((image) => image.isPrimary)
-    || profile.profileImages?.[0];
-  const editableImageId = adminPreview?.imageId || editableImage?.id || '';
-  const hasEditableImage = isValidProfileImageId(editableImageId);
   return (
     <main className="detail-shell">
       {!adminPreview && <SeenProfileMarker profileId={profile.id} datasetSlug={datasetSlug} />}
@@ -67,27 +61,15 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
       )}
       <div className="detail-card" data-profile-transition-id={`${datasetSlug}-${profile.id}`}>
         <div className="detail-photo-wrap">
-          {adminPreview && hasEditableImage
-            ? <FocalPointEditor
-              datasetId={adminPreview.datasetId}
-              datasetSlug={datasetSlug}
-              profileId={profile.id}
-              imageId={editableImageId}
-              src={profile.image}
-              candidates={profile.imageCandidates}
-              focalX={profile.focalX}
-              focalY={profile.focalY}
-              displayMode={profile.displayMode}
-            />
-            : <ProfileGallery
-              profileName={profile.name}
-              images={profile.profileImages}
-              fallbackSrc={profile.image}
-              fallbackCandidates={profile.imageCandidates}
-              fallbackFocalX={profile.focalX}
-              fallbackFocalY={profile.focalY}
-              fallbackDisplayMode={profile.displayMode}
-            />}
+          <ProfileGallery
+            profileName={profile.name}
+            images={profile.profileImages}
+            fallbackSrc={profile.image}
+            fallbackCandidates={profile.imageCandidates}
+            fallbackFocalX={profile.focalX}
+            fallbackFocalY={profile.focalY}
+            fallbackDisplayMode={profile.displayMode}
+          />
           {adminPreview
             ? <Link className="back-button" href={adminBackHref} aria-label="Back to Admin dataset"><span aria-hidden="true">←</span></Link>
             : <DiscoveryBackButton className="back-button" iconOnly profileId={profile.id} datasetSlug={datasetSlug} />}

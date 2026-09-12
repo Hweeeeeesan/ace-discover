@@ -11,7 +11,10 @@ const nextConfig = {
     }];
   },
   experimental: {
-    proxyClientMaxBodySize: '16mb',
+    // Allows a 50 MiB source image plus multipart overhead to reach the
+    // bounded Sharp normalizer. Stored profile images still have a 15 MiB
+    // final limit.
+    proxyClientMaxBodySize: '53mb',
   },
 };
 

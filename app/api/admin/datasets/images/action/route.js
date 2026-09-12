@@ -84,6 +84,7 @@ export async function POST(request) {
     if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(datasetSlug)) {
       revalidatePath(`/profile/${datasetSlug}/${encodeURIComponent(profileId)}`);
     }
+    revalidatePath('/');
     revalidatePath(`/admin/preview/${datasetId}/${encodeURIComponent(profileId)}`);
     return Response.json({ ok: true, result });
   } catch (error) {

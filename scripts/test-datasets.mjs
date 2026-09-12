@@ -163,6 +163,6 @@ assert.match(previewListSource, /identity\.state !== 'authorized'/);
 assert.match(previewListSource, /getAdminDatasetProfileList/);
 
 const nextConfigSource = await readFile(new URL('../next.config.mjs', import.meta.url), 'utf8');
-assert.match(nextConfigSource, /proxyClientMaxBodySize: '16mb'/);
+assert.match(nextConfigSource, /proxyClientMaxBodySize: '53mb'/, 'oversized Admin images need a bounded multipart envelope before normalization');
 
 console.log('Admin authorization, privacy boundaries, dataset integrity, upload limits, and routing tests passed.');

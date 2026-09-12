@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { SearchX, SlidersHorizontal } from 'lucide-react';
 import DiscoveryToolbar from './DiscoveryToolbar';
 import DiscoveryRail from './DiscoveryRail';
@@ -45,10 +46,13 @@ const INITIAL_STATE = {
 };
 
 export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
+  const router = useRouter();
   const feedRef = useRef(null);
   const stateRef = useRef(INITIAL_STATE);
   const scrollTopRef = useRef(0);
   const toastTimerRef = useRef(null);
+  const lastDataRefreshAtRef = useRef(0);
+  const checkedReturnRefreshRef = useRef(false);
 
   const [ready, setReady] = useState(false);
   const [restored, setRestored] = useState(false);
@@ -64,6 +68,13 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
 
   stateRef.current = discovery;
   encounteredIdsRef.current = encounteredIds;
+
+  const refreshDiscoveryData = useCallback(() => {
+    const now = Date.now();
+    if (now - lastDataRefreshAtRef.current < 1000) return;
+    lastDataRefreshAtRef.current = now;
+    router.refresh();
+  }, [router]);
 
   const options = useMemo(() => getDiscoveryOptions(profiles), [profiles]);
   const availableRoles = useMemo(() => getAvailableRoles(profiles), [profiles]);
@@ -167,6 +178,57 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
     setSearchOpen(Boolean(initial.query));
     setReady(true);
   }, [datasetSlug]);
+
+  useEffect(() => {
+    let wasInactive = document.visibilityState === 'hidden' || !document.hasFocus();
+
+    // A client-side return from ProfileDetail can restore an old Router Cache
+    // entry for `/`. The server route is already invalidated by focal saves;
+    // refresh once so this mounted feed receives the current bulk RPC payload.
+    if (!checkedReturnRefreshRef.current) {
+      checkedReturnRefreshRef.current = true;
+      try {
+        const navigation = JSON.parse(window.sessionStorage.getItem(discoveryNavigationKey(datasetSlug)) || 'null');
+        if (navigation?.at && Date.now() - navigation.at < 4 * 60 * 60 * 1000) refreshDiscoveryData();
+      } catch {
+        // Fresh data still loads normally when browser storage is unavailable.
+      }
+    }
+
+    function handleBlur() {
+      wasInactive = true;
+    }
+
+    function handleFocus() {
+      if (!wasInactive) return;
+      wasInactive = false;
+      refreshDiscoveryData();
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'hidden') {
+        wasInactive = true;
+      } else if (wasInactive) {
+        wasInactive = false;
+        refreshDiscoveryData();
+      }
+    }
+
+    function handlePageShow(event) {
+      if (event.persisted) refreshDiscoveryData();
+    }
+
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('pageshow', handlePageShow);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('pageshow', handlePageShow);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [datasetSlug, refreshDiscoveryData]);
 
   useEffect(() => {
     if (!ready || discovery.role === 'All' || availableRoles.includes(discovery.role)) return;

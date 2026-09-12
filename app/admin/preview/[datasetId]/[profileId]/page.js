@@ -18,8 +18,6 @@ export default async function AdminDatasetProfilePreview({ params }) {
   if (!result) notFound();
 
   const backHref = `/admin?dataset=${encodeURIComponent(result.dataset.id)}`;
-  const editableImage = result.profile.profileImages?.find((image) => image.isPrimary)
-    || result.profile.profileImages?.[0];
   return (
     <ProfileDetail
       profile={result.profile}
@@ -29,7 +27,6 @@ export default async function AdminDatasetProfilePreview({ params }) {
         datasetId: result.dataset.id,
         datasetName: result.dataset.name,
         status: result.dataset.status,
-        imageId: editableImage?.id || '',
         importedPublicData: result.importedPublicData,
         publicOverrides: result.publicOverrides,
         publicOverridesUpdatedAt: result.publicOverridesUpdatedAt,

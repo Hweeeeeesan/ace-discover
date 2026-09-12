@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import FocalPointEditor from './FocalPointEditor';
 
@@ -20,6 +21,34 @@ export default function AdminImageManager({ datasetId, datasetSlug, profileId, i
   const [uploading, setUploading] = useState(false);
   const [makePrimary, setMakePrimary] = useState(false);
   const [error, setError] = useState('');
+  const [sourceHealth, setSourceHealth] = useState(null);
+  const [healthError, setHealthError] = useState('');
+  const [checkingHealth, setCheckingHealth] = useState(false);
+
+  async function checkSourceHealth() {
+    setCheckingHealth(true);
+    setHealthError('');
+    try {
+      const response = await fetch('/api/admin/datasets/images/health', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ datasetId, profileId }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Image source health could not be checked.');
+      setSourceHealth(payload.profile?.health || null);
+    } catch (healthCheckError) {
+      setHealthError(healthCheckError.message);
+    } finally {
+      setCheckingHealth(false);
+    }
+  }
+
+  useEffect(() => {
+    checkSourceHealth();
+    // A refreshed gallery receives a new image count and should be classified again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datasetId, profileId, images.length]);
 
   async function refreshAfter(task) {
     setError('');
@@ -89,9 +118,43 @@ export default function AdminImageManager({ datasetId, datasetSlug, profileId, i
         </label>
       </div>
       <label className="admin-image-primary-upload"><input type="checkbox" checked={makePrimary} onChange={(event) => setMakePrimary(event.target.checked)} /> Make the next upload primary</label>
+      <section className={`admin-image-source-health state-${sourceHealth?.state || 'checking'}`} aria-label="Image source health">
+        <div className="admin-image-source-health-heading">
+          <div>
+            <span>Image source status</span>
+            <strong>{sourceHealth?.label || (checkingHealth ? 'Checking…' : 'Unavailable')}</strong>
+          </div>
+          <button type="button" onClick={checkSourceHealth} disabled={checkingHealth}>
+            {checkingHealth ? 'Checking…' : 'Re-check source'}
+          </button>
+        </div>
+        {sourceHealth && (
+          <>
+            <p><strong>{sourceHealth.summary}</strong> {sourceHealth.detail}</p>
+            <dl>
+              <div><dt>Displayed from</dt><dd>{sourceHealth.displayedFrom.label}</dd></div>
+              <div><dt>Storage gallery</dt><dd>{sourceHealth.storageGallery.label}</dd></div>
+              <div><dt>Drive source</dt><dd>{sourceHealth.driveSource.label}</dd></div>
+            </dl>
+            <div className="admin-image-source-health-actions">
+              {images.length > 0
+                ? <a href="#admin-image-manager-grid">Manage existing gallery</a>
+                : sourceHealth.canPreviewImport
+                  ? <Link href={`/admin?dataset=${encodeURIComponent(datasetId)}#dataset-image-source-health`}>Preview image import</Link>
+                  : null}
+            </div>
+          </>
+        )}
+        {healthError && <p className="admin-image-source-health-error" role="alert">{healthError}</p>}
+      </section>
       {error && <p className="admin-image-manager-error" role="alert">{error}</p>}
-      {!images.length && <p className="admin-image-manager-empty">No Storage images yet. Add the first image to make it primary automatically.</p>}
-      <div className="admin-image-manager-grid">
+      {!images.length && (
+        <div className="admin-image-manager-empty">
+          <strong>No editable Storage image yet.</strong>
+          <span>{sourceHealth?.focalMessage || 'Checking the current source before focal-point editing can be enabled.'}</span>
+        </div>
+      )}
+      <div className="admin-image-manager-grid" id="admin-image-manager-grid">
         {images.map((image, index) => (
           <article className="admin-image-manager-card" key={image.id}>
             <div className="admin-image-manager-card-header">
