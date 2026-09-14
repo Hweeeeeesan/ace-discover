@@ -75,6 +75,17 @@ function ImageSourceHealthSummary({ report, loading, error, showIssues, onToggle
   );
 }
 
+function ContentQaPreviewSummary({ contentQa }) {
+  if (!contentQa?.summary) return null;
+  const summary = contentQa.summary;
+  return (
+    <section className="dataset-content-qa-preview" aria-label="Public response QA preview">
+      <div><strong>Public response QA</strong><span>Deterministic content review · Admin-only</span></div>
+      <p><b>{summary.clearProfiles}</b> clear <b>{summary.reviewProfiles}</b> need review <b>{summary.blockedProfiles}</b> blocked</p>
+    </section>
+  );
+}
+
 function ImportPreview({ preview, onSaved }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
@@ -121,6 +132,7 @@ function ImportPreview({ preview, onSaved }) {
         <PreviewDistribution title="Social Style" values={health.socialStyleDistribution} />
         <PreviewDistribution title="Vibes" values={health.vibeDistribution} />
       </div>
+      <ContentQaPreviewSummary contentQa={preview.contentQa} />
       <div className="dataset-preview-issues">
         {Object.entries(preview.safeIssues || {}).filter(([, profiles]) => profiles.length).map(([key, profiles]) => (
           <details key={key}>
@@ -190,6 +202,7 @@ function SyncPreview({ preview, onApplied, onCancel }) {
         </div>
       )}
       <p className="dataset-preview-note">Applying updates normalized public fields atomically. Existing Admin-managed galleries remain authoritative; changed Drive links are reported but do not replace them.</p>
+      <ContentQaPreviewSummary contentQa={preview.contentQa} />
       <p className="dataset-preview-note">Validated snapshot: {preview.health.totalProfiles} profiles. No public change occurs until Apply Changes succeeds.</p>
       {error && <p className="admin-form-error" role="alert">{error}</p>}
       <div className="dataset-preview-actions">

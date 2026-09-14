@@ -2,6 +2,7 @@ import { authorizeAdminRequest } from '../../../../../lib/admin/authorization';
 import { createDatasetImport, createDatasetSyncImport } from '../../../../../lib/datasets/admin';
 import { analyzeWorkbookUpload, semesterMetadata } from '../../../../../lib/import/workbook';
 import { MAX_WORKBOOK_BYTES, uploadRequestTooLarge } from '../../../../../lib/import/limits';
+import { buildContentQaPreview } from '../../../../../lib/profile-qa';
 
 export const runtime = 'nodejs';
 
@@ -46,6 +47,7 @@ export async function POST(request) {
         safeIssues: result.safeIssues,
         diff: result.diff,
         sourceType: 'excel',
+        contentQa: buildContentQaPreview(payload, result.metadata),
       });
     }
     const draft = await createDatasetImport({ metadata, payload, userId: authorization.identity.user.id });
@@ -56,6 +58,7 @@ export async function POST(request) {
       metadata,
       health: payload.health,
       safeIssues: payload.safeIssues,
+      contentQa: buildContentQaPreview(payload, metadata),
     });
   } catch (error) {
     return Response.json({ error: error.message || 'Workbook analysis failed.' }, { status: 422 });

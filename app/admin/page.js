@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import AdminAppPreview from '../../components/AdminAppPreview';
 import AdminIssueList from '../../components/AdminIssueList';
+import AdminProfileQa from '../../components/AdminProfileQa';
 import { AdminLogin, AdminSignOut } from '../../components/AdminAuth';
 import DatasetManager from '../../components/DatasetManager';
 import ResetSeenHistory from '../../components/ResetSeenHistory';
@@ -97,6 +98,7 @@ export default async function AdminPage({ searchParams }) {
           <section className="admin-metrics" aria-label="Profile metrics">{metrics.map(([label, value]) => <article key={label}><strong>{value}</strong><span>{label}</span></article>)}</section>
           <ResetSeenHistory datasetSlug={selected.slug} datasetName={selected.name} />
           <section className="admin-section"><div className="admin-section-title"><span>Maintenance</span><h2>Actionable profile issues</h2></div>{Object.entries(issueMeta).map(([key, [title, description]]) => <AdminIssueList key={key} title={title} description={description} profiles={safeIssues[key] || []} datasetId={selected.id} />)}</section>
+          <AdminProfileQa datasetId={selected.id} />
           <Distribution eyebrow="Classification" title="Major Area distribution" values={health.majorGroupDistribution} />
           <Distribution eyebrow="Classification" title="Social Level distribution" values={health.socialLevelDistribution} />
           <Distribution eyebrow="Classification" title="Social Style distribution" values={health.socialStyleDistribution} />

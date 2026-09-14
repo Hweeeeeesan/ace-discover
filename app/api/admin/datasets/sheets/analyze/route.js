@@ -4,6 +4,7 @@ import { chooseWorksheet, GoogleSheetsError, isValidGoogleSheetId } from '../../
 import { inspectGoogleSheet, readGoogleWorksheet } from '../../../../../../lib/google-sheets-server';
 import { analyzeGoogleSheetValues } from '../../../../../../lib/import/google-sheet';
 import { semesterMetadata } from '../../../../../../lib/import/workbook';
+import { buildContentQaPreview } from '../../../../../../lib/profile-qa';
 
 export const runtime = 'nodejs';
 
@@ -54,6 +55,7 @@ export async function POST(request) {
         sourceType: 'google_sheet',
         source: { title: sheet.title, tab: tab.title },
         unchangedSource: sourceHash === target.dataset.lastSourceHash,
+        contentQa: buildContentQaPreview(result.payload, result.metadata),
       });
     }
 
@@ -73,6 +75,7 @@ export async function POST(request) {
       safeIssues: payload.safeIssues,
       sourceType: 'google_sheet',
       source: { title: sheet.title, tab: tab.title },
+      contentQa: buildContentQaPreview(payload, metadata),
     });
   } catch (error) {
     const status = error instanceof GoogleSheetsError ? error.status : 422;
