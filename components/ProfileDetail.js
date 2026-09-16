@@ -139,6 +139,7 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
           datasetSlug={datasetSlug}
           profileId={profile.id}
           images={profile.profileImages || []}
+          imageClearedByAdmin={profile.imageClearedByAdmin === true}
         />
       )}
     </main>

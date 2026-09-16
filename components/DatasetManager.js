@@ -41,6 +41,7 @@ const IMAGE_HEALTH_LABELS = Object.freeze({
   normalization_required: 'Need normalization',
   failed: 'Failed',
   no_source: 'No source',
+  intentionally_cleared: 'Admin cleared',
 });
 
 function ImageSourceHealthSummary({ report, loading, error, showIssues, onToggleIssues, onRefresh }) {
@@ -708,6 +709,7 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
             </div>
             <p className="dataset-image-import-skipped">
               Scanned {imageImportResult.summary.profilesScanned} profiles · preserved {imageImportResult.summary.profilesSkippedExistingGallery} existing galler{imageImportResult.summary.profilesSkippedExistingGallery === 1 ? 'y' : 'ies'}
+              {` · skipped ${imageImportResult.summary.profilesSkippedIntentionallyCleared || 0} intentionally cleared`}
               {imageImportResult.mode === 'preview' ? ` · ${imageImportResult.summary.inaccessibleSources} inaccessible Drive source${imageImportResult.summary.inaccessibleSources === 1 ? '' : 's'}` : ''}
             </p>
             {imageImportResult.profiles.length > 0 && (

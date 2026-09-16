@@ -151,6 +151,44 @@ const malformedStorage = resolveProfileImageSources({ storageImagePath: '../bad'
 assert.equal(malformedStorage.src, driveImage, 'malformed Storage paths must fall back to Drive');
 const placeholderOnly = resolveProfileImageSources({}, supabaseOptions);
 assert.equal(placeholderOnly.src, PROFILE_IMAGE_PLACEHOLDER);
+const intentionallyCleared = {
+  imageClearedByAdmin: true,
+  storageImagePath: springPath,
+  image: driveImage,
+  imageCandidates: [driveImage],
+  focalX: 9,
+  focalY: 91,
+  displayMode: 'portrait',
+  profileImages: [{
+    id: imageId,
+    storageImagePath: futurePath,
+    position: 0,
+    isPrimary: true,
+    focalX: 9,
+    focalY: 91,
+    displayMode: 'portrait',
+  }],
+};
+assert.deepEqual(
+  resolveProfileImageSources(intentionallyCleared, supabaseOptions),
+  { src: PROFILE_IMAGE_PLACEHOLDER, candidates: [PROFILE_IMAGE_PLACEHOLDER] },
+  'an explicit Admin clear must suppress relational, Storage, and Drive fallbacks',
+);
+assert.deepEqual(getProfileImages(intentionallyCleared), []);
+assert.equal(getPrimaryProfileImage(intentionallyCleared), null);
+assert.deepEqual(
+  withResolvedProfileImage(intentionallyCleared, supabaseOptions),
+  {
+    ...intentionallyCleared,
+    profileImages: [],
+    focalX: 50,
+    focalY: 35,
+    displayMode: 'cover',
+    image: PROFILE_IMAGE_PLACEHOLDER,
+    imageCandidates: [PROFILE_IMAGE_PLACEHOLDER],
+  },
+  'deleted-image focal and display metadata must not survive effective resolution',
+);
 
 const relationalProfile = {
   storageImagePath: 'spring-2026/same-person/primary.webp',
@@ -1007,6 +1045,59 @@ assert.deepEqual(
   'old Storage objects must be removed only after transactional metadata replacement succeeds',
 );
 
+let clearedRestorePlan = null;
+const explicitlyRestoredClearedProfile = await migrateDatasetProfileGalleries({
+  dataset: { slug: 'fall-2026' },
+  profiles: [{
+    id: 'moderated-profile',
+    driveFolderId: '1234567890FOLDER',
+    imageClearedByAdmin: true,
+    profileImages: [],
+  }],
+  dryRun: false,
+  replaceExisting: true,
+  ingestGallery: async () => ({
+    sourceKind: 'folder',
+    filesDiscovered: 1,
+    supportedImages: 1,
+    allSupportedValidated: true,
+    images: replacementNew.slice(0, 1),
+    rejected: [],
+    diagnostics: [],
+  }),
+  replaceGallery: async ({ plan }) => { clearedRestorePlan = plan; },
+});
+assert.equal(explicitlyRestoredClearedProfile.rows[0].status, 'replaced');
+assert.deepEqual(clearedRestorePlan.expectedExistingImageIds, []);
+assert.equal(clearedRestorePlan.replacementRows[0].isPrimary, true);
+
+const failedClearedRestorationCleanup = [];
+const failedClearedRestoration = await migrateDatasetProfileGalleries({
+  dataset: { slug: 'fall-2026' },
+  profiles: [{
+    id: 'moderated-profile',
+    driveFolderId: '1234567890FOLDER',
+    imageClearedByAdmin: true,
+    profileImages: [],
+  }],
+  dryRun: false,
+  replaceExisting: true,
+  ingestGallery: async () => ({
+    sourceKind: 'folder',
+    filesDiscovered: 1,
+    supportedImages: 1,
+    allSupportedValidated: true,
+    images: replacementNew.slice(0, 1),
+    rejected: [],
+    diagnostics: [],
+  }),
+  replaceGallery: async () => { throw new Error('transaction rolled back'); },
+  removeStorage: async (storagePath) => failedClearedRestorationCleanup.push(storagePath),
+});
+assert.equal(failedClearedRestoration.rows[0].status, 'replacement_failed_preserved');
+assert.equal(failedClearedRestoration.rows[0].primaryStoragePath, '');
+assert.deepEqual(failedClearedRestorationCleanup, [replacementNew[0].storagePath]);
+
 const metadataCleanup = [];
 let metadataAttempts = 0;
 let partialPrimary = false;
@@ -1059,16 +1150,39 @@ assert.equal(profileNeedsImageImport(eligibleBatchProfile), true, 'Drive source 
 assert.equal(profileNeedsImageImport({ ...eligibleBatchProfile, profileImages: [{ id: imageId }] }), false, 'any relational gallery must be preserved');
 assert.equal(profileNeedsImageImport({ id: 'no-source', profileImages: [] }), false, 'profiles without Drive sources must be ignored');
 assert.equal(profileNeedsImageImport({ ...eligibleBatchProfile, storageImagePath: 'fall-2026/hazel-tran/primary.jpg' }), false, 'legacy/Admin image state must not be appended to');
+const intentionallyClearedBatchProfile = {
+  ...eligibleBatchProfile,
+  id: 'moderated-profile',
+  imageClearedByAdmin: true,
+};
+assert.equal(
+  profileNeedsImageImport(intentionallyClearedBatchProfile),
+  false,
+  'automatic missing-image import must not repopulate an intentionally cleared profile',
+);
 assert.deepEqual(imageImportStatus(batchDataset, [
   eligibleBatchProfile,
   { ...eligibleBatchProfile, id: 'has-gallery', profileImages: [{ id: imageId }] },
   { id: 'no-source', profileImages: [] },
+  intentionallyClearedBatchProfile,
 ]), {
   dataset: { id: batchDataset.id, name: 'Fall 2026', slug: 'fall-2026' },
-  profilesScanned: 3,
+  profilesScanned: 4,
   profilesNeedingImport: 1,
+  profilesSkippedIntentionallyCleared: 1,
   profilesSkippedExistingGallery: 1,
 });
+
+let intentionallyClearedAutomaticIngestions = 0;
+const intentionallyClearedAutomaticImport = await migrateDatasetProfileGalleries({
+  dataset: batchDataset,
+  profiles: [intentionallyClearedBatchProfile],
+  dryRun: false,
+  ingestGallery: async () => { intentionallyClearedAutomaticIngestions += 1; },
+});
+assert.equal(intentionallyClearedAutomaticIngestions, 0);
+assert.equal(intentionallyClearedAutomaticImport.summary.intentionallyCleared, 1);
+assert.equal(intentionallyClearedAutomaticImport.rows[0].category, 'intentionally_cleared');
 assert.throws(
   () => assertImageImportDataset({ ...batchDataset, status: 'archived' }),
   /Archived datasets must be restored/,
@@ -1223,6 +1337,27 @@ assert.match(allowLastImageRemovalSql, /set storage_image_path = next_primary\.s
 assert.match(allowLastImageRemovalSql, /'remainingCount'/);
 assert.match(allowLastImageRemovalSql, /revoke all on function public\.delete_profile_image\(uuid, text, uuid\) from public, anon, authenticated/);
 assert.match(allowLastImageRemovalSql, /grant execute on function public\.delete_profile_image\(uuid, text, uuid\) to service_role/);
+const intentionalImageClearSql = await readFile(new URL('../supabase/migrations/202609160002_intentional_profile_image_clear.sql', import.meta.url), 'utf8');
+assert.match(intentionalImageClearSql, /add column if not exists image_cleared_by_admin boolean not null default false/);
+assert.match(intentionalImageClearSql, /if remaining_count = 0 then[\s\S]*image_cleared_by_admin = true/, 'only deletion of the final relational row should persist an intentional clear');
+assert.match(intentionalImageClearSql, /elsif target\.is_primary then[\s\S]*image_cleared_by_admin = false/, 'removing one image from a larger gallery must retain a valid primary without clearing the profile');
+assert.match(intentionalImageClearSql, /public_data = coalesce\(public_data, '\{\}'::jsonb\) - array\[[\s\S]*'storageImagePath'[\s\S]*'imageCandidates'[\s\S]*'focalX'[\s\S]*'displayMode'/, 'final deletion must remove stale compatibility image and presentation metadata');
+assert.match(intentionalImageClearSql, /if new\.image_cleared_by_admin then[\s\S]*new\.storage_image_path := null[\s\S]*- 'storageImagePath'/, 'normal source sync must not resurrect a compatibility image path');
+assert.match(intentionalImageClearSql, /after insert on public\.profile_images[\s\S]*clear_intentional_profile_image_state_on_insert/, 'a successful explicit relational insert must clear intentional state transactionally');
+assert.match(intentionalImageClearSql, /if intentionally_cleared then[\s\S]*'reason', 'intentionally_cleared'/, 'the atomic automatic batch RPC must refuse intentionally cleared profiles');
+assert.match(intentionalImageClearSql, /cardinality\(existing_image_ids\) = 0 and not was_intentionally_cleared/, 'explicit targeted replacement must accept an empty intentionally cleared gallery only');
+assert.match(intentionalImageClearSql, /strip_public_profile_image_data[\s\S]*'storageImagePath'[\s\S]*'profileImages'[\s\S]*'image'[\s\S]*'imageCandidates'/, 'public payloads must remove every compatibility fallback when intentionally cleared');
+assert.match(intentionalImageClearSql, /if intentionally_cleared then[\s\S]*gallery := '\[\]'::jsonb/, 'ProfileDetail must receive an empty gallery for intentional clears');
+assert.match(intentionalImageClearSql, /dp\.image_cleared_by_admin,[\s\S]*false/, 'Discovery must resolve through the intentional-clear guard');
+assert.match(intentionalImageClearSql, /dp\.image_cleared_by_admin,[\s\S]*true/, 'ProfileDetail must resolve through the intentional-clear guard');
+assert.match(intentionalImageClearSql, /resolve_effective_public_data\(imported_public_data, public_overrides\)[\s\S]*- array\['imageClearedByAdmin', 'image_cleared_by_admin'\]/, 'internal clear metadata must be stripped even if source or override data contains a similarly named key');
+assert.doesNotMatch(intentionalImageClearSql, /jsonb_build_object\([^;]*imageClearedByAdmin/s, 'internal moderation state must not be returned in public payloads');
+const datasetSyncSql = await readFile(new URL('../supabase/migrations/202609040001_google_sheet_sync.sql', import.meta.url), 'utf8');
+const syncConflictUpdate = datasetSyncSql.slice(
+  datasetSyncSql.indexOf('on conflict (dataset_id, profile_id) do update set'),
+  datasetSyncSql.indexOf('select count(*) into stored_count'),
+);
+assert.doesNotMatch(syncConflictUpdate, /image_cleared_by_admin/, 'Sheet/Excel sync must preserve the independent intentional-clear state');
 const replacementMigrationSql = await readFile(new URL('../supabase/migrations/202609020001_targeted_profile_gallery_replacement.sql', import.meta.url), 'utf8');
 assert.match(replacementMigrationSql, /create or replace function public\.replace_profile_image_gallery/);
 assert.match(replacementMigrationSql, /for update/);
@@ -1280,6 +1415,8 @@ assert.match(adminDatasetSource, /from\('profile_images'\)/, 'READY/Admin detail
 assert.match(adminDatasetSource, /focalX: image\.focal_x[\s\S]*focalY: image\.focal_y/);
 assert.match(adminDatasetSource, /displayMode: image\.display_mode/);
 assert.match(adminDatasetSource, /resolveProfileImage\(\{ \.\.\.effectivePublicData, profileImages \}\)/, 'READY/Admin detail preview must apply overrides before shared image resolution');
+assert.match(adminDatasetSource, /image_cleared_by_admin/);
+assert.match(adminDatasetSource, /imageClearedByAdmin/);
 assert.doesNotMatch(adminDatasetSource, /Object\.assign\(resolvedProfile, effectivePublicData\)/, 'effective-profile overrides must not overwrite resolved image metadata');
 assert.match(adminDatasetSource, /updateAdminProfileImageFocal[\s\S]*\.eq\('dataset_id', datasetId\)[\s\S]*\.eq\('profile_id', profileId\)/);
 assert.match(adminDatasetSource, /if \(imageError\)[\s\S]*\.select\('id,storage_path,position,is_primary,focal_x,focal_y'\)/, 'Admin preview should remain compatible before display_mode is applied');
@@ -1384,6 +1521,8 @@ assert.equal((imageManagerSource.match(/<FocalPointEditor/g) || []).length, 1, '
 assert.match(imageManagerSource, /images\.length === 1/);
 assert.match(imageManagerSource, /Remove the only profile image\?/);
 assert.match(imageManagerSource, /action: 'delete'/, 'the sole-image confirmation must use the existing authorized delete action');
+assert.match(imageManagerSource, /Image intentionally removed by Admin/);
+assert.match(profileDetailSource, /imageClearedByAdmin=\{profile\.imageClearedByAdmin === true\}/);
 assert.match(focalEditorSource, /focal-editor-canvas/);
 assert.match(focalEditorSource, /focal-editor-editing-image/);
 assert.doesNotMatch(profileGalleryStyles, /\.focal-editor-editing-image[^}]*object-fit:\s*contain\s*!important/, 'cover-mode focal previews must not be forced into contain mode');

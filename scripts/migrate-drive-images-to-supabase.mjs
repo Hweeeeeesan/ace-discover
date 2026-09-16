@@ -148,6 +148,7 @@ function profileFromRow(row, profileImages = []) {
     driveFolderId: row.drive_folder_id || '',
     imageKind: row.image_kind || row.public_data?.imageKind || '',
     storageImagePath: row.storage_image_path || row.public_data?.storageImagePath || '',
+    imageClearedByAdmin: row.image_cleared_by_admin === true,
     profileImages,
   };
 }
@@ -162,7 +163,7 @@ async function loadDataset(supabase, datasetSlug) {
 
   const { data: rows, error: profilesError } = await supabase
     .from('dataset_profiles')
-    .select('profile_id,public_data,drive_file_id,drive_folder_id,image_kind,storage_image_path,ordinal')
+    .select('profile_id,public_data,drive_file_id,drive_folder_id,image_kind,storage_image_path,image_cleared_by_admin,ordinal')
     .eq('dataset_id', dataset.id)
     .order('ordinal', { ascending: true })
     .limit(1000);

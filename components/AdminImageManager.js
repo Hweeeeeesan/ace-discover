@@ -16,7 +16,7 @@ async function postAction(body) {
   return payload;
 }
 
-export default function AdminImageManager({ datasetId, datasetSlug, profileId, images = [] }) {
+export default function AdminImageManager({ datasetId, datasetSlug, profileId, images = [], imageClearedByAdmin = false }) {
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
   const [makePrimary, setMakePrimary] = useState(false);
@@ -152,9 +152,11 @@ export default function AdminImageManager({ datasetId, datasetSlug, profileId, i
       </section>
       {error && <p className="admin-image-manager-error" role="alert">{error}</p>}
       {!images.length && (
-        <div className="admin-image-manager-empty">
-          <strong>No editable Storage image yet.</strong>
-          <span>{sourceHealth?.focalMessage || 'Checking the current source before focal-point editing can be enabled.'}</span>
+        <div className={`admin-image-manager-empty${imageClearedByAdmin ? ' is-intentionally-cleared' : ''}`}>
+          <strong>{imageClearedByAdmin ? 'No profile image' : 'No editable Storage image yet.'}</strong>
+          <span>{imageClearedByAdmin
+            ? 'Image intentionally removed by Admin. Upload a new image to restore the public gallery.'
+            : sourceHealth?.focalMessage || 'Checking the current source before focal-point editing can be enabled.'}</span>
         </div>
       )}
       <div className="admin-image-manager-grid" id="admin-image-manager-grid">

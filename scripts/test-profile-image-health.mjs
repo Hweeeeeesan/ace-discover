@@ -97,6 +97,19 @@ const noSource = classifyProfileImageHealth({
 assert.equal(noSource.state, IMAGE_SOURCE_HEALTH_STATES.NO_SOURCE);
 assert.match(noSource.focalMessage, /No editable Storage image yet/);
 
+const cleared = classifyProfileImageHealth({
+  ...driveProfile,
+  imageClearedByAdmin: true,
+  storageImagePath: 'fall-2026/source-health-test/primary.jpg',
+  image: '/legacy/source-health-test.jpg',
+});
+assert.equal(cleared.state, IMAGE_SOURCE_HEALTH_STATES.INTENTIONALLY_CLEARED);
+assert.equal(cleared.displayedFrom.label, 'Placeholder · intentionally cleared');
+assert.equal(cleared.canPreviewImport, false);
+assert.equal(cleared.canImport, false);
+assert.match(cleared.summary, /intentionally removed by Admin/);
+assert.match(cleared.detail, /explicitly replace\/import/);
+
 let ingestCalls = 0;
 let receivedOptions = null;
 const mutableProfile = structuredClone(driveProfile);
@@ -126,6 +139,15 @@ await inspectProfileImageHealth({
 });
 assert.equal(readyIngestCalls, 0, 'an authoritative relational gallery must not re-check or encourage Drive replacement');
 
+let clearedIngestCalls = 0;
+await inspectProfileImageHealth({
+  profile: { ...driveProfile, imageClearedByAdmin: true },
+  datasetSlug: 'fall-2025',
+  driveAuth: {},
+  ingest: async () => { clearedIngestCalls += 1; },
+});
+assert.equal(clearedIngestCalls, 0, 'health checks must not inspect or encourage automatic restoration of an intentional clear');
+
 const publicProfile = { ...driveProfile, image: '/fallback.jpg', focalX: 20, focalY: 70 };
 const publicBefore = resolveProfileImageSources(publicProfile);
 await inspectProfileImageHealth({
@@ -136,10 +158,10 @@ await inspectProfileImageHealth({
 });
 assert.deepEqual(resolveProfileImageSources(publicProfile), publicBefore, 'health inspection must not alter public image resolution');
 
-const profileStates = [ready, needsImport, mandy, tinyThumbnail, inaccessible, normalizable, noSource]
+const profileStates = [ready, needsImport, mandy, tinyThumbnail, inaccessible, normalizable, noSource, cleared]
   .map((health, index) => safeProfileImageHealth({ id: `profile-${index}`, name: `Profile ${index}` }, health));
 const summary = summarizeProfileImageHealth(profileStates);
-assert.equal(summary.total, 7);
+assert.equal(summary.total, 8);
 assert.equal(summary.counts.ready, 1);
 assert.equal(summary.counts.needs_import, 1);
 assert.equal(summary.counts.unsupported_source, 1);
@@ -147,7 +169,8 @@ assert.equal(summary.counts.degraded_source, 1);
 assert.equal(summary.counts.inaccessible, 1);
 assert.equal(summary.counts.normalization_required, 1);
 assert.equal(summary.counts.no_source, 1);
-assert.equal(summary.issueCount, 6);
+assert.equal(summary.counts.intentionally_cleared, 1);
+assert.equal(summary.issueCount, 7);
 
 const imageManagerSource = await readFile(new URL('../components/AdminImageManager.js', import.meta.url), 'utf8');
 assert.match(imageManagerSource, /No editable Storage image yet/);
@@ -155,6 +178,7 @@ assert.match(imageManagerSource, /sourceHealth\?\.focalMessage/);
 assert.match(imageManagerSource, /Re-check source/);
 assert.match(imageManagerSource, /Preview image import/);
 assert.match(imageManagerSource, /Manage existing gallery/);
+assert.match(imageManagerSource, /Image intentionally removed by Admin/);
 
 const datasetManagerSource = await readFile(new URL('../components/DatasetManager.js', import.meta.url), 'utf8');
 assert.match(datasetManagerSource, /Image source health/);
