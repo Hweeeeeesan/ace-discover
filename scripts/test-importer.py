@@ -314,6 +314,12 @@ class PublicProfileTests(unittest.TestCase):
             '(Please upload a link to your slide below! Canva or Google Slides)',
         )
         set_cell(header, 'DA', "What's your ideal hangout?")
+        set_cell(
+            header,
+            'DB',
+            '[OPTIONAL] Upload your Subtle ACE Trait slide! '
+            '(Please upload a link to your slide below! Canva or Google Slides)',
+        )
 
         def imported_profile(label, row):
             with tempfile.TemporaryDirectory() as directory:
@@ -330,12 +336,18 @@ class PublicProfileTests(unittest.TestCase):
         little_row = list(values[1])
         set_cell(little_row, 'R', 'FAM/ACE LITTLE Program')
         set_cell(little_row, 'AA', 'Common cafe and crafts hangout.')
-        set_cell(little_row, 'CZ', 'https://docs.google.com/presentation/d/1LittleSubtleTraitSlide/edit')
+        set_cell(little_row, 'CZ', 'https://www.canva.com/design/PRIVATE-BIG-SLIDE/view')
         set_cell(little_row, 'DA', 'PRIVATE BIG IDEAL HANGOUT')
+        set_cell(little_row, 'DB', 'https://docs.google.com/presentation/d/1LittleSubtleTraitSlide/edit')
         little = imported_profile('little-ideal', little_row)
         self.assertEqual(little['role'], 'Little')
         self.assertEqual(little['idealHangout'], 'Common cafe and crafts hangout.')
+        self.assertEqual(
+            little['aceTraitSlideUrl'],
+            'https://docs.google.com/presentation/d/1LittleSubtleTraitSlide/edit',
+        )
         self.assertNotIn('PRIVATE BIG IDEAL HANGOUT', repr(IMPORTER.public_profiles([little])))
+        self.assertNotIn('PRIVATE-BIG-SLIDE', repr(IMPORTER.public_profiles([little])))
 
         khoa_row = list(values[1])
         set_cell(khoa_row, 'E', 'Khoa')
@@ -343,6 +355,7 @@ class PublicProfileTests(unittest.TestCase):
         set_cell(khoa_row, 'R', 'ACE BIG ONLY PROGRAM')
         set_cell(khoa_row, 'AA', 'COMMON VALUE MUST NOT BE USED')
         set_cell(khoa_row, 'CZ', 'https://docs.google.com/presentation/d/1KhoaSubtleTraitSlide/edit')
+        set_cell(khoa_row, 'DB', 'https://drive.google.com/file/d/PRIVATE-LITTLE-SLIDE/view')
         set_cell(
             khoa_row,
             'DA',
@@ -354,8 +367,12 @@ class PublicProfileTests(unittest.TestCase):
             khoa['idealHangout'],
             'A morning gym session, food, an escape room, boba, dinner, and a concert.',
         )
+        self.assertEqual(
+            khoa['aceTraitSlideUrl'],
+            'https://docs.google.com/presentation/d/1KhoaSubtleTraitSlide/edit',
+        )
         self.assertNotIn('COMMON VALUE MUST NOT BE USED', repr(IMPORTER.public_profiles([khoa])))
-        self.assertNotIn('KhoaSubtleTraitSlide', repr(IMPORTER.public_profiles([khoa])))
+        self.assertNotIn('PRIVATE-LITTLE-SLIDE', repr(IMPORTER.public_profiles([khoa])))
 
         older_big_row = list(khoa_row)
         set_cell(older_big_row, 'E', 'Older')
@@ -364,6 +381,10 @@ class PublicProfileTests(unittest.TestCase):
         older_big = imported_profile('older-big-ideal', older_big_row)
         self.assertEqual(older_big['role'], 'Big')
         self.assertEqual(older_big['idealHangout'], '')
+        self.assertEqual(
+            older_big['aceTraitSlideUrl'],
+            'https://docs.google.com/presentation/d/1KhoaSubtleTraitSlide/edit',
+        )
 
         family_row = list(little_row)
         set_cell(family_row, 'E', 'Fall')
@@ -373,6 +394,7 @@ class PublicProfileTests(unittest.TestCase):
         family = imported_profile('family-ideal', family_row)
         self.assertEqual(family['role'], 'Family')
         self.assertEqual(family['idealHangout'], 'Common cafe and crafts hangout.')
+        self.assertEqual(family['aceTraitSlideUrl'], '')
 
         with tempfile.TemporaryDirectory() as directory:
             adapted = pathlib.Path(directory) / 'role-columns.xlsx'
@@ -388,6 +410,89 @@ class PublicProfileTests(unittest.TestCase):
             config['passionByRole'],
             {'Little': 'AH', 'Family': 'AH', 'Big': 'CC'},
         )
+        self.assertEqual(
+            config['aceTraitSlideByRole'],
+            {'Little': 'DB', 'Family': None, 'Big': 'CZ'},
+        )
+
+        for index, case in enumerate((
+            ('Big', 'ACE BIG ONLY PROGRAM', 'https://canva.com/big', 'https://canva.com/little', 'https://canva.com/big'),
+            ('Little', 'FAM/ACE LITTLE Program', 'https://canva.com/big', 'https://canva.com/little', 'https://canva.com/little'),
+            ('Big', 'ACE BIG ONLY PROGRAM', '', 'https://canva.com/little', ''),
+            ('Little', 'FAM/ACE LITTLE Program', 'https://canva.com/big', '', ''),
+        )):
+            expected_role, program, big_url, little_url, expected_url = case
+            role_row = list(values[1])
+            set_cell(role_row, 'E', f'Role{index}')
+            set_cell(role_row, 'F', 'Slide')
+            set_cell(role_row, 'R', program)
+            set_cell(role_row, 'CZ', big_url)
+            set_cell(role_row, 'DB', little_url)
+            imported = imported_profile(f'role-slide-{index}', role_row)
+            self.assertEqual(imported['role'], expected_role)
+            self.assertEqual(imported['aceTraitSlideUrl'], expected_url)
+
+        for role, program, column in (
+            ('Big', 'ACE BIG ONLY PROGRAM', 'CZ'),
+            ('Little', 'FAM/ACE LITTLE Program', 'DB'),
+        ):
+            for index, url in enumerate((
+                'https://www.canva.com/design/example/view',
+                'https://docs.google.com/presentation/d/example/edit',
+                'https://drive.google.com/file/d/example/view',
+            )):
+                url_row = list(values[1])
+                set_cell(url_row, 'E', f'{role}{index}')
+                set_cell(url_row, 'F', 'Url')
+                set_cell(url_row, 'R', program)
+                set_cell(url_row, column, f'  {url}  ')
+                imported = imported_profile(f'{role.lower()}-url-{index}', url_row)
+                self.assertEqual(imported['role'], role)
+                self.assertEqual(imported['aceTraitSlideUrl'], url)
+
+        for index, unsafe_url in enumerate((
+            'javascript:alert(1)',
+            'data:text/html,bad',
+            'file:///private/slide',
+            'https://user:pass@example.com/slide',
+        )):
+            unsafe_row = list(khoa_row)
+            set_cell(unsafe_row, 'E', f'Unsafe{index}')
+            set_cell(unsafe_row, 'CZ', unsafe_url)
+            self.assertEqual(
+                imported_profile(f'unsafe-slide-{index}', unsafe_row)['aceTraitSlideUrl'],
+                '',
+            )
+
+        legacy_header = list(header)
+        set_cell(legacy_header, 'CZ', '')
+        set_cell(legacy_header, 'DB', '')
+        for index, source_row in enumerate((little_row, khoa_row)):
+            with tempfile.TemporaryDirectory() as directory:
+                adapted = pathlib.Path(directory) / f'legacy-no-slide-{index}.xlsx'
+                SHEET_ANALYZER.write_tabular_xlsx(
+                    adapted,
+                    'Form Responses 1',
+                    [legacy_header, source_row],
+                )
+                legacy_profiles, _ = IMPORTER.build_profiles(adapted)
+            self.assertEqual(legacy_profiles[0]['aceTraitSlideUrl'], '')
+
+        ambiguous_header = list(header)
+        set_cell(
+            ambiguous_header,
+            'DC',
+            '[OPTIONAL] Upload your Subtle ACE Trait slide! (Canva or Google Slides)',
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            adapted = pathlib.Path(directory) / 'ambiguous-slide.xlsx'
+            SHEET_ANALYZER.write_tabular_xlsx(
+                adapted,
+                'Form Responses 1',
+                [ambiguous_header, khoa_row],
+            )
+            with self.assertRaisesRegex(ValueError, 'ACE Trait slide headers could not be resolved safely'):
+                IMPORTER.build_profiles(adapted)
 
     def test_legacy_sheet_roles_remain_authoritative(self):
         self.assertEqual(IMPORTER.derive_profile_role('', 'Little'), 'Little')
@@ -410,6 +515,7 @@ class PublicProfileTests(unittest.TestCase):
         self.assertIn('Psychology', profile['passion'])
         self.assertIn('Exploring new places:', profile['hobbyDetails'])
         self.assertEqual(profile['hotTake'], 'Putting too many toppings on pizza ruins it.')
+        self.assertEqual(profile['aceTraitSlideUrl'], '')
         self.assertEqual(profile['imageKind'], 'drive-folder')
         self.assertEqual(profile['driveFileId'], '')
         self.assertTrue(IMPORTER.valid_drive_id(profile['driveFolderId']))
@@ -425,6 +531,10 @@ class PublicProfileTests(unittest.TestCase):
         self.assertEqual(
             configs['BIGS']['passionByRole'],
             {'Little': 'AH', 'Family': 'AH', 'Big': 'CC'},
+        )
+        self.assertEqual(
+            configs['BIGS']['aceTraitSlideByRole'],
+            {'Little': None, 'Family': None, 'Big': None},
         )
         self.assertEqual(configs['BIGS']['image'], ('AQ', 'CX'))
         self.assertIn('upload a picture', headers['AQ'])

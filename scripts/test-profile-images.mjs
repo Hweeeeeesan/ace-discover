@@ -557,6 +557,15 @@ assert.deepEqual(classifyProfileImageSource({ imageKind: 'direct-image-url', ima
 });
 assert.deepEqual(classifyProfileImageSource({ imageKind: 'google-document' }).category, 'google_document');
 assert.deepEqual(classifyProfileImageSource({ imageKind: 'drive-folder' }).category, 'drive_folder');
+assert.deepEqual(
+  classifyProfileImageSource({ aceTraitSlideUrl: 'https://drive.google.com/file/d/slide-document/view' }),
+  {
+    eligible: false,
+    category: 'missing_source',
+    detail: 'No approved Drive image source is stored for this profile.',
+  },
+  'a Drive-hosted ACE Trait slide must never become a profile-image source',
+);
 
 const dryProfiles = [
   { id: 'drive', name: 'Drive', driveFileId: '1234567890ABCDE', imageKind: 'drive-file' },

@@ -67,6 +67,7 @@ const wholeProfileFixture = {
   movies: 'Studio Ghibli films and quiet documentaries.',
   hotTake: 'Breakfast food is best served at dinner.',
   tagline: 'Curious, kind, and always carrying a camera.',
+  aceTraitSlideUrl: 'https://docs.google.com/presentation/d/private-slide-marker/edit',
   email: 'private-search-marker@example.com',
   phone: '408-555-0199',
   birthday: 'private-birthday-marker',
@@ -92,6 +93,10 @@ for (const privateField of [
   assert.equal(publicDocument.some(({ field }) => field === privateField), false, `${privateField} must not be searchable`);
   assert.equal(scoreProfile(wholeProfileFixture, wholeProfileFixture[privateField]), -1, `${privateField} content must not match`);
 }
+assert.equal(PUBLIC_SEARCH_FIELDS.some(({ field }) => field === 'aceTraitSlideUrl'), false, 'ACE Trait slide URLs must stay out of whole-profile search');
+assert.equal(publicDocument.some(({ field }) => field === 'aceTraitSlideUrl'), false);
+assert.equal(scoreProfile(wholeProfileFixture, 'docs.google.com'), -1, 'a slide host must not make a profile searchable');
+assert.equal(scoreProfile(wholeProfileFixture, 'private slide marker'), -1, 'a slide URL path must not make a profile searchable');
 
 const wholeProfileSearchCases = [
   ['name', 'Hazel Tran'],

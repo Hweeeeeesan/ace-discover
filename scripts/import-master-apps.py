@@ -373,7 +373,54 @@ def _fall_2026_ideal_hangout_columns(headers):
         field_name='ideal hangout',
         header_tokens=('what', 'ideal hangout'),
         allow_legacy_missing_big=True,
-        big_anchor_tokens=('subtle ace trait', 'slide'),
+    )
+
+
+def _fall_2026_ace_trait_slide_columns(headers, ideal_hangout_by_role):
+    slide_columns = _matching_header_columns(headers, ('subtle ace trait', 'slide'))
+    if not slide_columns:
+        return {'Little': None, 'Family': None, 'Big': None}
+    if len(slide_columns) > 2:
+        raise ValueError(
+            'BIGS schema mismatch: Fall 2026 Little and Big ACE Trait slide '
+            'headers could not be resolved safely.'
+        )
+
+    hobby_starts = _matching_header_columns(
+        headers,
+        ('list your', 'favorite hobbies/activities'),
+    )
+    big_ideal_hangout = (ideal_hangout_by_role or {}).get('Big')
+    if len(hobby_starts) == 2 and big_ideal_hangout:
+        big_candidates = [
+            column for column in slide_columns
+            if _column_index(hobby_starts[1]) < _column_index(column) < _column_index(big_ideal_hangout)
+        ]
+        little_candidates = [
+            column for column in slide_columns
+            if _column_index(column) > _column_index(big_ideal_hangout)
+        ]
+        if (
+            len(big_candidates) <= 1
+            and len(little_candidates) <= 1
+            and len(big_candidates) + len(little_candidates) == len(slide_columns)
+        ):
+            return {
+                'Little': little_candidates[0] if little_candidates else None,
+                'Family': None,
+                'Big': big_candidates[0] if big_candidates else None,
+            }
+
+    known_columns = set(slide_columns)
+    if all(column in {'CZ', 'DB'} for column in known_columns):
+        return {
+            'Little': 'DB' if 'DB' in known_columns else None,
+            'Family': None,
+            'Big': 'CZ' if 'CZ' in known_columns else None,
+        }
+    raise ValueError(
+        'BIGS schema mismatch: Fall 2026 Little and Big ACE Trait slide '
+        'headers could not be resolved safely.'
     )
 
 
@@ -394,6 +441,10 @@ def select_sheet_configs(archive, shared, worksheet_paths):
         elif sheet_name == 'BIGS' and 'personality' in headers.get('CD', ''):
             passion_by_role = _fall_2026_passion_columns(headers)
             ideal_hangout_by_role = _fall_2026_ideal_hangout_columns(headers)
+            ace_trait_slide_by_role = _fall_2026_ace_trait_slide_columns(
+                headers,
+                ideal_hangout_by_role,
+            )
             config.update({
                 'year': 'N', 'school': 'P', 'major': 'Q', 'program': 'R',
                 'family': ('AS', 'BN'), 'hobbies': ('S', 'BY'), 'hobbyDetails': ('T', 'BZ'),
@@ -402,6 +453,7 @@ def select_sheet_configs(archive, shared, worksheet_paths):
                 'tagline': ('X', 'CD'), 'perfectDay': ('Y', 'CE'), 'uniqueThings': ('W', 'CF'),
                 'bucketList': ('AB', 'CG'), 'hotTake': ('Z', 'CH'),
                 'idealHangoutByRole': ideal_hangout_by_role,
+                'aceTraitSlideByRole': ace_trait_slide_by_role,
                 'instagram': 'K', 'image': ('AQ', 'CX'), 'deck': None,
                 'socialLevel': ('AL', 'CS'), 'socialStyle': ('AN', 'CU'), 'story': ('BL', 'CV'),
                 'f26': True,
@@ -871,6 +923,30 @@ def parse_image_source(raw_value):
 def normalize_deck(url):
     url = clean_text(url)
     return url if url.startswith(('http://', 'https://')) else ''
+
+
+def normalize_public_http_url(value):
+    candidate = str(value or '').strip()
+    if not candidate or len(candidate) > 2048:
+        return ''
+    if any(ord(character) <= 32 or ord(character) == 127 for character in candidate):
+        return ''
+    if re.search(
+        r'(?i)(?:^|[?&#;])(?:access_token|refresh_token|id_token|client_secret|'
+        r'api_key|apikey|service_role_key|private_key)=',
+        candidate,
+    ):
+        return ''
+    try:
+        parsed = urlparse(candidate)
+        hostname = parsed.hostname
+    except ValueError:
+        return ''
+    if parsed.scheme.lower() not in {'http', 'https'} or not hostname:
+        return ''
+    if parsed.username or parsed.password:
+        return ''
+    return candidate
 
 
 def image_candidates(image):
@@ -1380,6 +1456,7 @@ def build_profiles(xlsx_path, allow_partial=False):
                 bucket_list = ''
                 hot_take = ''
                 ideal_hangout = ''
+                ace_trait_slide_url = ''
                 if sheet_name == 'BIGS' and is_legacy_big_compact_row(row):
                     # This response came from an older version of the form. Its
                     # name starts in B/C, while the current E/F cells contain
@@ -1458,6 +1535,10 @@ def build_profiles(xlsx_path, allow_partial=False):
                     passion = first(row, config['passionByRole'].get(role))
                 if config.get('idealHangoutByRole'):
                     ideal_hangout = first(row, config['idealHangoutByRole'].get(role))
+                if config.get('aceTraitSlideByRole'):
+                    ace_trait_slide_url = normalize_public_http_url(
+                        first(row, config['aceTraitSlideByRole'].get(role))
+                    )
 
                 base = slugify(name)
                 seen[base] = seen.get(base, 0) + 1
@@ -1501,6 +1582,7 @@ def build_profiles(xlsx_path, allow_partial=False):
                     'uniqueThings': redact_multiline(unique_things),
                     'passion': redact_multiline(passion),
                     'idealHangout': redact_multiline(ideal_hangout),
+                    'aceTraitSlideUrl': ace_trait_slide_url,
                     'bucketList': redact_multiline(bucket_list),
                     'hotTake': redact_multiline(hot_take),
                     'instagram': instagram,

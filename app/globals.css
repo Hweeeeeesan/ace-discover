@@ -694,6 +694,9 @@ select:focus-visible {
 .story-bucket .story-text { max-width: 44ch; }
 .hot-take { padding-bottom: 16px; border-bottom: 1px solid #ebe8e1; }
 .deck-button { width: 100%; min-height: 74px; margin-top: 30px; padding: 12px 15px; border-radius: 20px; display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 12px; color: white; background: #111; }
+.ace-trait-slide-section { margin-top: 30px; padding-top: 18px; border-top: 1px solid #ebe8e1; }
+.ace-trait-slide-section > h2 { margin: 0; color: #171717; font-size: 11px; font-weight: 750; letter-spacing: .13em; line-height: 1.3; }
+.ace-trait-slide-button { margin-top: 10px; }
 .deck-icon { width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; background: #242424; }
 .deck-button span:nth-child(2) { display: flex; flex-direction: column; gap: 3px; }
 .deck-button strong { font-size: 15px; }

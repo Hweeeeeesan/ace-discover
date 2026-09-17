@@ -237,6 +237,12 @@ assert.deepEqual(workbookPreview, sheetPreview, 'Sheet and Excel canonical publi
 
 const formatting = issues({ passion: '<script>alert(1)</script>' });
 assert.equal(formatting.some((item) => item.category === PROFILE_QA_CATEGORIES.FORMATTING), true);
+assert.deepEqual(issues({ aceTraitSlideUrl: '' }), [], 'the optional ACE Trait slide must not create missing-field QA');
+assert.deepEqual(
+  issues({ aceTraitSlideUrl: 'https://www.canva.com/design/optional-slide/view' }),
+  [],
+  'a valid optional slide URL is not a substantive-response QA field',
+);
 
 const routeSource = await readFile(new URL('../app/api/admin/datasets/profile-qa/route.js', import.meta.url), 'utf8');
 const serverSource = await readFile(new URL('../lib/profile-qa-server.js', import.meta.url), 'utf8');

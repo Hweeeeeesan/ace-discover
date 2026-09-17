@@ -7,6 +7,7 @@ import ProfileGallery from './ProfileGallery';
 import SeenProfileMarker from './SeenProfileMarker';
 import SavedProfileButton from './SavedProfileButton';
 import { normalizeProfileIntro, normalizeProfileStory } from '../lib/profile-story';
+import { normalizePublicHttpUrl } from '../lib/public-url';
 
 function InfoSection({ title, children }) {
   if (!children) return null;
@@ -49,6 +50,7 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
   const interests = Array.isArray(profile.interests)
     ? profile.interests.filter((interest) => !['Big', 'Little', 'Family'].includes(interest))
     : [];
+  const aceTraitSlideUrl = normalizePublicHttpUrl(profile.aceTraitSlideUrl);
   const adminBackHref = adminPreview?.backHref || '';
   return (
     <main className="detail-shell">
@@ -121,6 +123,16 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
               <InfoSection title="Movies & shows">{profile.movies}</InfoSection>
               <InfoSection title="Perfect day">{profile.perfectDay}</InfoSection>
             </>}
+          {aceTraitSlideUrl && (
+            <section className="ace-trait-slide-section">
+              <h2>PERSONAL ACE TRAIT SLIDE</h2>
+              <a className="deck-button ace-trait-slide-button" href={aceTraitSlideUrl} target="_blank" rel="noopener noreferrer">
+                <span className="deck-icon"><Presentation size={21} /></span>
+                <span><strong>View ACE Trait Slide</strong><small>Opens the submitted slide in a new tab</small></span>
+                <ExternalLink size={18} />
+              </a>
+            </section>
+          )}
           {profile.slideDeckUrl && (
             <a className="deck-button" href={profile.slideDeckUrl} target="_blank" rel="noreferrer">
               <span className="deck-icon"><Presentation size={21} /></span>

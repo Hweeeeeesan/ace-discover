@@ -25,6 +25,7 @@ import {
   VIBE_FIELD_WEIGHTS,
   VIBE_ORDER,
 } from '../lib/import/profile-normalization.js';
+import { normalizePublicHttpUrl } from '../lib/public-url.js';
 
 function columnIndex(column) {
   let index = 0;
@@ -53,6 +54,7 @@ function fall2026SheetFixture() {
   setCell(header, 'CD', 'Describe your personality in a tagline');
   setCell(header, 'CZ', '[OPTIONAL] Upload your Subtle ACE Trait slide! (Please upload a link to your slide below! Canva or Google Slides)');
   setCell(header, 'DA', "What's your ideal hangout?");
+  setCell(header, 'DB', '[OPTIONAL] Upload your Subtle ACE Trait slide! (Please upload a link to your slide below! Canva or Google Slides)');
 
   const hazel = [];
   const hazelPublic = {
@@ -80,8 +82,9 @@ function fall2026SheetFixture() {
     AQ: 'https://drive.google.com/file/d/1HazelTranProfileImage2026/view',
     BL: 'I am a creative person who loves making thoughtful gifts.',
     CC: 'PRIVATE BIG BLOCK PASSION',
-    CZ: 'https://docs.google.com/presentation/d/1PrivateLittleSubtleTraitSlide/edit',
+    CZ: 'https://www.canva.com/design/PRIVATE-BIG-SLIDE/view',
     DA: 'PRIVATE BIG IDEAL HANGOUT',
+    DB: 'https://docs.google.com/presentation/d/1HazelLittleTraitSlide/edit',
   };
   for (const [column, value] of Object.entries(hazelPublic)) setCell(hazel, column, value);
   for (const [column, value] of Object.entries({
@@ -115,7 +118,9 @@ function fall2026SheetFixture() {
     CU: 'Extrovert',
     CV: 'I enjoy bringing people together and helping friends feel included.',
     CX: 'https://drive.google.com/drive/folders/1LoganHoProfileFolder2026',
+    CZ: 'https://www.canva.com/design/1LoganBigTraitSlide/view',
     DA: 'An escape room, boba, a local market, dinner, and a concert.',
+    DB: 'https://drive.google.com/file/d/PRIVATE-LITTLE-SLIDE/view',
   })) setCell(big, column, value);
 
   return { title: 'Form Responses 1', values: [header, hazel, big], hazelPublic };
@@ -325,6 +330,7 @@ assert.equal(hazelProfile.public.hobbies, sheetFixture.hazelPublic.S);
 assert.equal(hazelProfile.public.hobbyDetails, sheetFixture.hazelPublic.T);
 assert.equal(hazelProfile.public.bio, sheetFixture.hazelPublic.BL);
 assert.equal(hazelProfile.public.idealHangout, sheetFixture.hazelPublic.AA);
+assert.equal(hazelProfile.public.aceTraitSlideUrl, sheetFixture.hazelPublic.DB);
 assert.equal(
   hazelProfile.public.passion,
   'I could talk about crafts and concert memories for hours. Contact [email removed] or [phone removed].',
@@ -342,6 +348,7 @@ assert.deepEqual(bigProfile.public.interests, ['Hiking', 'Gaming']);
 assert.equal(bigProfile.public.passion, 'Psychology and helping people grow.');
 assert.equal(bigProfile.public.tagline, 'Be the change you want to see.');
 assert.equal(bigProfile.public.idealHangout, 'An escape room, boba, a local market, dinner, and a concert.');
+assert.equal(bigProfile.public.aceTraitSlideUrl, 'https://www.canva.com/design/1LoganBigTraitSlide/view');
 assert.equal(bigProfile.public.socialLevel, 4);
 assert.equal(bigProfile.public.socialStyle, 'Extrovert');
 assert.equal(bigProfile.imageKind, 'drive-folder');
@@ -357,6 +364,8 @@ for (const privateValue of [
   'PRIVATE NEARBY LIFE GOALS',
   'PRIVATE BIG BLOCK PASSION',
   'PRIVATE BIG IDEAL HANGOUT',
+  'PRIVATE-BIG-SLIDE',
+  'PRIVATE-LITTLE-SLIDE',
 ]) assert.doesNotMatch(publicSheetText, new RegExp(privateValue), 'private conditional answers must not enter public profiles');
 for (const privateKey of ['imageSourceUrl', 'driveFileId', 'driveFolderId', 'imageIssue', 'imageKind', 'sourceGroup', 'sourceRow', 'vibeScores', 'vibeEvidence', 'evidence']) {
   assert.equal(privateKey in hazelProfile.public, false, `${privateKey} must remain outside public profile data`);
@@ -383,7 +392,8 @@ const oldBigIdeal = analyzeSheetValues(
 ).profiles[0].public;
 assert.equal(oldBigIdeal.role, 'Big');
 assert.equal(oldBigIdeal.idealHangout, '', 'an older Big response must not fall back to the Common/Little column');
-assert.doesNotMatch(JSON.stringify(oldBigIdeal), /COMMON IDEAL HANGOUT|NearbySubtleTraitSlide/);
+assert.equal(oldBigIdeal.aceTraitSlideUrl, 'https://docs.google.com/presentation/d/1NearbySubtleTraitSlide/edit');
+assert.doesNotMatch(JSON.stringify(oldBigIdeal), /COMMON IDEAL HANGOUT/);
 
 const familyIdealFixture = fall2026SheetFixture();
 setCell(familyIdealFixture.values[1], 'E', 'Fall');
@@ -396,6 +406,7 @@ const familyIdeal = analyzeSheetValues(
 ).profiles[0].public;
 assert.equal(familyIdeal.role, 'Family');
 assert.equal(familyIdeal.idealHangout, familyIdealFixture.hazelPublic.AA);
+assert.equal(familyIdeal.aceTraitSlideUrl, '', 'Family-only applicants do not receive either ACE Trait slide field');
 assert.doesNotMatch(JSON.stringify(familyIdeal), /PRIVATE BIG FAMILY IDEAL HANGOUT/);
 
 const khoaIdealFixture = fall2026SheetFixture();
@@ -410,6 +421,75 @@ const khoaIdeal = analyzeSheetValues(
 assert.equal(khoaIdeal.role, 'Big');
 assert.equal(khoaIdeal.idealHangout, 'A morning gym session, food, an escape room, boba, dinner, and a concert.');
 assert.doesNotMatch(JSON.stringify(khoaIdeal), /COMMON KHOA VALUE MUST NOT BE USED/);
+
+const crossRoleSlideCases = [
+  {
+    role: 'Big', program: 'ACE BIG ONLY PROGRAM', big: 'https://canva.com/big', little: 'https://canva.com/little', expected: 'https://canva.com/big',
+  },
+  {
+    role: 'Little', program: 'FAM/ACE LITTLE Program', big: 'https://canva.com/big', little: 'https://canva.com/little', expected: 'https://canva.com/little',
+  },
+  {
+    role: 'Big', program: 'ACE BIG ONLY PROGRAM', big: '', little: 'https://canva.com/little', expected: '',
+  },
+  {
+    role: 'Little', program: 'FAM/ACE LITTLE Program', big: 'https://canva.com/big', little: '', expected: '',
+  },
+];
+for (const [index, testCase] of crossRoleSlideCases.entries()) {
+  const fixture = fall2026SheetFixture();
+  const row = fixture.values[testCase.role === 'Big' ? 2 : 1];
+  setCell(row, 'E', `Slide${index}`);
+  setCell(row, 'F', 'Test');
+  setCell(row, 'R', testCase.program);
+  setCell(row, 'CZ', testCase.big);
+  setCell(row, 'DB', testCase.little);
+  const publicProfile = analyzeSheetValues(fixture.title, [fixture.values[0], row]).profiles[0].public;
+  assert.equal(publicProfile.role, testCase.role);
+  assert.equal(publicProfile.aceTraitSlideUrl, testCase.expected, `${testCase.role} must read only its role-scoped slide field`);
+}
+
+for (const [role, column, program] of [
+  ['Big', 'CZ', 'ACE BIG ONLY PROGRAM'],
+  ['Little', 'DB', 'FAM/ACE LITTLE Program'],
+]) {
+  for (const url of [
+    'https://www.canva.com/design/example/view',
+    'https://docs.google.com/presentation/d/example/edit',
+    'https://drive.google.com/file/d/example/view',
+  ]) {
+    const fixture = fall2026SheetFixture();
+    const row = fixture.values[role === 'Big' ? 2 : 1];
+    setCell(row, 'R', program);
+    setCell(row, column, `  ${url}  `);
+    const publicProfile = analyzeSheetValues(fixture.title, [fixture.values[0], row]).profiles[0].public;
+    assert.equal(publicProfile.aceTraitSlideUrl, url, `${role} should preserve a safe ${new URL(url).hostname} sharing URL`);
+  }
+}
+
+for (const unsafeUrl of ['javascript:alert(1)', 'data:text/html,bad', 'file:///private/slide', 'https://user:pass@example.com/slide']) {
+  const fixture = fall2026SheetFixture();
+  setCell(fixture.values[2], 'CZ', unsafeUrl);
+  const publicProfile = analyzeSheetValues(fixture.title, [fixture.values[0], fixture.values[2]]).profiles[0].public;
+  assert.equal(publicProfile.aceTraitSlideUrl, '', `unsafe ACE Trait slide URL must be omitted: ${unsafeUrl}`);
+}
+
+const legacyNoSlideHeaders = fall2026SheetFixture();
+setCell(legacyNoSlideHeaders.values[0], 'CZ', '');
+setCell(legacyNoSlideHeaders.values[0], 'DB', '');
+for (const row of legacyNoSlideHeaders.values.slice(1)) {
+  const publicProfile = analyzeSheetValues(legacyNoSlideHeaders.title, [legacyNoSlideHeaders.values[0], row]).profiles[0].public;
+  assert.equal(publicProfile.aceTraitSlideUrl, '', 'legacy rows without the optional slide question must remain valid and empty');
+}
+assert.equal(normalizePublicHttpUrl('https://docs.google.com/presentation/d/example/edit'), 'https://docs.google.com/presentation/d/example/edit');
+
+const ambiguousSlideFixture = fall2026SheetFixture();
+setCell(ambiguousSlideFixture.values[0], 'DC', '[OPTIONAL] Upload your Subtle ACE Trait slide! (Canva or Google Slides)');
+assert.throws(
+  () => analyzeSheetValues(ambiguousSlideFixture.title, ambiguousSlideFixture.values),
+  /ACE Trait slide headers could not be resolved safely/,
+  'ambiguous duplicate ACE Trait slide headers must fail closed',
+);
 
 const ambiguousIdealFixture = fall2026SheetFixture();
 setCell(ambiguousIdealFixture.values[0], 'DB', "What's your ideal hangout?");

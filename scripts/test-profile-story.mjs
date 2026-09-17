@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { normalizeProfileIntro, normalizeProfileStory } from '../lib/profile-story.js';
+import { normalizePublicHttpUrl } from '../lib/public-url.js';
 
 const story = normalizeProfileStory({
   tagline: 'Be the change.',
@@ -122,4 +123,19 @@ assert.match(detailSource, /className="detail-role-pill">\{profile\.role\}/, 'th
 assert.match(detailSource, /interests\.filter\(\(interest\) => !\['Big', 'Little', 'Family'\]\.includes\(interest\)\)/, 'the standalone role chip is excluded from the detail chip row');
 assert.match(detailSource, /interests\.length > 0[\s\S]*className="tag light"/, 'the detail chip row is omitted when no non-role chips remain');
 assert.match(detailSource, /profile\.program && <span>\{profile\.program\}<\/span>/, 'the program context pill remains');
+assert.match(detailSource, /const aceTraitSlideUrl = normalizePublicHttpUrl\(profile\.aceTraitSlideUrl\)/);
+assert.match(
+  detailSource,
+  /\{aceTraitSlideUrl && \([\s\S]*PERSONAL ACE TRAIT SLIDE[\s\S]*href=\{aceTraitSlideUrl\}[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"/,
+  'ProfileDetail must render the canonical Big/Little slide field only when its safe URL is present',
+);
+assert.doesNotMatch(
+  detailSource.slice(detailSource.indexOf('{aceTraitSlideUrl && ('), detailSource.indexOf('{profile.slideDeckUrl && (')),
+  /profile\.role/,
+  'ProfileDetail slide rendering must not repeat importer role logic',
+);
+assert.equal(normalizePublicHttpUrl(' https://www.canva.com/design/example/view '), 'https://www.canva.com/design/example/view');
+for (const unsafeUrl of ['javascript:alert(1)', 'data:text/html,bad', 'file:///private/slide']) {
+  assert.equal(normalizePublicHttpUrl(unsafeUrl), '', `unsafe public URL must not render: ${unsafeUrl}`);
+}
 console.log('Profile story normalization tests passed.');
