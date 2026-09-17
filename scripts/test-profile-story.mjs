@@ -101,6 +101,7 @@ assert.deepEqual(
 );
 
 const detailSource = await readFile(new URL('../components/ProfileDetail.js', import.meta.url), 'utf8');
+const stylesheet = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
 for (const title of [
   'THINGS THAT MAKE ME, ME',
   'I COULD TALK ABOUT THIS FOR HOURS',
@@ -126,11 +127,24 @@ assert.match(detailSource, /profile\.program && <span>\{profile\.program\}<\/spa
 assert.match(detailSource, /const aceTraitSlideUrl = normalizePublicHttpUrl\(profile\.aceTraitSlideUrl\)/);
 assert.match(
   detailSource,
-  /\{aceTraitSlideUrl && \([\s\S]*PERSONAL ACE TRAIT SLIDE[\s\S]*href=\{aceTraitSlideUrl\}[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"/,
+  /className="story-section ace-trait-slide-section"[\s\S]*PERSONAL ACE TRAIT SLIDE[\s\S]*ExternalProfileLink[\s\S]*href=\{aceTraitSlideUrl\}/,
   'ProfileDetail must render the canonical Big/Little slide field only when its safe URL is present',
 );
+assert.match(detailSource, /function ExternalProfileLink[\s\S]*target="_blank" rel="noopener noreferrer"/);
+assert.match(detailSource, /profile-external-link/);
+assert.match(detailSource, /className="instagram-button"/);
+assert.match(detailSource, /profile-external-link-icon ace-trait-slide-icon/);
+assert.match(detailSource, /profile-external-link-icon instagram-icon/);
+assert.doesNotMatch(detailSource, /className="deck-button ace-trait-slide-button"/, 'ACE Trait Slide must use the shared external CTA instead of the heavier deck CTA');
+assert.doesNotMatch(stylesheet, /\.hot-take\s*\{[^}]*border-bottom/, 'Hot Take must not add a second bottom divider');
+assert.doesNotMatch(stylesheet, /\.ace-trait-slide-section\s*\{[^}]*border-top/, 'ACE Trait Slide must inherit the editorial section divider');
+assert.match(stylesheet, /\.story-section\s*\{[^}]*border-top: 1px solid #ebe8e1/);
+assert.match(stylesheet, /\.profile-external-link\s*\{[^}]*background: #f7f5f0/);
+assert.match(stylesheet, /\.profile-external-link:hover\s*\{[^}]*background: #f1eee7/);
+assert.match(stylesheet, /\.profile-external-link-icon\s*\{[^}]*color: white/);
+assert.match(stylesheet, /\.detail-discovery-link\s*\{[^}]*border: 0/);
 assert.doesNotMatch(
-  detailSource.slice(detailSource.indexOf('{aceTraitSlideUrl && ('), detailSource.indexOf('{profile.slideDeckUrl && (')),
+  detailSource.slice(detailSource.indexOf('function AceTraitSlideSection'), detailSource.indexOf('function EditorialStory')),
   /profile\.role/,
   'ProfileDetail slide rendering must not repeat importer role logic',
 );

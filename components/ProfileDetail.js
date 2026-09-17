@@ -23,7 +23,33 @@ function StoryText({ children }) {
   return <p className="story-text">{children}</p>;
 }
 
-function EditorialStory({ story }) {
+function ExternalProfileLink({ className = '', href, icon, title, description }) {
+  return (
+    <a className={`profile-external-link ${className}`.trim()} href={href} target="_blank" rel="noopener noreferrer">
+      {icon}
+      <span><strong>{title}</strong><small>{description}</small></span>
+      <ExternalLink size={18} />
+    </a>
+  );
+}
+
+function AceTraitSlideSection({ href }) {
+  if (!href) return null;
+  return (
+    <section className="story-section ace-trait-slide-section">
+      <h2>PERSONAL ACE TRAIT SLIDE</h2>
+      <ExternalProfileLink
+        className="ace-trait-slide-button"
+        href={href}
+        icon={<span className="profile-external-link-icon ace-trait-slide-icon"><Presentation size={21} /></span>}
+        title="View ACE Trait Slide"
+        description="Opens the submitted slide in a new tab"
+      />
+    </section>
+  );
+}
+
+function EditorialStory({ story, aceTraitSlideUrl }) {
   const hobbyContent = story.hobbyItems.length
     ? <div className="hobby-list">{story.hobbyItems.map((item, index) => (
       <article key={`${item.name}-${index}`}><h3>{item.name}</h3>{item.detail && <p>{item.detail}</p>}</article>
@@ -41,6 +67,7 @@ function EditorialStory({ story }) {
     <StorySection title="IDEAL HANGOUT" className="story-compact" when={story.idealHangout}><StoryText>{story.idealHangout}</StoryText></StorySection>
     <StorySection title="ON MY BUCKET LIST" className="story-bucket" when={story.bucketList}><StoryText>{story.bucketList}</StoryText></StorySection>
     <StorySection title="MY HARMLESS HOT TAKE" className="hot-take" when={story.hotTake}><StoryText>{story.hotTake}</StoryText></StorySection>
+    <AceTraitSlideSection href={aceTraitSlideUrl} />
   </div>;
 }
 
@@ -108,31 +135,22 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
             vibeReasoning={adminPreview.vibeReasoning}
             vibeThreshold={adminPreview.vibeThreshold}
           />}
-          {profile.instagram && (
-            <a className="instagram-button" href={profile.instagram} target="_blank" rel="noopener noreferrer">
-              <span className="instagram-icon"><Instagram size={20} /></span>
-              <span><strong>View Instagram</strong><small>Opens this profile on Instagram</small></span>
-              <ExternalLink size={18} />
-            </a>
-          )}
+          {profile.instagram && <ExternalProfileLink
+            className="instagram-button"
+            href={profile.instagram}
+            icon={<span className="profile-external-link-icon instagram-icon"><Instagram size={20} /></span>}
+            title="View Instagram"
+            description="Opens this profile on Instagram"
+          />}
           {story.isEditorial
-            ? <EditorialStory story={story} />
+            ? <EditorialStory story={story} aceTraitSlideUrl={aceTraitSlideUrl} />
             : <>
               <InfoSection title="Hobbies & interests">{profile.hobbies}</InfoSection>
               <InfoSection title="Music">{profile.music}</InfoSection>
               <InfoSection title="Movies & shows">{profile.movies}</InfoSection>
               <InfoSection title="Perfect day">{profile.perfectDay}</InfoSection>
+              <AceTraitSlideSection href={aceTraitSlideUrl} />
             </>}
-          {aceTraitSlideUrl && (
-            <section className="ace-trait-slide-section">
-              <h2>PERSONAL ACE TRAIT SLIDE</h2>
-              <a className="deck-button ace-trait-slide-button" href={aceTraitSlideUrl} target="_blank" rel="noopener noreferrer">
-                <span className="deck-icon"><Presentation size={21} /></span>
-                <span><strong>View ACE Trait Slide</strong><small>Opens the submitted slide in a new tab</small></span>
-                <ExternalLink size={18} />
-              </a>
-            </section>
-          )}
           {profile.slideDeckUrl && (
             <a className="deck-button" href={profile.slideDeckUrl} target="_blank" rel="noreferrer">
               <span className="deck-icon"><Presentation size={21} /></span>

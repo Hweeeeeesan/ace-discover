@@ -666,19 +666,21 @@ select:focus-visible {
 .tag.light { border-color: #dedbd2; color: #3d3b37; background: #f5f3ee; }
 .profile-meta { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; }
 .profile-meta span { padding: 8px 10px; border-radius: 10px; color: #68655f; background: #f3f1ec; font-size: 12px; font-weight: 750; }
-.instagram-button { width: 100%; min-height: 68px; margin-top: 18px; padding: 11px 14px; border: 1px solid #e4e0d8; border-radius: 18px; display: grid; grid-template-columns: 42px minmax(0,1fr) auto; align-items: center; gap: 11px; color: #25231f; background: #f7f5f0; }
-.instagram-button:hover { background: #f1eee7; }
-.instagram-icon { width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center; color: white; background: #171717; }
-.instagram-button > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.instagram-button strong { font-size: 14px; }
-.instagram-button small { overflow-wrap: anywhere; color: #777168; font-size: 11px; }
+.profile-external-link { width: 100%; min-height: 68px; margin-top: 18px; padding: 11px 14px; border: 1px solid #e4e0d8; border-radius: 18px; display: grid; grid-template-columns: 42px minmax(0,1fr) auto; align-items: center; gap: 11px; color: #25231f; background: #f7f5f0; }
+.profile-external-link:hover { background: #f1eee7; }
+.profile-external-link:focus-visible { outline: 3px solid rgba(41,39,34,.18); outline-offset: 2px; }
+.instagram-button { margin-top: 18px; }
+.profile-external-link-icon { width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center; color: white; background: #171717; }
+.profile-external-link > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.profile-external-link strong { font-size: 14px; }
+.profile-external-link small { overflow-wrap: anywhere; color: #777168; font-size: 11px; }
 .info-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid #ebe8e1; }
 .info-section h2 { margin: 0 0 8px; color: #171717; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
 .info-section p { max-width: 100%; margin: 0; overflow-wrap: anywhere; color: #5b5954; font-size: 15px; line-height: 1.65; }
 .editorial-story { --story-section-gap: 26px; --story-section-padding: 16px; margin-top: 25px; }
 .instagram-button + .editorial-story { margin-top: 16px; padding-top: 16px; border-top: 1px solid #ebe8e1; }
 .instagram-button + .editorial-story > .story-section:first-child { border-top: 0; }
-.story-section { margin-top: var(--story-section-gap); padding-top: var(--story-section-padding); border-top: 1px solid #ebe8e1; }
+.story-section { margin-top: var(--story-section-gap, 26px); padding-top: var(--story-section-padding, 16px); border-top: 1px solid #ebe8e1; }
 .editorial-story > .story-section:first-child { margin-top: 0; }
 .story-section h2 { margin: 0 0 10px; color: #171717; font-size: 11px; font-weight: 750; letter-spacing: .13em; line-height: 1.3; text-transform: uppercase; }
 .story-text { max-width: 47ch; margin: 0; overflow-wrap: anywhere; white-space: pre-line; color: #58544d; font-size: 15px; line-height: 1.62; }
@@ -692,11 +694,9 @@ select:focus-visible {
 .hobby-list article p { display: inline; margin: 0; color: #58544d; font-size: 15px; font-weight: 400; line-height: 1.62; }
 .story-compact .story-text { max-width: 50ch; }
 .story-bucket .story-text { max-width: 44ch; }
-.hot-take { padding-bottom: 16px; border-bottom: 1px solid #ebe8e1; }
+.hot-take { padding-bottom: 16px; }
 .deck-button { width: 100%; min-height: 74px; margin-top: 30px; padding: 12px 15px; border-radius: 20px; display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 12px; color: white; background: #111; }
-.ace-trait-slide-section { margin-top: 30px; padding-top: 18px; border-top: 1px solid #ebe8e1; }
-.ace-trait-slide-section > h2 { margin: 0; color: #171717; font-size: 11px; font-weight: 750; letter-spacing: .13em; line-height: 1.3; }
-.ace-trait-slide-button { margin-top: 10px; }
+.ace-trait-slide-button { margin-top: 0; }
 .deck-icon { width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; background: #242424; }
 .deck-button span:nth-child(2) { display: flex; flex-direction: column; gap: 3px; }
 .deck-button strong { font-size: 15px; }
