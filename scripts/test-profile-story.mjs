@@ -30,6 +30,13 @@ assert.deepEqual(
   [{ name: 'information maxxing...?', detail: 'I am addicted to lists, maps, Wikipedia articles, encyclopedias...' }],
   'punctuation inside a hobby heading must not be treated as the explanation boundary',
 );
+assert.equal(
+  normalizeProfileStory({
+    hobbies: 'Information maxxing',
+    hobbyDetails: '3) information: maxxing...?: I am addicted to lists, maps, Wikipedia articles, encyclopedias...',
+  }).hobbyFormat,
+  'structured',
+);
 assert.deepEqual(
   normalizeProfileStory({
     hobbies: 'Fashion\nLion Dance',
@@ -66,6 +73,59 @@ assert.deepEqual(
   [],
   'unlabeled prose should not become a structured hobby item',
 );
+
+const ivyHobbies = 'Going out and trying new things, making a creating nail art/press on nails, PC gaming (R6, overwatch, fortnite), Dancing for fun, Video Filming';
+const ivyHobbyDetails = `1. Going out and trying new things is one of my tops because, I'm very picky and can feel uncomfy wanting to try new things.
+2.Creating nail art and nails is one of my long time hobby. I find that doing nails are an expensive maintenance.
+3. Pc gaming. Classic hobby for others and i just simply enjoy escaping reality when i dont want to leave my house.
+4. I like to dance whenever i can, i feel very cool. I really enjoy dancing with friends. Ik its in me :D
+5. I use to film quite a bit but whenever i can i would film my life and edit it.`;
+const ivyStory = normalizeProfileStory({ hobbies: ivyHobbies, hobbyDetails: ivyHobbyDetails });
+assert.equal(ivyStory.hobbyFormat, 'paired', 'a separate five-item hobby list may pair with five clearly ordered explanations');
+assert.deepEqual(ivyStory.hobbyItems.map(({ name }) => name), [
+  'Going out and trying new things',
+  'making a creating nail art/press on nails',
+  'PC gaming (R6, overwatch, fortnite)',
+  'Dancing for fun',
+  'Video Filming',
+]);
+assert.equal(ivyStory.hobbyItems.some(({ name }) => name.startsWith('I like to dance whenever')), false, 'numbered prose must never supply an invented heading');
+assert.equal(ivyStory.hobbyItems[3].detail.endsWith('Ik its in me :D'), true, 'the emoticon must stay attached to the dancing explanation');
+assert.equal(ivyStory.hobbyItems.filter(({ detail }) => detail.includes('I like to dance whenever')).length, 1, 'the dancing explanation must appear exactly once');
+
+const unpairedNumbered = normalizeProfileStory({
+  hobbies: 'Painting\nHiking',
+  hobbyDetails: '1. I spend weekends making ceramic bowls.\n2. Games help me relax after class.',
+});
+assert.equal(unpairedNumbered.hobbyFormat, 'numbered');
+assert.deepEqual(unpairedNumbered.hobbyItems, [], 'numbered prose without an unambiguous label match must remain raw numbered prose');
+assert.equal(unpairedNumbered.hobbyDetails, '1. I spend weekends making ceramic bowls.\n2. Games help me relax after class.');
+
+const mismatchedNumbered = normalizeProfileStory({
+  hobbies: 'Painting\nHiking\nCooking',
+  hobbyDetails: '1. Painting helps me relax.\n2. Hiking gets me outdoors.',
+});
+assert.equal(mismatchedNumbered.hobbyFormat, 'numbered');
+assert.deepEqual(mismatchedNumbered.hobbyItems, [], 'count mismatches must preserve the numbered source instead of manufacturing headings');
+
+const partialExplicit = normalizeProfileStory({
+  hobbies: 'Dance\nGaming',
+  hobbyDetails: 'Dance: I practice with friends.\n2. Gaming helps me unwind :D',
+});
+assert.equal(partialExplicit.hobbyFormat, 'raw');
+assert.deepEqual(partialExplicit.hobbyItems, [], 'partial explicit parsing must not drop or duplicate the remaining raw response');
+
+assert.deepEqual(
+  normalizeProfileStory({
+    hobbies: 'Painting\nHiking',
+    hobbyDetails: '1. Painting: Watercolors are relaxing.\n2. Hiking - I enjoy local trails.',
+  }).hobbyItems,
+  [
+    { name: 'Painting', detail: 'Watercolors are relaxing.' },
+    { name: 'Hiking', detail: 'I enjoy local trails.' },
+  ],
+  'fully explicit numbered labels remain structured',
+);
 assert.equal(normalizeProfileStory({ bio: 'Legacy profile' }).isEditorial, false);
 assert.equal(normalizeProfileStory({ tagline: 'Only a phrase' }).perfectDay, '');
 const sharedFields = {
@@ -101,6 +161,7 @@ assert.deepEqual(
 );
 
 const detailSource = await readFile(new URL('../components/ProfileDetail.js', import.meta.url), 'utf8');
+const storySource = await readFile(new URL('../lib/profile-story.js', import.meta.url), 'utf8');
 const stylesheet = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
 for (const title of [
   'THINGS THAT MAKE ME, ME',
@@ -147,6 +208,12 @@ assert.doesNotMatch(
   detailSource.slice(detailSource.indexOf('function AceTraitSlideSection'), detailSource.indexOf('function EditorialStory')),
   /profile\.role/,
   'ProfileDetail slide rendering must not repeat importer role logic',
+);
+assert.doesNotMatch(storySource, /\b(?:ivy|ngo)\b/i, 'hobby parsing must remain applicant-independent');
+assert.match(
+  editorialSource,
+  /story\.hobbyItems\.length[\s\S]*hobby-list[\s\S]*<StoryText>\{story\.hobbies\}<\/StoryText>[\s\S]*<StoryText>\{story\.hobbyDetails\}<\/StoryText>/,
+  'ProfileDetail must render either structured items or the original hobby blocks, never both',
 );
 assert.equal(normalizePublicHttpUrl(' https://www.canva.com/design/example/view '), 'https://www.canva.com/design/example/view');
 for (const unsafeUrl of ['javascript:alert(1)', 'data:text/html,bad', 'file:///private/slide']) {
