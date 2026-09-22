@@ -291,10 +291,10 @@ assert.equal(folderGallery.filesDiscovered, 4);
 assert.equal(folderGallery.supportedImages, 3);
 assert.deepEqual(folderGallery.images.map((image) => image.name), ['photo1.jpg', 'photo10.jpg']);
 assert.deepEqual(folderGallery.images.map((image) => image.storagePath), [
-  'fall-2026/folder-gallery/11111111-1111-4111-8111-111111111111.jpg',
-  'fall-2026/folder-gallery/22222222-2222-4222-8222-222222222222.jpg',
+  'fall-2026/folder-gallery/11111111-1111-4111-8111-111111111111.webp',
+  'fall-2026/folder-gallery/22222222-2222-4222-8222-222222222222.webp',
 ]);
-assert.equal(galleryUploads.length, 2, 'valid siblings must survive one corrupt image');
+assert.equal(galleryUploads.length, 4, 'each valid sibling must stage canonical and Discovery objects');
 assert.deepEqual(folderGallery.rejected.map((item) => item.category).sort(), ['corrupt_image', 'unsupported_file_type']);
 
 const thumbnailDiagnostic = await ingestProfileImages({
@@ -327,8 +327,8 @@ const acceptableThumbnailReplacement = await ingestProfileImages({
 });
 assert.equal(acceptableThumbnailReplacement.allSupportedValidated, true);
 assert.equal(acceptableThumbnailReplacement.rejected.length, 0);
-assert.equal(acceptableThumbnailReplacement.images[0]?.contentType, 'image/png');
-assert.equal(acceptableReplacementUploads.length, 1, 'an adequately sized fallback remains usable for replacement');
+assert.equal(acceptableThumbnailReplacement.images[0]?.contentType, 'image/webp');
+assert.equal(acceptableReplacementUploads.length, 2, 'an adequately sized fallback produces both public assets');
 assert.ok(acceptableThumbnailReplacement.images[0].width >= MIN_REPLACEMENT_FALLBACK_LONG_EDGE);
 assert.ok(acceptableThumbnailReplacement.images[0].height >= MIN_REPLACEMENT_FALLBACK_SHORT_EDGE);
 
@@ -415,7 +415,7 @@ const stagedRepair = await ingestProfileImages({
 assert.equal(stagedRepair.images.length, 2);
 assert.deepEqual(
   stagedEvents.map((event) => event.split(':', 1)[0]),
-  ['fetch', 'fetch', 'upload', 'upload'],
+  ['fetch', 'fetch', 'upload', 'upload', 'upload', 'upload'],
   'replacement ingestion must download and validate every supported file before uploading any',
 );
 

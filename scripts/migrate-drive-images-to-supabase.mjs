@@ -175,7 +175,7 @@ async function loadDataset(supabase, datasetSlug) {
   }
   const { data: imageRows, error: imagesError } = await supabase
     .from('profile_images')
-    .select('id,profile_id,storage_path,position,is_primary,focal_x,focal_y,display_mode')
+    .select('id,profile_id,storage_path,discovery_storage_path,discovery_width,discovery_height,discovery_mime_type,discovery_byte_length,position,is_primary,focal_x,focal_y,display_mode')
     .eq('dataset_id', dataset.id)
     .order('position', { ascending: true });
   if (imagesError) {
@@ -187,6 +187,7 @@ async function loadDataset(supabase, datasetSlug) {
     images.push({
       id: image.id,
       storagePath: image.storage_path,
+      discoveryStoragePath: image.discovery_storage_path || '',
       position: image.position,
       isPrimary: image.is_primary,
       focalX: image.focal_x,
@@ -293,27 +294,37 @@ async function main() {
       dryRun: options.dryRun,
       requireAllSupported: options.replaceExisting,
       upload: inspector.upload.bind(inspector),
+      remove: inspector.remove.bind(inspector),
     }),
     createImage: async ({ profile, image, makePrimary }) => {
-      const { data, error } = await supabase.rpc('create_profile_image_metadata', {
+      const { data, error } = await supabase.rpc('create_profile_image_with_derivative', {
         requested_dataset_id: dataset.id,
         requested_profile_id: profile.id,
         requested_image_id: image.imageId,
         requested_storage_path: image.storagePath,
+        requested_discovery_storage_path: image.discoveryStoragePath,
+        requested_discovery_width: image.discoveryWidth,
+        requested_discovery_height: image.discoveryHeight,
+        requested_discovery_mime_type: image.discoveryMimeType,
+        requested_discovery_byte_length: image.discoveryByteLength,
         requested_make_primary: makePrimary,
       });
       if (!error && data?.storagePath === image.storagePath) return data;
       const { data: confirmed } = await supabase
         .from('profile_images')
-        .select('id,storage_path,position,is_primary')
+        .select('id,storage_path,discovery_storage_path,position,is_primary')
         .eq('id', image.imageId)
         .eq('dataset_id', dataset.id)
         .eq('profile_id', profile.id)
         .maybeSingle();
-      if (confirmed?.storage_path === image.storagePath) {
+      if (
+        confirmed?.storage_path === image.storagePath
+        && confirmed?.discovery_storage_path === image.discoveryStoragePath
+      ) {
         return {
           id: confirmed.id,
           storagePath: confirmed.storage_path,
+          discoveryStoragePath: confirmed.discovery_storage_path,
           position: confirmed.position,
           isPrimary: confirmed.is_primary,
         };
@@ -321,7 +332,7 @@ async function main() {
       throw new Error(`Profile image metadata insert failed: ${error?.message || 'the RPC did not confirm the requested path'}`);
     },
     replaceGallery: async ({ profile, plan }) => {
-      const { data, error } = await supabase.rpc('replace_profile_image_gallery', {
+      const { data, error } = await supabase.rpc('replace_profile_image_gallery_with_derivatives', {
         requested_dataset_id: dataset.id,
         requested_profile_id: profile.id,
         expected_existing_image_ids: plan.expectedExistingImageIds,
@@ -333,7 +344,7 @@ async function main() {
 
       const confirmation = await supabase
         .from('profile_images')
-        .select('id,storage_path,position,is_primary')
+        .select('id,storage_path,discovery_storage_path,position,is_primary')
         .eq('dataset_id', dataset.id)
         .eq('profile_id', profile.id)
         .order('position', { ascending: true });
@@ -350,6 +361,7 @@ async function main() {
           const expected = plan.replacementRows[index];
           return row.id === expected.imageId
             && row.storage_path === expected.storagePath
+            && row.discovery_storage_path === expected.discoveryStoragePath
             && row.position === expected.position
             && row.is_primary === expected.isPrimary;
         });
@@ -370,7 +382,8 @@ async function main() {
       for (const image of row.imageDimensions || []) {
         console.log(
           `  ${image.name || image.driveFileId || 'image'}: ${image.width}x${image.height}; `
-          + `${image.byteLength} bytes; source=${image.downloadSource}`,
+          + `${image.byteLength} bytes; discovery=${image.discoveryWidth}x${image.discoveryHeight} `
+          + `${image.discoveryByteLength} bytes ${image.discoveryMimeType}; source=${image.downloadSource}`,
         );
       }
       for (const diagnostic of row.diagnostics || []) {

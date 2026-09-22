@@ -788,8 +788,8 @@ assert.deepEqual(
 );
 assert.deepEqual(
   andrewReplacement.images.map((image) => image.contentType),
-  ['image/jpeg', 'image/webp', 'image/webp', 'image/webp'],
-  'the under-limit JPEG stays JPEG while the three oversized opaque PNGs become WebP',
+  ['image/webp', 'image/webp', 'image/webp', 'image/webp'],
+  'validated sources become bounded WebP canonical assets for public serving',
 );
 assert.ok(andrewReplacement.images.every((image) => image.byteLength <= MAX_PROFILE_IMAGE_BYTES));
 assert.equal(
@@ -1477,7 +1477,7 @@ assert.match(
 );
 const uploadRouteSource = await readFile(new URL('../app/api/admin/datasets/images/route.js', import.meta.url), 'utf8');
 assert.match(uploadRouteSource, /authorizeAdminRequest\(request\)/);
-assert.match(uploadRouteSource, /normalizeProfileImage/, 'Admin uploads must use the canonical oversized-image normalizer');
+assert.match(uploadRouteSource, /generateProfileImageAssets/, 'Admin uploads must use the shared normalizer and derivative generator');
 assert.match(uploadRouteSource, /MAX_PROFILE_IMAGE_INPUT_BYTES/);
 assert.match(uploadRouteSource, /image_too_large_after_normalization/);
 assert.match(uploadRouteSource, /buildProfileImageStoragePath/);
@@ -1515,7 +1515,7 @@ assert.match(batchImageServerSource, /\.eq\('id', datasetId\)/, 'dataset lookup 
 assert.match(batchImageServerSource, /\.eq\('dataset_id', dataset\.id\)/, 'profile and gallery reads must remain dataset-scoped');
 assert.match(batchImageServerSource, /getDriveAuth\(\{ strict: true, serviceAccountOnly: true \}\)/, 'Admin Drive credentials must stay server-side');
 assert.match(batchImageServerSource, /ingestProfileImages/, 'Admin batch must reuse canonical Drive download, validation, EXIF, path, and upload logic');
-assert.match(batchImageServerSource, /create_profile_image_gallery_if_empty/, 'Admin batch must use the atomic empty-gallery RPC');
+assert.match(batchImageServerSource, /create_profile_image_gallery_with_derivatives_if_empty/, 'Admin batch must atomically commit the gallery and complete derivative metadata');
 assert.doesNotMatch(batchImageServerSource, /spawn|python3|python\b/, 'Admin batch must not shell out to external executables');
 const datasetManagerSource = await readFile(new URL('../components/DatasetManager.js', import.meta.url), 'utf8');
 assert.match(datasetManagerSource, /Preview missing images/);
@@ -1543,7 +1543,7 @@ assert.match(migrationToolSource, /pathExists\(storagePath\)[\s\S]*listImagePath
 assert.match(migrationToolSource, /findExistingPath\(profile\)[\s\S]*listPrimaryPaths/, 'legacy recovery must remain limited to unambiguous primary objects');
 assert.match(migrationToolSource, /migrateDatasetProfileGalleries/);
 assert.match(migrationToolSource, /from\('profile_images'\)/, 'migration must inspect relational galleries before touching Drive');
-assert.match(migrationToolSource, /create_profile_image_metadata/, 'migration must use the existing transactional metadata RPC');
+assert.match(migrationToolSource, /create_profile_image_with_derivative/, 'migration must transactionally commit canonical and derivative metadata');
 assert.match(migrationToolSource, /removeStorage: inspector\.remove/, 'metadata failures must use Storage cleanup');
 assert.match(migrationToolSource, /--replace-existing requires an explicit --profile/);
 assert.match(migrationToolSource, /replace_profile_image_gallery/);

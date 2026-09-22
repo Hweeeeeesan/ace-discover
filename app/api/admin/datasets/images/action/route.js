@@ -2,8 +2,17 @@ import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { authorizeAdminRequest } from '../../../../../../lib/admin/authorization';
 import { createSupabaseServiceClient } from '../../../../../../lib/supabase/server';
-import { buildProfileImageStoragePath, isValidProfileImageId } from '../../../../../../lib/profile-images';
-import { detectImageContentType, MAX_PROFILE_IMAGE_BYTES, rotateImage } from '../../../../../../lib/profile-image-ingestion';
+import {
+  buildDiscoveryDerivativeStoragePath,
+  buildProfileImageStoragePath,
+  isValidProfileImageId,
+} from '../../../../../../lib/profile-images';
+import {
+  detectImageContentType,
+  generateProfileImageAssets,
+  MAX_PROFILE_IMAGE_BYTES,
+  rotateImage,
+} from '../../../../../../lib/profile-image-ingestion';
 import {
   deleteAdminProfileImage,
   getAdminImageContext,
@@ -45,30 +54,66 @@ export async function POST(request) {
         const contentType = detectImageContentType(bytes);
         if (!contentType) throw new Error('The stored object is not a supported image.');
         const rotated = await rotateImage(bytes, contentType, action === 'rotate-left' ? 270 : 90);
-        if (rotated.bytes.length > MAX_PROFILE_IMAGE_BYTES) throw new Error('The rotated image exceeds the 15 MiB size limit.');
-        const rotatedPath = buildProfileImageStoragePath(dataset.slug, profileId, randomUUID(), rotated.contentType);
-        const { error: uploadError } = await supabase.storage.from(BUCKET).upload(rotatedPath, rotated.bytes, {
-          contentType: rotated.contentType,
+        const assets = await generateProfileImageAssets(rotated.bytes);
+        const replacementId = randomUUID();
+        const rotatedPath = buildProfileImageStoragePath(dataset.slug, profileId, replacementId, assets.canonical.contentType);
+        const discoveryPath = buildDiscoveryDerivativeStoragePath(dataset.slug, profileId, replacementId);
+        const { error: uploadError } = await supabase.storage.from(BUCKET).upload(rotatedPath, assets.canonical.bytes, {
+          contentType: assets.canonical.contentType,
           cacheControl: '31536000',
           upsert: false,
         });
         if (uploadError) throw new Error(`The rotated image could not be saved: ${uploadError.message}`);
-        try {
-          result = await replaceAdminProfileImageStoragePath({ datasetId, profileId, imageId, storagePath: rotatedPath });
-        } catch (error) {
+        const { error: discoveryUploadError } = await supabase.storage.from(BUCKET).upload(discoveryPath, assets.discovery.bytes, {
+          contentType: assets.discovery.contentType,
+          cacheControl: '31536000',
+          upsert: false,
+        });
+        if (discoveryUploadError) {
           await supabase.storage.from(BUCKET).remove([rotatedPath]).catch(() => {});
+          throw new Error(`The rotated Discovery derivative could not be saved: ${discoveryUploadError.message}`);
+        }
+        try {
+          result = await replaceAdminProfileImageStoragePath({
+            datasetId,
+            profileId,
+            imageId,
+            storagePath: rotatedPath,
+            discoveryStoragePath: discoveryPath,
+            discoveryWidth: assets.discovery.width,
+            discoveryHeight: assets.discovery.height,
+            discoveryMimeType: assets.discovery.contentType,
+            discoveryByteLength: assets.discovery.byteLength,
+          });
+        } catch (error) {
+          await supabase.storage.from(BUCKET).remove([rotatedPath, discoveryPath]).catch(() => {});
           throw error;
         }
-        await supabase.storage.from(BUCKET).remove([image.storagePath]).catch(() => {});
-        result = { ...result, rotated: true, previousStoragePath: image.storagePath };
+        await supabase.storage.from(BUCKET).remove(
+          [image.storagePath, image.discoveryStoragePath].filter(Boolean),
+        ).catch(() => {});
+        result = {
+          ...result,
+          rotated: true,
+          previousStoragePath: image.storagePath,
+          previousDiscoveryStoragePath: image.discoveryStoragePath,
+        };
+      } else if (action === 'set-primary') {
+        result = await setAdminProfileImagePrimary({ datasetId, profileId, imageId });
       } else {
-        result = action === 'set-primary'
-          ? await setAdminProfileImagePrimary({ datasetId, profileId, imageId })
-          : await deleteAdminProfileImage({ datasetId, profileId, imageId });
+        // The delete RPC owns the atomic row/profile-state change. Capture the
+        // immutable derivative first so both objects can be removed afterward.
+        const image = await getAdminProfileImage({ datasetId, profileId, imageId });
+        result = {
+          ...await deleteAdminProfileImage({ datasetId, profileId, imageId }),
+          discoveryStoragePath: image.discoveryStoragePath,
+        };
       }
       if (action === 'delete' && result?.storagePath) {
         const supabase = createSupabaseServiceClient();
-        if (supabase) await supabase.storage.from(BUCKET).remove([result.storagePath]);
+        if (supabase) await supabase.storage.from(BUCKET).remove(
+          [result.storagePath, result.discoveryStoragePath].filter(Boolean),
+        );
       }
     } else if (action === 'reorder') {
       const imageIds = Array.isArray(body?.imageIds) ? body.imageIds.map(String) : [];

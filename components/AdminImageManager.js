@@ -89,7 +89,7 @@ export default function AdminImageManager({ datasetId, datasetSlug, profileId, i
 
   function remove(imageId) {
     const message = images.length === 1
-      ? 'Remove the only profile image? The profile will have no editable Storage image and may show its configured fallback or placeholder.'
+      ? 'Remove the only profile image? The profile will intentionally show no image until an Admin uploads or imports a replacement.'
       : 'Remove this profile image?';
     if (!window.confirm(message)) return Promise.resolve();
     return refreshAfter(() => postAction({ datasetId, datasetSlug, profileId, action: 'delete', imageId }));
@@ -179,6 +179,7 @@ export default function AdminImageManager({ datasetId, datasetSlug, profileId, i
                 displayMode={image.displayMode}
                 displayModeInputName={`display-mode-${image.id}`}
                 controlsOutside
+                eager={index === 0}
               />
             </div>
             <div className="admin-image-manager-actions">

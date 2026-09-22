@@ -31,6 +31,7 @@ export default function FocalPointEditor({
   displayModeInputName = 'display-mode',
   onSaved,
   controlsOutside = false,
+  eager = false,
 }) {
   const router = useRouter();
   const targetRef = useRef(null);
@@ -126,7 +127,7 @@ export default function FocalPointEditor({
           src={src}
           candidates={candidates}
           alt=""
-          eager
+          eager={eager}
           focalX={point.x}
           focalY={point.y}
           displayMode={mode}
