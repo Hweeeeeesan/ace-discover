@@ -19,7 +19,7 @@
     "test:profile-qa": "node scripts/test-profile-qa.mjs",
     "validate:data": "python3 scripts/validate-public-data.py",
     "test:drive": "node scripts/test-drive-route.mjs",
-    "test:images": "node scripts/test-profile-images.mjs && node scripts/test-profile-image-derivatives.mjs",
+    "test:images": "node scripts/test-profile-images.mjs && node scripts/test-profile-image-derivatives.mjs && node scripts/test-profile-gallery-loading.mjs",
     "test:image-health": "node scripts/test-profile-image-health.mjs",
     "test:auth": "node scripts/test-auth-redirect.mjs",
     "test:drive-recovery": "node scripts/test-drive-recovery.mjs",
@@ -27,6 +27,7 @@
     "profiles:import": "node scripts/import-profiles.mjs",
     "images:migrate": "node scripts/migrate-drive-images-to-supabase.mjs",
     "images:derive": "node scripts/derive-profile-images.mjs",
+    "images:derive-profile": "node scripts/derive-profile-detail-images.mjs",
     "datasets:seed-fall": "node scripts/seed-fall-2025.mjs"
   },
   "dependencies": {

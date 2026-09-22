@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  extendLoadedGalleryIndexes,
+  initialGalleryIndex,
+} from '../lib/profile-gallery-loading';
 import ProfileImage from './ProfileImage';
 
-function initialIndex(images) {
-  const primaryIndex = images.findIndex((image) => image.isPrimary);
-  return primaryIndex >= 0 ? primaryIndex : 0;
-}
+const DEFERRED_IMAGE = '/profile-placeholder.svg';
 
 export default function ProfileGallery({
   profileName = 'Profile',
@@ -21,21 +22,32 @@ export default function ProfileGallery({
     () => (Array.isArray(images) ? images.filter((image) => image?.src || image?.storageImagePath) : []),
     [images],
   );
-  const [activeIndex, setActiveIndex] = useState(() => initialIndex(relationalImages));
+  const [activeIndex, setActiveIndex] = useState(() => initialGalleryIndex(relationalImages));
+  const [loadedIndexes, setLoadedIndexes] = useState(() => (
+    extendLoadedGalleryIndexes([], initialGalleryIndex(relationalImages), relationalImages.length)
+  ));
   const viewportRef = useRef(null);
   const slideRefs = useRef([]);
   const scrollFrameRef = useRef(null);
 
   useEffect(() => {
-    setActiveIndex(initialIndex(relationalImages));
+    const nextIndex = initialGalleryIndex(relationalImages);
+    setActiveIndex(nextIndex);
+    setLoadedIndexes(extendLoadedGalleryIndexes([], nextIndex, relationalImages.length));
   }, [relationalImages]);
+
+  useEffect(() => {
+    setLoadedIndexes((current) => (
+      extendLoadedGalleryIndexes(current, activeIndex, relationalImages.length)
+    ));
+  }, [activeIndex, relationalImages.length]);
 
   useEffect(() => () => {
     if (scrollFrameRef.current) cancelAnimationFrame(scrollFrameRef.current);
   }, []);
 
   useEffect(() => {
-    const targetIndex = initialIndex(relationalImages);
+    const targetIndex = initialGalleryIndex(relationalImages);
     const frame = requestAnimationFrame(() => {
       const viewport = viewportRef.current;
       const slide = slideRefs.current[targetIndex];
@@ -109,11 +121,12 @@ export default function ProfileGallery({
               className="profile-gallery-slide"
               key={image.id || image.storageImagePath || index}
               ref={(slide) => { slideRefs.current[index] = slide; }}
+              data-gallery-loaded={loadedIndexes.includes(index) ? 'true' : 'false'}
             >
               <ProfileImage
                 className="detail-photo"
-                src={image.src}
-                candidates={image.candidates}
+                src={loadedIndexes.includes(index) ? image.src : DEFERRED_IMAGE}
+                candidates={loadedIndexes.includes(index) ? image.candidates : []}
                 alt={`${profileName} image ${index + 1}`}
                 eager={index === activeIndex}
                 focalX={image.focalX}

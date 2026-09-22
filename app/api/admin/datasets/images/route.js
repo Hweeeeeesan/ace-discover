@@ -9,6 +9,7 @@ import {
 } from '../../../../../lib/profile-image-ingestion';
 import {
   buildDiscoveryDerivativeStoragePath,
+  buildProfileDetailDerivativeStoragePath,
   buildProfileImageStoragePath,
 } from '../../../../../lib/profile-images';
 import {
@@ -60,6 +61,7 @@ export async function POST(request) {
     const { dataset } = await getAdminImageContext(datasetId, profileId);
     const imageId = randomUUID();
     const storagePath = buildProfileImageStoragePath(dataset.slug, profileId, imageId, assets.canonical.contentType);
+    const profileStoragePath = buildProfileDetailDerivativeStoragePath(dataset.slug, profileId, imageId);
     const discoveryStoragePath = buildDiscoveryDerivativeStoragePath(dataset.slug, profileId, imageId);
     const { error: uploadError } = await supabase.storage.from(BUCKET).upload(storagePath, assets.canonical.bytes, {
       contentType: assets.canonical.contentType,
@@ -68,6 +70,17 @@ export async function POST(request) {
     });
     if (uploadError) throw new Error(`Supabase Storage upload failed: ${uploadError.message}`);
     stagedPaths.push(storagePath);
+    const { error: profileUploadError } = await supabase.storage.from(BUCKET).upload(
+      profileStoragePath,
+      assets.profile.bytes,
+      {
+        contentType: assets.profile.contentType,
+        cacheControl: '31536000',
+        upsert: false,
+      },
+    );
+    if (profileUploadError) throw new Error(`Supabase Storage ProfileDetail derivative upload failed: ${profileUploadError.message}`);
+    stagedPaths.push(profileStoragePath);
     const { error: discoveryUploadError } = await supabase.storage.from(BUCKET).upload(
       discoveryStoragePath,
       assets.discovery.bytes,
@@ -85,6 +98,11 @@ export async function POST(request) {
       profileId,
       imageId,
       storagePath,
+      profileStoragePath,
+      profileWidth: assets.profile.width,
+      profileHeight: assets.profile.height,
+      profileMimeType: assets.profile.contentType,
+      profileByteLength: assets.profile.byteLength,
       discoveryStoragePath,
       discoveryWidth: assets.discovery.width,
       discoveryHeight: assets.discovery.height,
@@ -106,6 +124,10 @@ export async function POST(request) {
         finalWidth: assets.canonical.width,
         finalHeight: assets.canonical.height,
         finalMime: assets.canonical.contentType,
+        profileBytes: assets.profile.byteLength,
+        profileWidth: assets.profile.width,
+        profileHeight: assets.profile.height,
+        profileMime: assets.profile.contentType,
         discoveryBytes: assets.discovery.byteLength,
         discoveryWidth: assets.discovery.width,
         discoveryHeight: assets.discovery.height,

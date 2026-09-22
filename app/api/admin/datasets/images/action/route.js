@@ -4,6 +4,7 @@ import { authorizeAdminRequest } from '../../../../../../lib/admin/authorization
 import { createSupabaseServiceClient } from '../../../../../../lib/supabase/server';
 import {
   buildDiscoveryDerivativeStoragePath,
+  buildProfileDetailDerivativeStoragePath,
   buildProfileImageStoragePath,
   isValidProfileImageId,
 } from '../../../../../../lib/profile-images';
@@ -57,6 +58,7 @@ export async function POST(request) {
         const assets = await generateProfileImageAssets(rotated.bytes);
         const replacementId = randomUUID();
         const rotatedPath = buildProfileImageStoragePath(dataset.slug, profileId, replacementId, assets.canonical.contentType);
+        const profilePath = buildProfileDetailDerivativeStoragePath(dataset.slug, profileId, replacementId);
         const discoveryPath = buildDiscoveryDerivativeStoragePath(dataset.slug, profileId, replacementId);
         const { error: uploadError } = await supabase.storage.from(BUCKET).upload(rotatedPath, assets.canonical.bytes, {
           contentType: assets.canonical.contentType,
@@ -64,13 +66,22 @@ export async function POST(request) {
           upsert: false,
         });
         if (uploadError) throw new Error(`The rotated image could not be saved: ${uploadError.message}`);
+        const { error: profileUploadError } = await supabase.storage.from(BUCKET).upload(profilePath, assets.profile.bytes, {
+          contentType: assets.profile.contentType,
+          cacheControl: '31536000',
+          upsert: false,
+        });
+        if (profileUploadError) {
+          await supabase.storage.from(BUCKET).remove([rotatedPath]).catch(() => {});
+          throw new Error(`The rotated ProfileDetail derivative could not be saved: ${profileUploadError.message}`);
+        }
         const { error: discoveryUploadError } = await supabase.storage.from(BUCKET).upload(discoveryPath, assets.discovery.bytes, {
           contentType: assets.discovery.contentType,
           cacheControl: '31536000',
           upsert: false,
         });
         if (discoveryUploadError) {
-          await supabase.storage.from(BUCKET).remove([rotatedPath]).catch(() => {});
+          await supabase.storage.from(BUCKET).remove([rotatedPath, profilePath]).catch(() => {});
           throw new Error(`The rotated Discovery derivative could not be saved: ${discoveryUploadError.message}`);
         }
         try {
@@ -79,6 +90,11 @@ export async function POST(request) {
             profileId,
             imageId,
             storagePath: rotatedPath,
+            profileStoragePath: profilePath,
+            profileWidth: assets.profile.width,
+            profileHeight: assets.profile.height,
+            profileMimeType: assets.profile.contentType,
+            profileByteLength: assets.profile.byteLength,
             discoveryStoragePath: discoveryPath,
             discoveryWidth: assets.discovery.width,
             discoveryHeight: assets.discovery.height,
@@ -86,16 +102,17 @@ export async function POST(request) {
             discoveryByteLength: assets.discovery.byteLength,
           });
         } catch (error) {
-          await supabase.storage.from(BUCKET).remove([rotatedPath, discoveryPath]).catch(() => {});
+          await supabase.storage.from(BUCKET).remove([rotatedPath, profilePath, discoveryPath]).catch(() => {});
           throw error;
         }
         await supabase.storage.from(BUCKET).remove(
-          [image.storagePath, image.discoveryStoragePath].filter(Boolean),
+          [image.storagePath, image.profileStoragePath, image.discoveryStoragePath].filter(Boolean),
         ).catch(() => {});
         result = {
           ...result,
           rotated: true,
           previousStoragePath: image.storagePath,
+          previousProfileStoragePath: image.profileStoragePath,
           previousDiscoveryStoragePath: image.discoveryStoragePath,
         };
       } else if (action === 'set-primary') {
@@ -106,13 +123,14 @@ export async function POST(request) {
         const image = await getAdminProfileImage({ datasetId, profileId, imageId });
         result = {
           ...await deleteAdminProfileImage({ datasetId, profileId, imageId }),
+          profileStoragePath: image.profileStoragePath,
           discoveryStoragePath: image.discoveryStoragePath,
         };
       }
       if (action === 'delete' && result?.storagePath) {
         const supabase = createSupabaseServiceClient();
         if (supabase) await supabase.storage.from(BUCKET).remove(
-          [result.storagePath, result.discoveryStoragePath].filter(Boolean),
+          [result.storagePath, result.profileStoragePath, result.discoveryStoragePath].filter(Boolean),
         );
       }
     } else if (action === 'reorder') {

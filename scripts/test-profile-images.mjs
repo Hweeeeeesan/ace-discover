@@ -788,8 +788,8 @@ assert.deepEqual(
 );
 assert.deepEqual(
   andrewReplacement.images.map((image) => image.contentType),
-  ['image/webp', 'image/webp', 'image/webp', 'image/webp'],
-  'validated sources become bounded WebP canonical assets for public serving',
+  ['image/jpeg', 'image/webp', 'image/webp', 'image/webp'],
+  'validated canonical sources retain their safe original format while oversized PNGs normalize to WebP',
 );
 assert.ok(andrewReplacement.images.every((image) => image.byteLength <= MAX_PROFILE_IMAGE_BYTES));
 assert.equal(
@@ -1428,7 +1428,8 @@ assert.match(adminDatasetSource, /image_cleared_by_admin/);
 assert.match(adminDatasetSource, /imageClearedByAdmin/);
 assert.doesNotMatch(adminDatasetSource, /Object\.assign\(resolvedProfile, effectivePublicData\)/, 'effective-profile overrides must not overwrite resolved image metadata');
 assert.match(adminDatasetSource, /updateAdminProfileImageFocal[\s\S]*\.eq\('dataset_id', datasetId\)[\s\S]*\.eq\('profile_id', profileId\)/);
-assert.match(adminDatasetSource, /if \(imageError\)[\s\S]*\.select\('id,storage_path,position,is_primary,focal_x,focal_y'\)/, 'Admin preview should remain compatible before display_mode is applied');
+assert.match(adminDatasetSource, /if \(imageError\)[\s\S]*\.select\('id,storage_path,discovery_storage_path[^']*display_mode'\)/,
+  'Admin preview should retain Discovery metadata before ProfileDetail derivative columns are applied');
 assert.match(adminDatasetSource, /if \(fallback\.error\)[\s\S]*\.select\('id,storage_path,position,is_primary'\)/, 'Admin preview must retain image IDs when focal columns are not deployed yet');
 const adminProfilePreviewSource = await readFile(new URL('../app/admin/preview/[datasetId]/[profileId]/page.js', import.meta.url), 'utf8');
 assert.doesNotMatch(adminProfilePreviewSource, /editableImage|imageId:/, 'the top Admin preview must not select an editable image');
@@ -1438,7 +1439,9 @@ assert.match(profileDetailSource, /<ProfileGallery[\s\S]*images=\{profile\.profi
 assert.equal((profileDetailSource.match(/<ProfileGallery/g) || []).length, 1, 'Admin and public detail must share one gallery rendering path');
 assert.doesNotMatch(profileDetailSource, /FocalPointEditor|focal-editor|hasEditableImage/, 'the top profile preview must be read-only');
 const profileGallerySource = await readFile(new URL('../components/ProfileGallery.js', import.meta.url), 'utf8');
-assert.match(profileGallerySource, /isPrimary/);
+const profileGalleryLoadingSource = await readFile(new URL('../lib/profile-gallery-loading.js', import.meta.url), 'utf8');
+assert.match(profileGallerySource, /initialGalleryIndex/);
+assert.match(profileGalleryLoadingSource, /isPrimary/);
 assert.match(profileGallerySource, /ArrowLeft/);
 assert.match(profileGallerySource, /scrollTo/);
 assert.match(profileGallerySource, /slideRefs/);
@@ -1515,7 +1518,8 @@ assert.match(batchImageServerSource, /\.eq\('id', datasetId\)/, 'dataset lookup 
 assert.match(batchImageServerSource, /\.eq\('dataset_id', dataset\.id\)/, 'profile and gallery reads must remain dataset-scoped');
 assert.match(batchImageServerSource, /getDriveAuth\(\{ strict: true, serviceAccountOnly: true \}\)/, 'Admin Drive credentials must stay server-side');
 assert.match(batchImageServerSource, /ingestProfileImages/, 'Admin batch must reuse canonical Drive download, validation, EXIF, path, and upload logic');
-assert.match(batchImageServerSource, /create_profile_image_gallery_with_derivatives_if_empty/, 'Admin batch must atomically commit the gallery and complete derivative metadata');
+assert.match(batchImageServerSource, /create_profile_image_gallery_with_profile_derivatives_if_empty/,
+  'Admin batch must atomically commit the gallery and both derivative classes');
 assert.doesNotMatch(batchImageServerSource, /spawn|python3|python\b/, 'Admin batch must not shell out to external executables');
 const datasetManagerSource = await readFile(new URL('../components/DatasetManager.js', import.meta.url), 'utf8');
 assert.match(datasetManagerSource, /Preview missing images/);
