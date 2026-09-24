@@ -1413,9 +1413,9 @@ assert.doesNotMatch(publicDatasetSource, /unstable_cache|force-cache|cacheTag|ca
 const discoveryFeedSource = await readFile(new URL('../components/DiscoveryFeed.js', import.meta.url), 'utf8');
 assert.match(discoveryFeedSource, /router\.refresh\(\)/,
   'a restored or refocused Discovery client must request the revalidated root payload');
-assert.match(discoveryFeedSource, /navigation\?\.at[\s\S]*refreshDiscoveryData\(\)/,
+assert.match(discoveryFeedSource, /requestReturnRefresh\(navigation\)/,
   'returning from ProfileDetail must refresh stale Router Cache props');
-assert.match(discoveryFeedSource, /event\.persisted[\s\S]*refreshDiscoveryData\(\)/,
+assert.match(discoveryFeedSource, /event\.persisted[\s\S]*requestResumeRefresh\('pageshow', \{ persisted: true \}\)/,
   'BFCache restoration must refresh Discovery metadata');
 assert.match(discoveryFeedSource, /visibilitychange[\s\S]*handleVisibilityChange/,
   'a backgrounded Discovery tab must refresh when it becomes visible');

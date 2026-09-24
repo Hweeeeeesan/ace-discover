@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { SearchX, SlidersHorizontal } from 'lucide-react';
 import DiscoveryToolbar from './DiscoveryToolbar';
@@ -20,6 +20,10 @@ import {
   migrateDiscoveryState,
   sanitizeFilters,
 } from '../lib/discovery';
+import {
+  createDiscoveryRefreshCoordinator,
+  discoveryNavigationMarkerId,
+} from '../lib/discovery-refresh';
 import { readSeenIds, SEEN_CHANGE_EVENT } from '../lib/seen-profiles';
 import { readSavedIds, SAVED_CHANGE_EVENT } from '../lib/saved-profiles';
 import {
@@ -51,8 +55,27 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
   const stateRef = useRef(INITIAL_STATE);
   const scrollTopRef = useRef(0);
   const toastTimerRef = useRef(null);
-  const lastDataRefreshAtRef = useRef(0);
-  const checkedReturnRefreshRef = useRef(false);
+  const [refreshPending, startRefreshTransition] = useTransition();
+  const refreshCoordinatorRef = useRef(null);
+
+  if (!refreshCoordinatorRef.current) {
+    refreshCoordinatorRef.current = createDiscoveryRefreshCoordinator({
+      refresh: () => startRefreshTransition(() => router.refresh()),
+      consumeReturnMarker: (marker) => {
+        try {
+          const key = discoveryNavigationKey(datasetSlug);
+          const current = JSON.parse(window.sessionStorage.getItem(key) || 'null');
+          if (discoveryNavigationMarkerId(current) === discoveryNavigationMarkerId(marker)) {
+            window.sessionStorage.removeItem(key);
+          }
+        } catch {
+          // Fresh data still loads normally when browser storage is unavailable.
+        }
+      },
+      onError: (error) => console.error('Unable to refresh Discovery data:', error),
+    });
+  }
+  const refreshCoordinator = refreshCoordinatorRef.current;
 
   const [ready, setReady] = useState(false);
   const [restored, setRestored] = useState(false);
@@ -68,13 +91,6 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
 
   stateRef.current = discovery;
   encounteredIdsRef.current = encounteredIds;
-
-  const refreshDiscoveryData = useCallback(() => {
-    const now = Date.now();
-    if (now - lastDataRefreshAtRef.current < 1000) return;
-    lastDataRefreshAtRef.current = now;
-    router.refresh();
-  }, [router]);
 
   const options = useMemo(() => getDiscoveryOptions(profiles), [profiles]);
   const availableRoles = useMemo(() => getAvailableRoles(profiles), [profiles]);
@@ -180,42 +196,37 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
   }, [datasetSlug]);
 
   useEffect(() => {
-    let wasInactive = document.visibilityState === 'hidden' || !document.hasFocus();
+    if (document.visibilityState === 'hidden' || !document.hasFocus()) {
+      refreshCoordinator.markInactive();
+    }
 
-    // A client-side return from ProfileDetail can restore an old Router Cache
-    // entry for `/`. The server route is already invalidated by focal saves;
-    // refresh once so this mounted feed receives the current bulk RPC payload.
-    if (!checkedReturnRefreshRef.current) {
-      checkedReturnRefreshRef.current = true;
-      try {
-        const navigation = JSON.parse(window.sessionStorage.getItem(discoveryNavigationKey(datasetSlug)) || 'null');
-        if (navigation?.at && Date.now() - navigation.at < 4 * 60 * 60 * 1000) refreshDiscoveryData();
-      } catch {
-        // Fresh data still loads normally when browser storage is unavailable.
+    try {
+      const navigation = JSON.parse(window.sessionStorage.getItem(discoveryNavigationKey(datasetSlug)) || 'null');
+      if (navigation?.at && Date.now() - Number(navigation.at) < 4 * 60 * 60 * 1000) {
+        refreshCoordinator.requestReturnRefresh(navigation);
       }
+    } catch {
+      // Fresh data still loads normally when browser storage is unavailable.
     }
 
     function handleBlur() {
-      wasInactive = true;
+      refreshCoordinator.markInactive();
     }
 
     function handleFocus() {
-      if (!wasInactive) return;
-      wasInactive = false;
-      refreshDiscoveryData();
+      refreshCoordinator.requestResumeRefresh('focus');
     }
 
     function handleVisibilityChange() {
       if (document.visibilityState === 'hidden') {
-        wasInactive = true;
-      } else if (wasInactive) {
-        wasInactive = false;
-        refreshDiscoveryData();
+        refreshCoordinator.markInactive();
+      } else {
+        refreshCoordinator.requestResumeRefresh('visibilitychange');
       }
     }
 
     function handlePageShow(event) {
-      if (event.persisted) refreshDiscoveryData();
+      if (event.persisted) refreshCoordinator.requestResumeRefresh('pageshow', { persisted: true });
     }
 
     window.addEventListener('blur', handleBlur);
@@ -227,8 +238,13 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('pageshow', handlePageShow);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      refreshCoordinator.dispose();
     };
-  }, [datasetSlug, refreshDiscoveryData]);
+  }, [datasetSlug, refreshCoordinator]);
+
+  useEffect(() => {
+    if (!refreshPending) refreshCoordinator.settle();
+  }, [refreshPending, refreshCoordinator, profiles]);
 
   useEffect(() => {
     if (!ready || discovery.role === 'All' || availableRoles.includes(discovery.role)) return;
@@ -474,6 +490,9 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
       window.sessionStorage.setItem(discoveryNavigationKey(datasetSlug), JSON.stringify({
         profileId,
         at: Date.now(),
+        nonce: typeof window.crypto?.randomUUID === 'function'
+          ? window.crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       }));
     } catch {
       // Navigation still works without storage.

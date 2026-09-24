@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "test": "npm run test:discovery && npm run test:datasets && npm run test:admin-preview && npm run test:dataset-removal && npm run test:importer && npm run test:sheets && npm run test:story && npm run test:profile-card && npm run test:profile-overrides && npm run test:profile-visibility && npm run test:profile-qa && npm run validate:data && npm run test:drive && npm run test:images && npm run test:image-health && npm run test:auth && npm run test:drive-recovery",
-    "test:discovery": "node scripts/test-discovery.mjs",
+    "test:discovery": "node scripts/test-discovery.mjs && node scripts/test-discovery-refresh.mjs",
     "test:datasets": "node scripts/test-datasets.mjs",
     "test:admin-preview": "node scripts/test-admin-app-preview.mjs",
     "test:dataset-removal": "node scripts/test-dataset-removal.mjs",
