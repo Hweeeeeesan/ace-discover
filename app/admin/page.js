@@ -73,7 +73,9 @@ export default async function AdminPage({ searchParams }) {
   const health = selected?.health;
   const safeIssues = selected?.safeIssues || {};
   const metrics = health ? [
-    ['Total profiles', health.totalProfiles],
+    ['Total records', selected.totalRecordCount ?? health.totalProfiles],
+    ['Public profiles', selected.publicProfileCount ?? health.totalProfiles],
+    ['Hidden profiles', selected.hiddenProfileCount ?? 0],
     ['Littles', health.roleCounts.Little],
     ['Bigs', health.roleCounts.Big],
     ['Family', health.roleCounts.Family],

@@ -1005,6 +1005,8 @@ select:focus-visible {
 .admin-profile-editor-heading h2 { margin: 5px 0 0; font-size: 23px; letter-spacing: -.03em; }
 .admin-profile-editor-status { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .admin-profile-editor-status span { color: #6c675f; font-size: 11px; }
+.admin-profile-editor-status .admin-profile-visibility-hidden { padding: 5px 8px; border-radius: 999px; color: #7b2d2d; background: #fbe8e8; font-weight: 850; }
+.admin-profile-editor-status .admin-profile-visibility-public { padding: 5px 8px; border-radius: 999px; color: #256044; background: #e8f5ec; font-weight: 850; }
 .admin-profile-editor-status button, .admin-profile-editor-actions button { min-height: 40px; padding: 0 13px; border: 0; border-radius: 11px; cursor: pointer; color: #222; background: #ebe8e2; font-size: 12px; font-weight: 820; }
 .admin-profile-editor-form { margin-top: 18px; display: grid; gap: 13px; }
 .admin-profile-editor-form label { display: grid; gap: 6px; color: #4e4a44; font-size: 12px; font-weight: 750; }

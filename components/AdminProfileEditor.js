@@ -33,12 +33,13 @@ function sameValue(left, right) {
 
 export default function AdminProfileEditor({
   datasetId, datasetSlug, profileId, profile, importedPublicData, publicOverrides = {},
-  publicOverridesUpdatedAt = null, vibeReasoning = [], vibeThreshold = 5,
+  publicOverridesUpdatedAt = null, publicHidden = false, vibeReasoning = [], vibeThreshold = 5,
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [values, setValues] = useState(() => initialValues(profile));
   const [pending, setPending] = useState(false);
+  const [hidden, setHidden] = useState(publicHidden === true);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const overrideCount = Object.keys(publicOverrides || {}).length;
@@ -93,14 +94,44 @@ export default function AdminProfileEditor({
     }
   }
 
+  async function setVisibility(nextHidden) {
+    const action = nextHidden ? 'hide this profile from every public surface' : 'restore this profile to public surfaces';
+    if (!window.confirm(`Are you sure you want to ${action}?`)) return;
+    setPending(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch('/api/admin/datasets/profile-visibility', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ datasetId, profileId, hidden: nextHidden }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Profile visibility could not be changed.');
+      setHidden(payload.publicHidden === true);
+      setMessage(payload.publicHidden ? 'Profile hidden from public surfaces.' : 'Profile restored to public surfaces.');
+      router.refresh();
+    } catch (visibilityError) {
+      setError(visibilityError.message);
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
     <section className="admin-profile-editor" aria-labelledby="admin-profile-editor-title">
       <div className="admin-profile-editor-heading">
         <div><p className="eyebrow dark">Admin-only</p><h2 id="admin-profile-editor-title">Public profile</h2></div>
         <div className="admin-profile-editor-status">
+          <span className={hidden ? 'admin-profile-visibility-hidden' : 'admin-profile-visibility-public'}>
+            {hidden ? 'Hidden from public' : 'Public'}
+          </span>
           {overrideCount > 0 && <span>{overrideCount} public field{overrideCount === 1 ? '' : 's'} overridden</span>}
           {publicOverridesUpdatedAt && <span>Last edited {new Date(publicOverridesUpdatedAt).toLocaleString()}</span>}
           {!editing && <button type="button" onClick={() => { setMessage(''); setError(''); setEditing(true); }}>Edit profile</button>}
+          <button type="button" onClick={() => setVisibility(!hidden)} disabled={pending}>
+            {hidden ? 'Restore to public' : 'Hide from public'}
+          </button>
         </div>
       </div>
       {message && <p className="admin-form-success" role="status">{message}</p>}

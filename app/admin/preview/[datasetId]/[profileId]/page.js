@@ -30,6 +30,7 @@ export default async function AdminDatasetProfilePreview({ params }) {
         importedPublicData: result.importedPublicData,
         publicOverrides: result.publicOverrides,
         publicOverridesUpdatedAt: result.publicOverridesUpdatedAt,
+        publicHidden: result.publicHidden,
         vibeReasoning: result.vibeReasoning,
         vibeThreshold: VIBE_SCORE_THRESHOLD,
       }}
