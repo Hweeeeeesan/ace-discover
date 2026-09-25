@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { MAJOR_GROUP_ORDER, normalizeMajorGroup } from '../lib/import/major-group';
 
 const TEXT_FIELDS = [
   ['name', 'Name', 'input'], ['pronouns', 'Pronouns', 'input'], ['year', 'Year', 'input'],
@@ -23,6 +24,7 @@ const VIBE_ORDER = [
 function initialValues(profile) {
   return Object.fromEntries([
     ...TEXT_FIELDS.map(([field]) => [field, profile?.[field] || '']),
+    ['majorGroup', profile?.majorGroup || normalizeMajorGroup(profile?.major)],
     ['vibes', Array.isArray(profile?.vibes) ? profile.vibes : []],
   ]);
 }
@@ -52,6 +54,8 @@ export default function AdminProfileEditor({
   function reset(field) {
     update(field, field === 'vibes'
       ? (Array.isArray(importedPublicData?.[field]) ? importedPublicData[field] : [])
+      : field === 'majorGroup'
+        ? normalizeMajorGroup(importedPublicData?.major)
       : (importedPublicData?.[field] || ''));
   }
 
@@ -138,6 +142,19 @@ export default function AdminProfileEditor({
       {error && <p className="admin-form-error" role="alert">{error}</p>}
       {editing ? (
         <form className="admin-profile-editor-form" onSubmit={save}>
+          <fieldset className="admin-profile-major-group">
+            <legend>Major Category</legend>
+            <p>Raw major: <strong>{importedPublicData?.major || '—'}</strong></p>
+            <p>Auto category: <strong>{normalizeMajorGroup(importedPublicData?.major)}</strong></p>
+            <label>
+              <span>Effective category</span>
+              <select value={values.majorGroup} onChange={(event) => update('majorGroup', event.target.value)}>
+                {MAJOR_GROUP_ORDER.map((category) => <option value={category} key={category}>{category}</option>)}
+              </select>
+            </label>
+            {publicOverrides.majorGroup !== undefined && <small className="admin-profile-source-change">Manual category override active.</small>}
+            <button type="button" className="admin-profile-reset" onClick={() => reset('majorGroup')} disabled={sameValue(values.majorGroup, normalizeMajorGroup(importedPublicData?.major))}>Reset to automatic</button>
+          </fieldset>
           {TEXT_FIELDS.map(([field, label, type]) => (
             <label key={field}>
               <span>{label}</span>
@@ -157,6 +174,12 @@ export default function AdminProfileEditor({
         </form>
       ) : (
         <div className="admin-profile-vibe-reasoning">
+          <section className="admin-profile-major-summary" aria-label="Major category">
+            <h3>Major Category</h3>
+            <p>Raw major: <strong>{importedPublicData?.major || '—'}</strong></p>
+            <p>Auto category: <strong>{normalizeMajorGroup(importedPublicData?.major)}</strong></p>
+            <p>Effective category: <strong>{profile?.majorGroup || normalizeMajorGroup(importedPublicData?.major)}</strong>{publicOverrides.majorGroup !== undefined && ' · Manual category'}</p>
+          </section>
           <p>Imported values remain the source snapshot. Overrides are layered on top and survive future Sheet or Excel updates.</p>
           <h3>Automatic vibe reasoning</h3>
           {!vibeReasoning.length && <p>No automatic vibe evidence matched.</p>}

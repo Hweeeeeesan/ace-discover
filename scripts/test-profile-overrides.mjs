@@ -13,6 +13,22 @@ const imported = {
   aceTraitSlideUrl: 'https://docs.google.com/presentation/d/imported-slide/edit',
 };
 
+assert.equal(resolveEffectivePublicProfile({ major: 'Human Systems Integration', majorGroup: 'Other / Undeclared' }, {}).majorGroup, 'Other / Undeclared');
+assert.equal(
+  resolveEffectivePublicProfile({ major: 'Human Systems Integration', majorGroup: 'Other / Undeclared' }, { majorGroup: 'Engineering' }).majorGroup,
+  'Engineering',
+);
+assert.equal(validatePublicOverrides({ majorGroup: 'Engineering' }).majorGroup, 'Engineering');
+assert.throws(() => validatePublicOverrides({ majorGroup: 'Not a category' }), /canonical major group/);
+assert.deepEqual(
+  buildPublicOverridePatch({ major: 'Human Systems Integration' }, { majorGroup: 'Engineering' }, { majorGroup: 'Other / Undeclared' }),
+  {},
+);
+assert.deepEqual(
+  buildPublicOverridePatch({ major: 'Human Systems Integration' }, { majorGroup: 'Engineering' }, { majorGroup: 'Engineering' }),
+  { majorGroup: 'Engineering' },
+);
+
 assert.equal(resolveEffectivePublicProfile(imported, {}).major, 'Nutrition');
 assert.equal(resolveEffectivePublicProfile(imported, { major: 'Nutritional Science — Dietetics' }).major, 'Nutritional Science — Dietetics');
 assert.equal(resolveEffectivePublicProfile(imported, { passion: '' }).passion, '');
@@ -74,6 +90,7 @@ const adminSource = await readFile(new URL('../lib/datasets/admin.js', import.me
 const publicSource = await readFile(new URL('../lib/datasets/public.js', import.meta.url), 'utf8');
 const syncSource = await readFile(new URL('../supabase/migrations/202609040001_google_sheet_sync.sql', import.meta.url), 'utf8');
 const editor = await readFile(new URL('../components/AdminProfileEditor.js', import.meta.url), 'utf8');
+const majorGroupMigration = await readFile(new URL('../supabase/migrations/202609250001_major_group_override.sql', import.meta.url), 'utf8');
 
 assert.match(migration, /add column if not exists public_overrides jsonb not null default '\{\}'::jsonb/);
 assert.match(migration, /update_profile_public_overrides/);
@@ -94,6 +111,10 @@ assert.match(editor, /Reset to automatic/);
 assert.match(editor, /Automatic vibe reasoning/);
 assert.match(editor, /aceTraitSlideUrl/);
 assert.match(editor, /Personal ACE Trait slide URL/);
+assert.match(editor, /Major Category/);
+assert.match(editor, /Reset to automatic/);
+assert.match(majorGroupMigration, /'majorGroup'/);
+assert.match(majorGroupMigration, /canonical major groups/);
 assert.doesNotMatch(editor, /profileImages|storagePath|phone|email|birthday/);
 
 console.log('Public profile override resolver, validation, security, sync preservation, and Admin wiring tests passed.');

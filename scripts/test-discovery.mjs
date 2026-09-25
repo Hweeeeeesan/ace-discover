@@ -159,8 +159,19 @@ assert.ok(scoreProfile(effectiveProfile, 'photography') >= 0, 'effective Admin o
 assert.equal(scoreProfile(effectiveProfile, 'hiking'), -1, 'overridden imported text should not remain searchable');
 assert.deepEqual(filterAndOrderProfiles([effectiveProfile], { years: ['third year'], seed }).map(({ id }) => id), ['override-profile']);
 assert.deepEqual(filterAndOrderProfiles([effectiveProfile], { years: ['first year'], seed }), [], 'stale normalized year must not drive filtering');
-assert.deepEqual(filterAndOrderProfiles([effectiveProfile], { majorGroups: ['computing and data'], seed }).map(({ id }) => id), ['override-profile']);
-assert.deepEqual(filterAndOrderProfiles([effectiveProfile], { majorGroups: ['education and humanities'], seed }), [], 'stale major group must not drive filtering');
+assert.deepEqual(filterAndOrderProfiles([effectiveProfile], { majorGroups: ['education and humanities'], seed }).map(({ id }) => id), ['override-profile']);
+assert.deepEqual(filterAndOrderProfiles([effectiveProfile], { majorGroups: ['computing and data'], seed }), [], 'major text overrides must not change derived category');
+const majorOverrideProfile = { ...effectiveProfile, major: 'Human Systems Integration', majorGroup: 'Other / Undeclared' };
+assert.deepEqual(
+  filterAndOrderProfiles([{ ...majorOverrideProfile, majorGroup: 'Engineering' }], { majorGroups: ['engineering'], seed }).map(({ id }) => id),
+  ['override-profile'],
+  'major category overrides must drive filtering',
+);
+assert.deepEqual(
+  getDiscoveryOptions([{ ...majorOverrideProfile, majorGroup: 'Engineering' }]).majorGroups.find((option) => option.label === 'Engineering')?.count,
+  1,
+  'major category overrides must drive option counts',
+);
 
 const canonicalPhotography = scoreVibeEvidence({ hobbies: wholeProfileFixture.hobbies })
   .find(({ vibe }) => vibe === 'Photography');

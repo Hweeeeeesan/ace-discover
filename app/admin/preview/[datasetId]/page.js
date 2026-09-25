@@ -28,7 +28,7 @@ export default async function AdminDatasetPreview({ params }) {
         {result.profiles.map((profile) => (
           <Link href={`/admin/preview/${encodeURIComponent(result.dataset.id)}/${encodeURIComponent(profile.id)}`} key={profile.id}>
             <strong>{profile.name}</strong>
-            <span>{[profile.role, profile.major, profile.year].filter(Boolean).join(' · ')}</span>
+            <span>{[profile.role, profile.major, profile.effectiveMajorGroup, profile.year].filter(Boolean).join(' · ')}</span>
           </Link>
         ))}
       </section>
