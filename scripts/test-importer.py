@@ -303,6 +303,126 @@ class PublicProfileTests(unittest.TestCase):
             repr(IMPORTER.public_profiles(profiles)),
         )
 
+    def test_fall_2026_role_block_precedence_is_resolved_before_field_selection(self):
+        workbook = pathlib.Path(__file__).parents[1] / 'FALL 26 MASTER APPS TEST.xlsx'
+        values = logical_sheet_values(workbook, 'BIGS')
+        header = list(values[0])
+        set_cell(header, 'DA', "What's your ideal hangout?")
+        set_cell(
+            header,
+            'CZ',
+            '[OPTIONAL] Upload your Subtle ACE Trait slide! '
+            '(Please upload a link to your slide below! Canva or Google Slides)',
+        )
+        set_cell(
+            header,
+            'DB',
+            '[OPTIONAL] Upload your Subtle ACE Trait slide! '
+            '(Please upload a link to your slide below! Canva or Google Slides)',
+        )
+        base_row = list(values[1])
+
+        little = {
+            'AS': 'Little Family',
+            'S': 'Little hobbies: cooking, pottery, reading',
+            'T': 'Little hobby details',
+            'U': 'Little music',
+            'V': 'Little movies',
+            'W': 'Little unique things',
+            'X': 'Little tagline',
+            'Y': 'Little perfect day',
+            'Z': 'Little hot take',
+            'AA': 'Little ideal hangout',
+            'AB': 'Little bucket list',
+            'AH': 'Little passion',
+            'AL': '2',
+            'AN': 'Introvert',
+            'AQ': 'https://drive.google.com/file/d/1JosephLittleImage2026/view',
+            'BL': 'Little story',
+            'DB': 'https://docs.google.com/presentation/d/1LittleJosephSlide/edit',
+        }
+        big = {
+            'BN': 'Big Family',
+            'BY': 'Photography, hiking, gaming',
+            'BZ': 'Big hobby details',
+            'CA': 'Big music',
+            'CB': 'Big movies',
+            'CF': 'Big unique things',
+            'CD': 'Big tagline',
+            'CE': 'Big perfect day',
+            'CH': 'Big hot take',
+            'CC': 'Big passion',
+            'CS': '5',
+            'CU': 'Extrovert',
+            'CV': 'Big story',
+            'CX': 'https://drive.google.com/file/d/1JosephBigImage2026/view',
+            'CZ': 'https://docs.google.com/presentation/d/1BigJosephSlide/edit',
+            'CG': 'Big bucket list',
+            'DA': 'Big ideal hangout',
+        }
+
+        def imported_profile(program):
+            row = list(base_row)
+            set_cell(row, 'E', 'Joseph')
+            set_cell(row, 'F', 'Nguyen')
+            set_cell(row, 'R', program)
+            for column, value in {**little, **big}.items():
+                set_cell(row, column, value)
+            with tempfile.TemporaryDirectory() as directory:
+                adapted = pathlib.Path(directory) / 'role-block-precedence.xlsx'
+                SHEET_ANALYZER.write_tabular_xlsx(adapted, 'Form Responses 1', [header, row])
+                profiles, _ = IMPORTER.build_profiles(adapted)
+            self.assertEqual(len(profiles), 1)
+            return profiles[0]
+
+        big_profile = imported_profile('ACE BIG ONLY PROGRAM')
+        self.assertEqual(big_profile['role'], 'Big')
+        for field, column in {
+            'hobbies': 'BY', 'hobbyDetails': 'BZ', 'music': 'CA', 'movies': 'CB',
+            'uniqueThings': 'CF', 'tagline': 'CD', 'perfectDay': 'CE',
+            'bucketList': 'CG', 'hotTake': 'CH', 'bio': 'CV', 'family': 'BN',
+            'socialStyle': 'CU', 'passion': 'CC', 'idealHangout': 'DA',
+        }.items():
+            self.assertEqual(big_profile[field], big[column], field)
+        self.assertEqual(big_profile['socialLevel'], 5)
+        self.assertEqual(big_profile['aceTraitSlideUrl'], big['CZ'])
+        self.assertEqual(big_profile['driveFileId'], '1JosephBigImage2026')
+        self.assertEqual(big_profile['interests'], ['Photography', 'Hiking', 'Gaming'])
+        expected_big_vibes = IMPORTER.infer_vibes({
+            'hobbies': big['BY'],
+            'hobbyDetails': big['BZ'],
+            'passion': big['CC'],
+            'perfectDay': big['CE'],
+            'idealHangout': big['DA'],
+            'story': big['CV'],
+            'music': big['CA'],
+            'movies': big['CB'],
+        })
+        self.assertEqual(big_profile['vibes'], expected_big_vibes)
+        self.assertNotIn('Little ', repr(big_profile))
+
+        little_profile = imported_profile('FAM/ACE LITTLE Program')
+        self.assertEqual(little_profile['role'], 'Little')
+        for field, column in {
+            'hobbies': 'S', 'hobbyDetails': 'T', 'music': 'U', 'movies': 'V',
+            'uniqueThings': 'W', 'tagline': 'X', 'perfectDay': 'Y',
+            'bucketList': 'AB', 'hotTake': 'Z', 'bio': 'BL', 'family': 'AS',
+            'socialStyle': 'AN', 'passion': 'AH', 'idealHangout': 'AA',
+        }.items():
+            self.assertEqual(little_profile[field], little[column])
+        self.assertEqual(little_profile['socialLevel'], 2)
+        self.assertEqual(little_profile['aceTraitSlideUrl'], little['DB'])
+        self.assertEqual(little_profile['driveFileId'], '1JosephLittleImage2026')
+        self.assertNotIn('Big ', repr(little_profile))
+
+        family_profile = imported_profile('FAMILY PROGRAM / FAMILY ONLY')
+        self.assertEqual(family_profile['role'], 'Family')
+        self.assertEqual(family_profile['hobbies'], little['S'])
+        self.assertEqual(family_profile['bio'], little['BL'])
+        self.assertEqual(family_profile['passion'], little['AH'])
+        self.assertEqual(family_profile['idealHangout'], little['AA'])
+        self.assertEqual(family_profile['aceTraitSlideUrl'], '')
+
     def test_fall_2026_ideal_hangout_is_selected_by_role(self):
         workbook = pathlib.Path(__file__).parents[1] / 'FALL 26 MASTER APPS TEST.xlsx'
         values = logical_sheet_values(workbook, 'BIGS')

@@ -449,6 +449,24 @@ def select_sheet_configs(archive, shared, worksheet_paths):
                 'year': 'N', 'school': 'P', 'major': 'Q', 'program': 'R',
                 'family': ('AS', 'BN'), 'hobbies': ('S', 'BY'), 'hobbyDetails': ('T', 'BZ'),
                 'music': ('U', 'CA'), 'movies': ('V', 'CB'),
+                # Fall 2026 contains two answer blocks in one BIGS worksheet.
+                # Resolve the program role before selecting these fields so an
+                # accidentally populated block for another role cannot win by
+                # appearing earlier in the tuple.
+                'familyByRole': {'Little': 'AS', 'Family': 'AS', 'Big': 'BN'},
+                'hobbiesByRole': {'Little': 'S', 'Family': 'S', 'Big': 'BY'},
+                'hobbyDetailsByRole': {'Little': 'T', 'Family': 'T', 'Big': 'BZ'},
+                'musicByRole': {'Little': 'U', 'Family': 'U', 'Big': 'CA'},
+                'moviesByRole': {'Little': 'V', 'Family': 'V', 'Big': 'CB'},
+                'uniqueThingsByRole': {'Little': 'W', 'Family': 'W', 'Big': 'CF'},
+                'taglineByRole': {'Little': 'X', 'Family': 'X', 'Big': 'CD'},
+                'perfectDayByRole': {'Little': 'Y', 'Family': 'Y', 'Big': 'CE'},
+                'hotTakeByRole': {'Little': 'Z', 'Family': 'Z', 'Big': 'CH'},
+                'bucketListByRole': {'Little': 'AB', 'Family': 'AB', 'Big': 'CG'},
+                'storyByRole': {'Little': 'BL', 'Family': 'BL', 'Big': 'CV'},
+                'imageByRole': {'Little': 'AQ', 'Family': 'AQ', 'Big': 'CX'},
+                'socialLevelByRole': {'Little': 'AL', 'Family': 'AL', 'Big': 'CS'},
+                'socialStyleByRole': {'Little': 'AN', 'Family': 'AN', 'Big': 'CU'},
                 'passionByRole': passion_by_role,
                 'tagline': ('X', 'CD'), 'perfectDay': ('Y', 'CE'), 'uniqueThings': ('W', 'CF'),
                 'bucketList': ('AB', 'CG'), 'hotTake': ('Z', 'CH'),
@@ -495,6 +513,15 @@ def first(row, columns):
         if value:
             return value
     return ''
+
+
+def role_columns(config, field_name, role):
+    """Return the exact source columns for a resolved role when available."""
+    scoped = config.get(f'{field_name}ByRole')
+    if scoped is not None:
+        column = scoped.get(role)
+        return (column,) if isinstance(column, str) else column
+    return config.get(field_name)
 
 
 def clean_text(value):
@@ -1478,6 +1505,7 @@ def build_profiles(xlsx_path, allow_partial=False):
                     raw_deck = ''
                     social_level = None
                     social_style = ''
+                    standard_role_scoped_row = False
                 elif sheet_name == 'BIGS' and is_legacy_big_expanded_row(row):
                     # This edited response used an older full-form layout. The
                     # profile-safe fields below were verified against that
@@ -1500,6 +1528,7 @@ def build_profiles(xlsx_path, allow_partial=False):
                     raw_deck = ''
                     social_level = parse_social_level(row.get('AS', ''))
                     social_style = normalize_social_style(row.get('AU', ''))
+                    standard_role_scoped_row = False
                 else:
                     first_name = first(row, config['name'][0])
                     last_name = first(row, config['name'][1])
@@ -1507,30 +1536,35 @@ def build_profiles(xlsx_path, allow_partial=False):
                     school = first(row, config['school'])
                     major = first(row, config['major'])
                     program = first(row, config['program'])
-                    family = first(row, config['family'])
-                    hobbies = first(row, config['hobbies'])
-                    hobby_details = first(row, config.get('hobbyDetails'))
-                    passion = first(row, config.get('passion'))
-                    tagline = first(row, config.get('tagline'))
-                    unique_things = first(row, config.get('uniqueThings'))
-                    bucket_list = first(row, config.get('bucketList'))
-                    hot_take = first(row, config.get('hotTake'))
-                    ideal_hangout = first(row, config.get('idealHangout'))
-                    story = first(row, config['story']) if config.get('story') else ''
-                    perfect_day = first(row, config['perfectDay'])
-                    music = first(row, config['music'])
-                    movies = first(row, config['movies'])
-                    instagram = first_instagram(row, config['instagram'])
-                    raw_image = first(row, config['image'])
-                    raw_deck = first(row, config['deck'])
-                    social_level = first_parsed(row, config['socialLevel'], parse_social_level)
-                    social_style = first_parsed(row, config['socialStyle'], normalize_social_style)
+                    standard_role_scoped_row = True
 
                 name = redact_pii(f'{first_name} {last_name}')
                 if not name or '[email removed]' in name or '[phone removed]' in name:
                     continue
 
                 role = derive_profile_role(program, config['role'], config.get('f26', False))
+                if standard_role_scoped_row:
+                    # Role-specific fields intentionally do not fall back to a
+                    # different application's block when the selected block is
+                    # blank. This prevents cross-role answer leakage.
+                    family = first(row, role_columns(config, 'family', role))
+                    hobbies = first(row, role_columns(config, 'hobbies', role))
+                    hobby_details = first(row, role_columns(config, 'hobbyDetails', role))
+                    passion = first(row, config.get('passion'))
+                    tagline = first(row, role_columns(config, 'tagline', role))
+                    unique_things = first(row, role_columns(config, 'uniqueThings', role))
+                    bucket_list = first(row, role_columns(config, 'bucketList', role))
+                    hot_take = first(row, role_columns(config, 'hotTake', role))
+                    ideal_hangout = first(row, config.get('idealHangout'))
+                    story = first(row, role_columns(config, 'story', role)) if role_columns(config, 'story', role) else ''
+                    perfect_day = first(row, role_columns(config, 'perfectDay', role))
+                    music = first(row, role_columns(config, 'music', role))
+                    movies = first(row, role_columns(config, 'movies', role))
+                    instagram = first_instagram(row, config['instagram'])
+                    raw_image = first(row, role_columns(config, 'image', role))
+                    raw_deck = first(row, config['deck'])
+                    social_level = first_parsed(row, role_columns(config, 'socialLevel', role), parse_social_level)
+                    social_style = first_parsed(row, role_columns(config, 'socialStyle', role), normalize_social_style)
                 if config.get('passionByRole'):
                     passion = first(row, config['passionByRole'].get(role))
                 if config.get('idealHangoutByRole'):
