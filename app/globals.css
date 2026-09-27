@@ -1169,8 +1169,8 @@ select:focus-visible {
 
   .detail-shell { padding: 48px; }
   .detail-card {
-    width: min(100%, 980px);
-    max-width: 980px;
+    width: min(100%, clamp(980px, 72vw, 1440px));
+    max-width: 1440px;
     min-height: 0;
     display: grid;
     grid-template-columns: minmax(0, 1.08fr) minmax(360px, .92fr);
@@ -1188,6 +1188,29 @@ select:focus-visible {
     padding: 48px 44px;
   }
   .detail-content h1 { font-size: clamp(42px, 4.5vw, 60px); }
+}
+
+/* Give taller desktop windows more room without changing the compact laptop
+   composition or the mobile/tablet layout. */
+@media (min-width: 900px) and (min-height: 801px) {
+  .detail-card {
+    height: min(calc(100svh - 96px), clamp(760px, 78svh, 1040px));
+  }
+
+  .detail-photo-wrap {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .detail-content {
+    height: 100%;
+    max-height: none;
+    padding: clamp(48px, 3vw, 72px) clamp(44px, 3vw, 72px);
+  }
+
+  .detail-content h1 {
+    font-size: clamp(48px, 3.2vw, 72px);
+  }
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1208,11 +1231,11 @@ select:focus-visible {
 
 @media (min-width: 1200px) {
   .discovery-shell {
-    width: min(calc(100vw - 64px), 1440px);
+    width: min(calc(100vw - clamp(64px, 4vw, 128px)), 2048px, max(1440px, 90vw));
     max-width: none;
-    height: min(calc(100svh - 48px), 920px);
+    height: min(calc(100svh - 48px), clamp(920px, 92svh, 1040px));
     display: grid;
-    grid-template-columns: 286px minmax(0, 1fr);
+    grid-template-columns: clamp(286px, 16vw, 340px) minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
     border-radius: 30px;
     box-shadow: 0 24px 110px rgba(0,0,0,.52);
@@ -1235,7 +1258,7 @@ select:focus-visible {
   }
   .rail-heading { display: flex; flex-direction: column; gap: 3px; }
   .rail-heading span, .rail-label { color: rgba(255,255,255,.52); font-size: 10px; font-weight: 850; letter-spacing: .14em; text-transform: uppercase; }
-  .rail-heading strong { font-size: 28px; line-height: 1; letter-spacing: -.05em; }
+  .rail-heading strong { font-size: clamp(28px, 1.6vw, 40px); line-height: 1; letter-spacing: -.05em; }
   .rail-shuffle-button { min-height: 38px; padding: 0 12px; border: 1px solid rgba(255,255,255,.2); border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; color: #111; background: white; font-size: 12px; font-weight: 850; }
   .rail-section { display: grid; gap: 10px; }
   .rail-role-list { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -1296,9 +1319,9 @@ select:focus-visible {
   .toolbar-actions { gap: 10px; }
   .feed { grid-column: 2; grid-row: 1; height: 100%; }
   .profile-card { height: 100%; }
-  .card-status-bar { top: 28px; padding-inline: 34px; }
-  .profile-copy { max-width: 720px; padding: 30px 42px calc(46px + env(safe-area-inset-bottom)); }
-  .profile-copy h2 { font-size: clamp(50px, 4vw, 76px); }
+  .card-status-bar { top: 28px; padding-inline: clamp(34px, 2.2vw, 52px); }
+  .profile-copy { max-width: min(78%, 860px); padding: clamp(30px, 2.2vw, 48px) clamp(42px, 2.5vw, 64px) calc(clamp(46px, 3vw, 64px) + env(safe-area-inset-bottom)); }
+  .profile-copy h2 { font-size: clamp(50px, 4vw, 84px); }
   .profile-copy .eyebrow { max-width: 570px; line-height: 1.35; letter-spacing: .105em; }
   .empty-results { min-height: 100%; }
   .discovery-toolbar + .result-announcer + .feed { min-width: 0; }
