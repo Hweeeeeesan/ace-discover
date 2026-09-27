@@ -1173,6 +1173,7 @@ select:focus-visible {
     max-width: none;
     height: min(calc(100svh - 96px), 88svh);
     min-height: 0;
+    container: profile-detail / size;
     display: grid;
     grid-template-columns: minmax(0, 1.08fr) minmax(360px, .92fr);
     overflow: hidden;
@@ -1233,6 +1234,60 @@ select:focus-visible {
   .deck-icon { width: clamp(44px, 3.2vw, 54px); height: clamp(44px, 3.2vw, 54px); }
   .deck-button strong { font-size: clamp(15px, .95vw, 18px); }
   .deck-button small { font-size: clamp(12px, .75vw, 14px); }
+}
+
+/* The fitted card is the sizing reference for its internal desktop design.
+   The declarations above remain the fallback for browsers without container
+   unit support. */
+@supports (width: 1cqw) {
+  @media (min-width: 900px) {
+    .detail-content {
+      padding: clamp(48px, 3.4cqw, 72px) clamp(44px, 3.4cqw, 72px);
+    }
+    .detail-content h1 { font-size: clamp(48px, 4cqw, 78px); }
+    .detail-content .eyebrow.dark { font-size: clamp(12px, .85cqw, 15px); }
+    .detail-name-row { gap: clamp(16px, 1.45cqw, 24px); }
+    .detail-name-row .detail-save-button { width: clamp(50px, 3.8cqw, 64px); height: clamp(50px, 3.8cqw, 64px); }
+    .detail-tagline {
+      max-width: min(100%, clamp(34ch, 42cqw, 48ch));
+      margin-top: clamp(18px, 1.55cqw, 26px);
+      padding-block: clamp(17px, 1.3cqw, 24px);
+      font-size: clamp(19px, 1.7cqw, 30px);
+    }
+    .detail-tags { margin-top: clamp(16px, 1.4cqw, 24px); }
+    .detail-tags .tag.light { padding: clamp(8px, .65cqw, 12px) clamp(11px, .8cqw, 15px); font-size: clamp(12px, .8cqw, 15px); }
+    .profile-meta { margin-top: clamp(20px, 1.6cqw, 28px); gap: clamp(8px, .65cqw, 12px); }
+    .profile-meta span { padding: clamp(8px, .65cqw, 12px) clamp(10px, .75cqw, 14px); font-size: clamp(12px, .8cqw, 15px); }
+    .profile-external-link {
+      min-height: clamp(68px, 5.5cqw, 88px);
+      margin-top: clamp(18px, 1.55cqw, 26px);
+      padding: clamp(11px, .85cqw, 15px) clamp(14px, 1.1cqw, 18px);
+      gap: clamp(11px, .85cqw, 15px);
+    }
+    .profile-external-link-icon { width: clamp(42px, 3.2cqw, 52px); height: clamp(42px, 3.2cqw, 52px); }
+    .profile-external-link strong { font-size: clamp(14px, .95cqw, 17px); }
+    .profile-external-link small { font-size: clamp(11px, .75cqw, 13px); }
+    .instagram-button { margin-top: clamp(18px, 1.55cqw, 26px); }
+    .info-section { margin-top: clamp(24px, 2cqw, 34px); padding-top: clamp(20px, 1.45cqw, 26px); }
+    .info-section h2 { margin-bottom: clamp(8px, .65cqw, 12px); font-size: clamp(13px, .85cqw, 15px); }
+    .info-section p { font-size: clamp(15px, 1cqw, 18px); }
+    .editorial-story { --story-section-gap: clamp(26px, 2.2cqw, 38px); --story-section-padding: clamp(16px, 1.35cqw, 24px); margin-top: clamp(25px, 2cqw, 34px); }
+    .instagram-button + .editorial-story { margin-top: clamp(16px, 1.45cqw, 24px); padding-top: clamp(16px, 1.35cqw, 24px); }
+    .story-section h2 { margin-bottom: clamp(10px, .75cqw, 14px); font-size: clamp(11px, .75cqw, 14px); }
+    .story-text { max-width: min(100%, clamp(47ch, 40cqw, 64ch)); font-size: clamp(15px, 1cqw, 18px); }
+    .story-prose .story-text { max-width: min(100%, clamp(42ch, 36cqw, 58ch)); }
+    .unique-things { max-width: min(100%, clamp(44ch, 37cqw, 60ch)); padding-left: clamp(24px, 1.7cqw, 32px); }
+    .unique-things li, .hobby-list article p { font-size: clamp(15px, 1cqw, 18px); }
+    .hobby-list { margin-top: clamp(10px, .85cqw, 15px); gap: clamp(10px, .85cqw, 15px); }
+    .hobby-list article h3 { font-size: clamp(15.5px, 1.05cqw, 19px); }
+    .story-compact .story-text { max-width: min(100%, clamp(50ch, 42cqw, 64ch)); }
+    .story-bucket .story-text { max-width: min(100%, clamp(44ch, 37cqw, 60ch)); }
+    .hot-take { padding-bottom: clamp(16px, 1.35cqw, 24px); }
+    .deck-button { min-height: clamp(74px, 6cqw, 96px); margin-top: clamp(30px, 2.2cqw, 38px); padding: clamp(12px, .95cqw, 16px) clamp(15px, 1.1cqw, 20px); gap: clamp(12px, .95cqw, 16px); }
+    .deck-icon { width: clamp(44px, 3.4cqw, 54px); height: clamp(44px, 3.4cqw, 54px); }
+    .deck-button strong { font-size: clamp(15px, 1cqw, 18px); }
+    .deck-button small { font-size: clamp(12px, .8cqw, 14px); }
+  }
 }
 
 @media (hover: hover) and (pointer: fine) {
