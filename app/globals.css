@@ -1169,8 +1169,9 @@ select:focus-visible {
 
   .detail-shell { padding: 48px; }
   .detail-card {
-    width: min(100%, clamp(980px, 72vw, 1440px));
-    max-width: 1440px;
+    width: min(calc(100vw - clamp(64px, 8vw, 128px)), 90vw);
+    max-width: none;
+    height: min(calc(100svh - 96px), 88svh);
     min-height: 0;
     display: grid;
     grid-template-columns: minmax(0, 1.08fr) minmax(360px, .92fr);
@@ -1178,39 +1179,17 @@ select:focus-visible {
     border-radius: 30px;
   }
   .detail-photo-wrap {
-    height: min(760px, calc(100svh - 96px));
-    min-height: 560px;
+    height: 100%;
+    min-height: 0;
     border-radius: 0;
   }
   .detail-content {
-    max-height: min(760px, calc(100svh - 96px));
-    overflow-y: auto;
-    padding: 48px 44px;
-  }
-  .detail-content h1 { font-size: clamp(42px, 4.5vw, 60px); }
-}
-
-/* Give taller desktop windows more room without changing the compact laptop
-   composition or the mobile/tablet layout. */
-@media (min-width: 900px) and (min-height: 801px) {
-  .detail-card {
-    height: min(calc(100svh - 96px), clamp(760px, 78svh, 1040px));
-  }
-
-  .detail-photo-wrap {
-    height: 100%;
-    min-height: 0;
-  }
-
-  .detail-content {
     height: 100%;
     max-height: none;
+    overflow-y: auto;
     padding: clamp(48px, 3vw, 72px) clamp(44px, 3vw, 72px);
   }
-
-  .detail-content h1 {
-    font-size: clamp(48px, 3.2vw, 72px);
-  }
+  .detail-content h1 { font-size: clamp(48px, 3.2vw, 72px); }
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1231,11 +1210,11 @@ select:focus-visible {
 
 @media (min-width: 1200px) {
   .discovery-shell {
-    width: min(calc(100vw - clamp(64px, 4vw, 128px)), 2048px, max(1440px, 90vw));
+    width: min(calc(100vw - clamp(64px, 4vw, 128px)), 94vw);
     max-width: none;
-    height: min(calc(100svh - 48px), clamp(920px, 92svh, 1040px));
+    height: min(calc(100svh - clamp(32px, 6vh, 88px)), 92svh);
     display: grid;
-    grid-template-columns: clamp(286px, 16vw, 340px) minmax(0, 1fr);
+    grid-template-columns: minmax(286px, 18%) minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
     border-radius: 30px;
     box-shadow: 0 24px 110px rgba(0,0,0,.52);
