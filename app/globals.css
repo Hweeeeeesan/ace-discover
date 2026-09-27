@@ -1210,9 +1210,12 @@ select:focus-visible {
 
 @media (min-width: 1200px) {
   .discovery-shell {
-    width: min(calc(100vw - clamp(64px, 4vw, 128px)), 94vw);
+    --discovery-outer-x: clamp(24px, 3vw, 64px);
+    --discovery-outer-y: clamp(24px, 4vh, 48px);
+    width: calc(100vw - (2 * var(--discovery-outer-x)));
     max-width: none;
-    height: min(calc(100svh - clamp(32px, 6vh, 88px)), 92svh);
+    height: calc(100svh - (2 * var(--discovery-outer-y)));
+    margin: var(--discovery-outer-y) auto;
     display: grid;
     grid-template-columns: minmax(286px, 18%) minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
