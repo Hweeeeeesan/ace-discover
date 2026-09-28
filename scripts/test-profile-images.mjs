@@ -29,11 +29,14 @@ import {
 import { parseArguments as parseImageMigrationArguments } from './migrate-drive-images-to-supabase.mjs';
 import {
   PROFILE_IMAGE_PLACEHOLDER,
+  buildDiscoveryDerivativeStoragePath,
+  buildProfileDetailDerivativeStoragePath,
   buildProfileImageStoragePath,
   buildPrimaryStoragePath,
   getPrimaryProfileImage,
   getProfileImages,
   isValidFocalCoordinate,
+  isOwnedProfileImageAssetSet,
   isValidProfileImageId,
   isValidStorageImagePath,
   normalizeDisplayMode,
@@ -88,6 +91,41 @@ assert.equal(isValidProfileImageId('spring-2026/same-person/primary.webp'), fals
 const futurePath = buildProfileImageStoragePath('spring-2026', 'same-person', imageId, 'image/png');
 assert.equal(futurePath, `spring-2026/same-person/${imageId}.png`);
 assert.equal(isValidStorageImagePath(futurePath), true);
+const currentAssetSet = {
+  datasetSlug: 'spring-2026',
+  profileId: 'same-person',
+  imageId,
+  storagePath: futurePath,
+  profileStoragePath: buildProfileDetailDerivativeStoragePath('spring-2026', 'same-person', imageId),
+  discoveryStoragePath: buildDiscoveryDerivativeStoragePath('spring-2026', 'same-person', imageId),
+};
+assert.equal(isOwnedProfileImageAssetSet(currentAssetSet), true, 'the current row-ID asset convention must remain valid');
+const replacementAssetId = 'c13e9413-8171-46f1-a85e-0a4f6c377f08';
+assert.equal(isOwnedProfileImageAssetSet({
+  ...currentAssetSet,
+  storagePath: buildProfileImageStoragePath('spring-2026', 'same-person', replacementAssetId, 'image/jpeg'),
+}), true, 'a historical canonical UUID may differ while row-ID derivatives still prove relational ownership');
+const replacementAssetSet = {
+  ...currentAssetSet,
+  assetId: replacementAssetId,
+  storagePath: buildProfileImageStoragePath('spring-2026', 'same-person', replacementAssetId, 'image/webp'),
+  profileStoragePath: buildProfileDetailDerivativeStoragePath('spring-2026', 'same-person', replacementAssetId),
+  discoveryStoragePath: buildDiscoveryDerivativeStoragePath('spring-2026', 'same-person', replacementAssetId),
+};
+assert.equal(isOwnedProfileImageAssetSet(replacementAssetSet), true, 'a stable row may receive a new immutable rotation asset set');
+assert.equal(isOwnedProfileImageAssetSet({ ...replacementAssetSet, assetId: imageId }), false, 'an unapproved asset UUID must not be accepted');
+assert.equal(isOwnedProfileImageAssetSet({
+  ...replacementAssetSet,
+  profileStoragePath: buildProfileDetailDerivativeStoragePath('spring-2026', 'another-person', replacementAssetId),
+}), false, 'cross-profile derivative paths must be rejected');
+assert.equal(isOwnedProfileImageAssetSet({
+  ...replacementAssetSet,
+  discoveryStoragePath: buildDiscoveryDerivativeStoragePath('spring-2026', 'same-person', imageId),
+}), false, 'a derivative from the wrong image asset must be rejected');
+assert.equal(isOwnedProfileImageAssetSet({
+  ...replacementAssetSet,
+  discoveryStoragePath: `spring-2026/same-person/derived/../${replacementAssetId}-discovery.webp`,
+}), false, 'malformed traversal paths must be rejected');
 assert.equal(normalizeFocalCoordinate(), 50);
 assert.equal(normalizeFocalCoordinate(undefined, 35), 35);
 assert.equal(normalizeFocalCoordinate('35.5'), 35.5, 'database numeric strings must normalize to percentages');
@@ -392,6 +430,13 @@ assert.equal(rotatedMetadata.width, 2);
 assert.equal(rotatedMetadata.height, 2);
 assert.equal(rotatedMetadata.orientation, undefined, 'rotated output should not retain EXIF orientation');
 assert.equal(rotated.contentType, 'image/jpeg');
+const rectangularJpeg = await sharp({ create: { width: 3, height: 2, channels: 3, background: { r: 90, g: 40, b: 180 } } }).jpeg().toBuffer();
+for (const degrees of [90, 270]) {
+  const direction = await rotateImage(rectangularJpeg, 'image/jpeg', degrees);
+  const metadata = await sharp(direction.bytes).metadata();
+  assert.deepEqual({ width: metadata.width, height: metadata.height }, { width: 2, height: 3 }, `${degrees} degree rotation must swap dimensions`);
+  assert.equal(metadata.orientation, undefined, `${degrees} degree rotation must normalize orientation`);
+}
 
 const underLimitJpeg = await normalizeProfileImage(jpeg);
 const underLimitPng = await normalizeProfileImage(png);
@@ -1498,8 +1543,26 @@ assert.match(imageActionRouteSource, /rotate-left/);
 assert.match(imageActionRouteSource, /rotate-right/);
 assert.match(imageActionRouteSource, /rotateImage/);
 assert.match(imageActionRouteSource, /buildProfileImageStoragePath/);
+assert.match(imageActionRouteSource, /isOwnedProfileImageAssetSet/);
 assert.match(imageActionRouteSource, /replaceAdminProfileImageStoragePath/);
 assert.match(imageActionRouteSource, /upsert: false/);
+assert.match(imageActionRouteSource, /action === 'rotate-left' \? 270 : 90/, 'left and right rotation angles must remain explicit');
+assert.match(
+  imageActionRouteSource,
+  /catch \(error\) \{[\s\S]*?remove\(\[rotatedPath, profilePath, discoveryPath\]\)[\s\S]*?throw error;[\s\S]*?remove\([\s\S]*?image\.storagePath/,
+  'database failure must clean only the staged asset set before old objects are eligible for cleanup',
+);
+const rotationAssetMigrationSource = await readFile(new URL('../supabase/migrations/202609280002_rotation_asset_identity.sql', import.meta.url), 'utf8');
+for (const validator of [
+  'validate_profile_image_storage_path',
+  'validate_profile_image_profile_storage_path',
+  'validate_profile_image_discovery_storage_path',
+]) assert.match(rotationAssetMigrationSource, new RegExp(`create or replace function public\\.${validator}`));
+assert.match(rotationAssetMigrationSource, /profile_asset_id is distinct from canonical_asset_id/);
+assert.match(rotationAssetMigrationSource, /discovery_asset_id is distinct from canonical_asset_id/);
+assert.match(rotationAssetMigrationSource, /profile_asset_id <> discovery_asset_id/);
+assert.doesNotMatch(rotationAssetMigrationSource, /update public\.profile_images/, 'validator migration must not rewrite existing image rows');
+assert.doesNotMatch(rotationAssetMigrationSource, /delete from|storage\.objects/i, 'validator migration must not remove rows or Storage objects');
 assert.match(imageActionRouteSource, /revalidatePath\('\/'\)/, 'primary, rotation, order, and removal actions must invalidate Discovery');
 assert.doesNotMatch(imageActionRouteSource, /SUPABASE_SERVICE_ROLE_KEY/);
 const batchImageRouteSources = await Promise.all([

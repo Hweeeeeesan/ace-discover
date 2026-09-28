@@ -6,6 +6,7 @@ import {
   buildDiscoveryDerivativeStoragePath,
   buildProfileDetailDerivativeStoragePath,
   buildProfileImageStoragePath,
+  isOwnedProfileImageAssetSet,
   isValidProfileImageId,
 } from '../../../../../../lib/profile-images';
 import {
@@ -60,6 +61,15 @@ export async function POST(request) {
         const rotatedPath = buildProfileImageStoragePath(dataset.slug, profileId, replacementId, assets.canonical.contentType);
         const profilePath = buildProfileDetailDerivativeStoragePath(dataset.slug, profileId, replacementId);
         const discoveryPath = buildDiscoveryDerivativeStoragePath(dataset.slug, profileId, replacementId);
+        if (!isOwnedProfileImageAssetSet({
+          datasetSlug: dataset.slug,
+          profileId,
+          imageId,
+          assetId: replacementId,
+          storagePath: rotatedPath,
+          profileStoragePath: profilePath,
+          discoveryStoragePath: discoveryPath,
+        })) throw new Error('The rotated image asset paths do not share a valid owner and identity.');
         const { error: uploadError } = await supabase.storage.from(BUCKET).upload(rotatedPath, assets.canonical.bytes, {
           contentType: assets.canonical.contentType,
           cacheControl: '31536000',
