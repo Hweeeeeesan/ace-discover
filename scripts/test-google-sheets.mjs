@@ -221,7 +221,6 @@ assert.deepEqual(VIBE_FIELD_WEIGHTS, {
   passion: 3,
   perfectDay: 2,
   idealHangout: 2,
-  story: 1,
   music: 1,
   movies: 1,
 });
@@ -329,7 +328,8 @@ assert.deepEqual(hazelProfile.public.interests, ['Baking', 'Crochet', 'Concerts'
 assert.equal(hazelProfile.public.interests.includes('Little'), false, 'Fall 2026 roles must not become Interests');
 assert.equal(hazelProfile.public.hobbies, sheetFixture.hazelPublic.S);
 assert.equal(hazelProfile.public.hobbyDetails, sheetFixture.hazelPublic.T);
-assert.equal(hazelProfile.public.bio, sheetFixture.hazelPublic.BL);
+assert.equal(Object.hasOwn(hazelProfile.public, 'bio'), false, 'Sheet imports must not emit Profile Story as bio');
+assert.equal(Object.hasOwn(hazelProfile.public, 'story'), false, 'Sheet imports must not emit public story');
 assert.equal(hazelProfile.public.idealHangout, sheetFixture.hazelPublic.AA);
 assert.equal(hazelProfile.public.aceTraitSlideUrl, sheetFixture.hazelPublic.DB);
 assert.equal(
@@ -712,6 +712,13 @@ assert.match(applyFunction, /target\.imported_at is distinct from draft\.target_
 assert.doesNotMatch(applyFunction, /delete from public\.dataset_profiles/);
 assert.doesNotMatch(applyFunction, /(?:delete|update|insert) (?:from |into )?public\.profile_images/);
 assert.match(applyFunction, /acknowledge_removed is not true/);
+const storyRemovalMigration = await readFile(new URL('../supabase/migrations/202609280001_remove_public_story.sql', import.meta.url), 'utf8');
+assert.match(storyRemovalMigration, /resolve_effective_public_data/);
+assert.match(storyRemovalMigration, /\) - 'story' - 'bio'/);
+assert.match(storyRemovalMigration, /public_data = public_data - 'story' - 'bio'/);
+assert.match(storyRemovalMigration, /public_overrides = public_overrides - 'story' - 'bio'/);
+assert.match(storyRemovalMigration, /dataset_profiles_public_overrides_no_profile_story/);
+assert.doesNotMatch(storyRemovalMigration, /profile_images/);
 const acknowledgmentMigration = await readFile(new URL('../supabase/migrations/202609270001_missing_source_acknowledgments.sql', import.meta.url), 'utf8');
 assert.match(acknowledgmentMigration, /primary key \(dataset_id, profile_id\)/);
 assert.match(acknowledgmentMigration, /references public\.dataset_profiles\(dataset_id, profile_id\)/);

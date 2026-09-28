@@ -127,21 +127,21 @@ SHEETS = {
     'LITTLES': {
         'aliases': ('littles', 'little', 'little apps', 'little applications'), 'required': True, 'role': 'Little',
         'name': ('E', 'F'), 'year': 'M', 'school': 'O', 'major': 'P', 'program': 'R',
-        'hobbies': ('AA', 'S'), 'music': 'AG', 'movies': 'AH', 'perfectDay': 'AJ', 'story': 'BA',
+        'hobbies': ('AA', 'S'), 'music': 'AG', 'movies': 'AH', 'perfectDay': 'AJ',
         'instagram': 'BD', 'image': 'BE', 'deck': 'BG', 'family': ('BH', 'U'),
         'socialLevel': ('AU', 'BN'), 'socialStyle': ('AW', 'BP'),
     },
     'BIGS': {
         'aliases': ('bigs', 'big', 'big apps', 'big applications'), 'required': True, 'role': 'Big',
         'name': ('E', 'F'), 'year': 'M', 'school': 'O', 'major': 'P', 'program': 'R',
-        'hobbies': ('AE', 'S'), 'music': 'AK', 'movies': 'AL', 'perfectDay': 'AN', 'story': 'BD',
+        'hobbies': ('AE', 'S'), 'music': 'AK', 'movies': 'AL', 'perfectDay': 'AN',
         'instagram': 'BG', 'image': 'BH', 'deck': 'BJ', 'family': ('T',),
         'socialLevel': ('AY',), 'socialStyle': ('BA',),
     },
     'FAMS': {
         'aliases': ('fams', 'fam', 'family', 'families', 'family apps', 'family applications'), 'required': False, 'role': 'Family',
         'name': ('E', 'F'), 'year': 'M', 'school': 'O', 'major': 'P', 'program': 'R',
-        'hobbies': ('S', 'AT'), 'music': 'U', 'movies': 'V', 'perfectDay': 'W', 'story': None,
+        'hobbies': ('S', 'AT'), 'music': 'U', 'movies': 'V', 'perfectDay': 'W',
         'instagram': ('AK', 'BW', 'DN'), 'image': ('AL', 'BX', 'DO'),
         'deck': ('BZ', 'DQ'), 'family': ('AN', 'CA'),
         'socialLevel': ('AH', 'BN', 'DF'), 'socialStyle': ('BP', 'DH'),
@@ -156,7 +156,7 @@ GOOGLE_DOC_HOSTS = {'docs.google.com', 'sheets.google.com', 'slides.google.com'}
 DIRECT_IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.bmp')
 PUBLIC_EXCLUDED_KEYS = {
     'imageSourceUrl', 'driveFileId', 'driveFolderId', 'storagePath', 'resolvedDriveFileId',
-    'imageIssue', 'imageKind', 'sourceGroup', 'sourceRow',
+    'imageIssue', 'imageKind', 'sourceGroup', 'sourceRow', 'story', 'bio',
 }
 EMAIL_RE = re.compile(r'\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b', re.I)
 PHONE_RE = re.compile(
@@ -435,7 +435,7 @@ def select_sheet_configs(archive, shared, worksheet_paths):
         if sheet_name == 'LITTLES' and 'instagram' in headers.get('BC', ''):
             config.update({
                 'family': ('S',), 'hobbies': ('Y',), 'music': 'AE', 'movies': 'AF',
-                'perfectDay': 'AH', 'story': 'AZ', 'instagram': 'BC', 'image': 'BD',
+                'perfectDay': 'AH', 'instagram': 'BC', 'image': 'BD',
                 'deck': None, 'socialLevel': ('AT',), 'socialStyle': ('AV',),
             })
         elif sheet_name == 'BIGS' and 'personality' in headers.get('CD', ''):
@@ -463,7 +463,6 @@ def select_sheet_configs(archive, shared, worksheet_paths):
                 'perfectDayByRole': {'Little': 'Y', 'Family': 'Y', 'Big': 'CE'},
                 'hotTakeByRole': {'Little': 'Z', 'Family': 'Z', 'Big': 'CH'},
                 'bucketListByRole': {'Little': 'AB', 'Family': 'AB', 'Big': 'CG'},
-                'storyByRole': {'Little': 'BL', 'Family': 'BL', 'Big': 'CV'},
                 'imageByRole': {'Little': 'AQ', 'Family': 'AQ', 'Big': 'CX'},
                 'socialLevelByRole': {'Little': 'AL', 'Family': 'AL', 'Big': 'CS'},
                 'socialStyleByRole': {'Little': 'AN', 'Family': 'AN', 'Big': 'CU'},
@@ -473,13 +472,13 @@ def select_sheet_configs(archive, shared, worksheet_paths):
                 'idealHangoutByRole': ideal_hangout_by_role,
                 'aceTraitSlideByRole': ace_trait_slide_by_role,
                 'instagram': 'K', 'image': ('AQ', 'CX'), 'deck': None,
-                'socialLevel': ('AL', 'CS'), 'socialStyle': ('AN', 'CU'), 'story': ('BL', 'CV'),
+                'socialLevel': ('AL', 'CS'), 'socialStyle': ('AN', 'CU'),
                 'f26': True,
             })
         elif sheet_name == 'BIGS' and 'instagram' in headers.get('DN', ''):
             config.update({
                 'family': ('CA', 'AN'), 'hobbies': ('CL', 'AT'), 'music': 'CR',
-                'movies': 'CS', 'perfectDay': 'CU', 'story': 'DK', 'instagram': 'DN',
+                'movies': 'CS', 'perfectDay': 'CU', 'instagram': 'DN',
                 'image': 'DO', 'deck': 'DQ', 'socialLevel': ('DF', 'AH'),
                 'socialStyle': ('DH', 'AV'),
             })
@@ -649,7 +648,7 @@ def redact_pii(value):
 
 
 def redact_multiline(value):
-    """Redact public story answers while retaining author-supplied line breaks."""
+    """Redact public multiline answers while retaining author-supplied line breaks."""
     return '\n'.join(redact_pii(line) for line in (value or '').replace('\r\n', '\n').split('\n')).strip()
 
 
@@ -757,7 +756,7 @@ def is_legacy_big_expanded_row(row):
 
     The workbook contains an edited response created before several questions
     were added to the Big application. The name is still in E/F, but profile
-    fields such as major, hobbies, story, Instagram, and image use an older
+    fields such as major, hobbies, Instagram, and image use an older
     column layout. A Drive image in BB plus an empty current image cell (BH)
     makes this version distinguishable without relying on a person's name.
     """
@@ -1409,7 +1408,7 @@ def infer_vibes(*values):
         fields = values[0]
     else:
         fields = dict(zip(
-            ('hobbies', 'music', 'movies', 'perfectDay', 'story'),
+            ('hobbies', 'music', 'movies', 'perfectDay'),
             values,
         ))
     return [
@@ -1496,7 +1495,6 @@ def build_profiles(xlsx_path, allow_partial=False):
                     program = row.get('G', '')
                     family = row.get('M', '')
                     hobbies = row.get('S', '')
-                    story = row.get('P', '')
                     perfect_day = ''
                     music = ''
                     movies = ''
@@ -1519,7 +1517,6 @@ def build_profiles(xlsx_path, allow_partial=False):
                     program = row.get('J', '')
                     family = row.get('P', '')
                     hobbies = row.get('Z', '')
-                    story = row.get('AX', '')
                     perfect_day = row.get('AI', '')
                     music = row.get('AF', '')
                     movies = row.get('AG', '')
@@ -1556,7 +1553,6 @@ def build_profiles(xlsx_path, allow_partial=False):
                     bucket_list = first(row, role_columns(config, 'bucketList', role))
                     hot_take = first(row, role_columns(config, 'hotTake', role))
                     ideal_hangout = first(row, config.get('idealHangout'))
-                    story = first(row, role_columns(config, 'story', role)) if role_columns(config, 'story', role) else ''
                     perfect_day = first(row, role_columns(config, 'perfectDay', role))
                     music = first(row, role_columns(config, 'music', role))
                     movies = first(row, role_columns(config, 'movies', role))
@@ -1578,7 +1574,6 @@ def build_profiles(xlsx_path, allow_partial=False):
                 seen[base] = seen.get(base, 0) + 1
                 profile_id = base if seen[base] == 1 else f'{base}-{seen[base]}'
 
-                bio = redact_pii(story or hobbies or perfect_day)
                 image = parse_image_source(raw_image)
                 interests = interest_tags(hobbies)
 
@@ -1595,7 +1590,6 @@ def build_profiles(xlsx_path, allow_partial=False):
                     'school': redact_pii(school),
                     'program': redact_pii(program),
                     'family': redact_pii(family),
-                    'bio': bio,
                     'interests': interests,
                     'vibes': infer_vibes({
                         'hobbies': hobbies,
@@ -1603,7 +1597,6 @@ def build_profiles(xlsx_path, allow_partial=False):
                         'passion': passion,
                         'perfectDay': perfect_day,
                         'idealHangout': ideal_hangout,
-                        'story': story,
                         'music': music,
                         'movies': movies,
                     }),
@@ -1831,7 +1824,7 @@ def build_import_health(profiles):
             issues['missingMajor'].append(profile['id'])
         if missing_value(profile['year'], {'', 'n/a', 'na', 'none', 'year not listed'}):
             issues['missingYear'].append(profile['id'])
-        meaningful = ' '.join(profile.get(field, '') for field in ('bio', 'hobbies', 'music', 'movies', 'perfectDay'))
+        meaningful = ' '.join(profile.get(field, '') for field in ('hobbies', 'music', 'movies', 'perfectDay'))
         if len(clean_text(meaningful)) < 40:
             issues['missingMeaningfulText'].append(profile['id'])
         if profile['imageKind'] not in supported_images:

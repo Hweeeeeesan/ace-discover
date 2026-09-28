@@ -63,6 +63,7 @@ const wholeProfileFixture = {
   bucketList: 'Take the train across Japan during cherry blossom season.',
   uniqueThings: 'I can identify many birds by their songs.',
   bio: 'My public story includes mentoring first-generation students.',
+  story: 'private story-only marker that must never be searchable',
   music: 'Japanese city pop and bedroom folk.',
   movies: 'Studio Ghibli films and quiet documentaries.',
   hotTake: 'Breakfast food is best served at dinner.',
@@ -81,6 +82,7 @@ const wholeProfileFixture = {
 };
 
 const publicDocument = buildPublicSearchDocument(wholeProfileFixture);
+assert.equal(PUBLIC_SEARCH_FIELDS.some(({ field, label }) => field === 'bio' || /profile story/i.test(label)), false, 'Profile Story must not exist in the public search schema');
 assert.deepEqual(
   publicDocument.map(({ field }) => field),
   PUBLIC_SEARCH_FIELDS.map(({ field }) => field),
@@ -93,6 +95,8 @@ for (const privateField of [
   assert.equal(publicDocument.some(({ field }) => field === privateField), false, `${privateField} must not be searchable`);
   assert.equal(scoreProfile(wholeProfileFixture, wholeProfileFixture[privateField]), -1, `${privateField} content must not match`);
 }
+assert.equal(publicDocument.some(({ field }) => field === 'story'), false, 'story must not be searchable');
+assert.equal(scoreProfile(wholeProfileFixture, 'private story-only marker'), -1, 'story-only content must not match Discovery');
 assert.equal(PUBLIC_SEARCH_FIELDS.some(({ field }) => field === 'aceTraitSlideUrl'), false, 'ACE Trait slide URLs must stay out of whole-profile search');
 assert.equal(publicDocument.some(({ field }) => field === 'aceTraitSlideUrl'), false);
 assert.equal(scoreProfile(wholeProfileFixture, 'docs.google.com'), -1, 'a slide host must not make a profile searchable');
@@ -108,7 +112,6 @@ const wholeProfileSearchCases = [
   ['perfect day', 'sunrise picnic'],
   ['ideal hangout', 'botanical garden'],
   ['bucket list', 'Japan'],
-  ['story', 'first-generation students'],
   ['music', 'bedroom folk'],
   ['movies', 'quiet documentaries'],
   ['unique things', 'identify many birds'],
@@ -118,6 +121,18 @@ const wholeProfileSearchCases = [
 for (const [label, query] of wholeProfileSearchCases) {
   assert.ok(scoreProfile(wholeProfileFixture, query) >= 0, `${label} should be searchable`);
 }
+assert.equal(scoreProfile(wholeProfileFixture, 'first-generation students'), -1, 'Profile Story stored as bio must not be searchable');
+assert.equal(buildProfileMatchContext(wholeProfileFixture, { query: 'first-generation students' }), null, 'Profile Story cannot emit a match reason or snippet');
+
+const kayleeRegression = {
+  id: 'kaylee-tang', name: 'Kaylee Tang', role: 'Little', major: 'Business',
+  year: 'Second Year', interests: ['Baking'], hobbies: 'Cookies and crafts',
+  vibes: ['Foodie'], bio: 'I hope to make cookies with Elaine Chang sometime this year.',
+};
+assert.equal(scoreProfile(kayleeRegression, 'elaine'), -1, 'Kaylee must not match a story-only Elaine query');
+assert.deepEqual(filterAndOrderProfiles([kayleeRegression], { query: 'elaine', seed }), []);
+assert.equal(buildProfileMatchContext(kayleeRegression, { query: 'elaine' }), null);
+assert.equal(JSON.stringify(resolveEffectivePublicProfile(kayleeRegression, {})).toLowerCase().includes('elaine'), false, 'public profile payload must not contain Profile Story text');
 assert.ok(scoreProfile(wholeProfileFixture, 'PHOTOGRAPHY') >= 0, 'search should be case-insensitive');
 assert.ok(scoreProfile(wholeProfileFixture, '  JAPAN  \n') >= 0, 'query whitespace should normalize');
 assert.ok(scoreProfile(wholeProfileFixture, 'camera and love') >= 0, 'legacy br markup should normalize to whitespace');
@@ -267,10 +282,10 @@ for (const role of ['All', 'Little', 'Big', 'Family']) {
 }
 
 const vibeFixture = [
-  { id: 'one', role: 'Little', vibes: ['Gaming'], major: 'Computer Science', majorGroup: 'Computing & Data', year: 'First', normalizedYear: 'First year', socialLevel: 4, socialStyle: 'Introvert', bio: 'alpha anime' },
-  { id: 'two', role: 'Big', vibes: ['Travel', 'Music'], major: 'MIS', majorGroup: 'Business', year: 'Third', normalizedYear: 'Third year', socialLevel: 3, socialStyle: 'Ambivert', bio: 'beta' },
-  { id: 'three', role: 'Little', vibes: ['Music'], major: 'Mechanical Engineering', majorGroup: 'Engineering', year: 'First', normalizedYear: 'First year', socialLevel: null, socialStyle: '', bio: 'gamma' },
-  { id: 'four', role: 'Big', vibes: ['Music'], major: 'Electrical Engineering', majorGroup: 'Engineering', year: 'Third', normalizedYear: 'Third year', socialLevel: 5, socialStyle: 'Extrovert', bio: 'delta anime' },
+  { id: 'one', role: 'Little', vibes: ['Gaming'], major: 'Computer Science', majorGroup: 'Computing & Data', year: 'First', normalizedYear: 'First year', socialLevel: 4, socialStyle: 'Introvert', hobbies: 'alpha anime' },
+  { id: 'two', role: 'Big', vibes: ['Travel', 'Music'], major: 'MIS', majorGroup: 'Business', year: 'Third', normalizedYear: 'Third year', socialLevel: 3, socialStyle: 'Ambivert', hobbies: 'beta' },
+  { id: 'three', role: 'Little', vibes: ['Music'], major: 'Mechanical Engineering', majorGroup: 'Engineering', year: 'First', normalizedYear: 'First year', socialLevel: null, socialStyle: '', hobbies: 'gamma' },
+  { id: 'four', role: 'Big', vibes: ['Music'], major: 'Electrical Engineering', majorGroup: 'Engineering', year: 'Third', normalizedYear: 'Third year', socialLevel: 5, socialStyle: 'Extrovert', hobbies: 'delta anime' },
 ];
 const savedStorage = {
   values: new Map([['ace-discover:saved:fall-2025', JSON.stringify(['one', 'one', 7])]]),
@@ -400,7 +415,6 @@ const requestedSearchFields = [
   ['hobbies', (profile) => profile.hobbies],
   ['music', (profile) => profile.music],
   ['movies/shows', (profile) => profile.movies],
-  ['bio', (profile) => profile.bio],
 ];
 
 for (const [label, getValue] of requestedSearchFields) {

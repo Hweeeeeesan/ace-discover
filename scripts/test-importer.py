@@ -268,7 +268,7 @@ class PublicProfileTests(unittest.TestCase):
         self.assertEqual(profile['idealHangout'], little_public_values['AA'])
         self.assertEqual(profile['bucketList'], little_public_values['AB'])
         self.assertEqual(profile['passion'], little_public_values['AH'])
-        self.assertEqual(profile['bio'], little_public_values['BL'])
+        self.assertNotIn('bio', profile)
         self.assertEqual(profile['interests'], ['Baking', 'Crochet', 'Concerts'])
         self.assertEqual(profile['imageKind'], 'drive-file')
         self.assertEqual(profile['driveFileId'], '1HazelTranProfileImage2026')
@@ -276,7 +276,7 @@ class PublicProfileTests(unittest.TestCase):
         public_data = staged['public']
         for field in (
             'hobbies', 'hobbyDetails', 'music', 'movies', 'uniqueThings', 'tagline',
-            'perfectDay', 'hotTake', 'idealHangout', 'bucketList', 'passion', 'bio',
+            'perfectDay', 'hotTake', 'idealHangout', 'bucketList', 'passion',
         ):
             self.assertEqual(public_data[field], profile[field])
         self.assertEqual(staged['driveFileId'], '1HazelTranProfileImage2026')
@@ -380,7 +380,7 @@ class PublicProfileTests(unittest.TestCase):
         for field, column in {
             'hobbies': 'BY', 'hobbyDetails': 'BZ', 'music': 'CA', 'movies': 'CB',
             'uniqueThings': 'CF', 'tagline': 'CD', 'perfectDay': 'CE',
-            'bucketList': 'CG', 'hotTake': 'CH', 'bio': 'CV', 'family': 'BN',
+            'bucketList': 'CG', 'hotTake': 'CH', 'family': 'BN',
             'socialStyle': 'CU', 'passion': 'CC', 'idealHangout': 'DA',
         }.items():
             self.assertEqual(big_profile[field], big[column], field)
@@ -406,7 +406,7 @@ class PublicProfileTests(unittest.TestCase):
         for field, column in {
             'hobbies': 'S', 'hobbyDetails': 'T', 'music': 'U', 'movies': 'V',
             'uniqueThings': 'W', 'tagline': 'X', 'perfectDay': 'Y',
-            'bucketList': 'AB', 'hotTake': 'Z', 'bio': 'BL', 'family': 'AS',
+            'bucketList': 'AB', 'hotTake': 'Z', 'family': 'AS',
             'socialStyle': 'AN', 'passion': 'AH', 'idealHangout': 'AA',
         }.items():
             self.assertEqual(little_profile[field], little[column])
@@ -418,7 +418,7 @@ class PublicProfileTests(unittest.TestCase):
         family_profile = imported_profile('FAMILY PROGRAM / FAMILY ONLY')
         self.assertEqual(family_profile['role'], 'Family')
         self.assertEqual(family_profile['hobbies'], little['S'])
-        self.assertEqual(family_profile['bio'], little['BL'])
+        self.assertNotIn('bio', family_profile)
         self.assertEqual(family_profile['passion'], little['AH'])
         self.assertEqual(family_profile['idealHangout'], little['AA'])
         self.assertEqual(family_profile['aceTraitSlideUrl'], '')
@@ -626,6 +626,7 @@ class PublicProfileTests(unittest.TestCase):
         profile = profiles[0]
         self.assertEqual(profile['name'], 'Logan Ho')
         self.assertEqual(profile['role'], 'Big')
+        self.assertNotIn('story', profile, 'normalized importer profiles must not retain the source story field')
         self.assertEqual(
             profile['interests'],
             ['Exploring New Places', 'Lion Dance', 'Volleyball'],
@@ -918,7 +919,6 @@ class PublicProfileTests(unittest.TestCase):
             'passion': 3,
             'perfectDay': 2,
             'idealHangout': 2,
-            'story': 1,
             'music': 1,
             'movies': 1,
         })
@@ -1053,6 +1053,7 @@ class PublicProfileTests(unittest.TestCase):
         self.assertEqual(staged['imageKind'], 'drive-file')
         self.assertNotIn('imageSourceUrl', staged['public'])
         self.assertNotIn('sourceRow', staged['public'])
+        self.assertNotIn('bio', staged['public'])
         self.assertEqual(payload['safeIssues']['missingInstagram'][0]['name'], 'Example Person')
 
     def test_dataset_payload_blocks_surviving_private_values(self):
@@ -1060,8 +1061,8 @@ class PublicProfileTests(unittest.TestCase):
             'id': 'example', 'name': 'Example', 'role': 'Little',
             'instagram': '', 'major': 'Computer Science', 'majorGroup': 'Computing & Data',
             'year': 'First', 'normalizedYear': 'First year', 'socialLevel': 2,
-            'socialStyle': 'Introvert', 'bio': 'Contact leaked@example.com',
-            'hobbies': '', 'music': '', 'movies': '', 'perfectDay': '',
+            'socialStyle': 'Introvert',
+            'hobbies': 'Contact leaked@example.com', 'music': '', 'movies': '', 'perfectDay': '',
             'imageKind': 'missing', 'vibes': [], 'slideDeckUrl': '',
         }
         with self.assertRaisesRegex(ValueError, 'Privacy validation blocked'):
