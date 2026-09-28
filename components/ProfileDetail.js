@@ -1,8 +1,8 @@
-import Link from 'next/link';
 import { ExternalLink, Instagram, Presentation } from 'lucide-react';
 import DiscoveryBackButton from './DiscoveryBackButton';
 import AdminImageManager from './AdminImageManager';
 import AdminProfileEditor from './AdminProfileEditor';
+import AdminPreviewBackButton from './AdminPreviewBackButton';
 import ProfileGallery from './ProfileGallery';
 import SeenProfileMarker from './SeenProfileMarker';
 import SavedProfileButton from './SavedProfileButton';
@@ -99,7 +99,7 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
             fallbackDisplayMode={profile.displayMode}
           />
           {adminPreview
-            ? <Link className="back-button" href={adminBackHref} aria-label="Back to Admin dataset"><span aria-hidden="true">←</span></Link>
+            ? <AdminPreviewBackButton className="back-button" datasetId={adminPreview.datasetId} returnTo={adminBackHref} iconOnly />
             : <DiscoveryBackButton className="back-button" iconOnly profileId={profile.id} datasetSlug={datasetSlug} />}
           <span className="detail-role-pill">{profile.role}</span>
         </div>
@@ -158,7 +158,7 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
             </a>
           )}
           {adminPreview
-            ? <Link className="secondary-link" href={adminBackHref}>Back to Admin dataset</Link>
+            ? <AdminPreviewBackButton className="secondary-link" datasetId={adminPreview.datasetId} returnTo={adminBackHref} />
             : <DiscoveryBackButton className="secondary-link detail-discovery-link" profileId={profile.id} datasetSlug={datasetSlug}>Back to discovery</DiscoveryBackButton>}
         </div>
       </div>

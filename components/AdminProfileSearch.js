@@ -1,11 +1,18 @@
 'use client';
 
-import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import AdminProfileLink from './AdminProfileLink';
 
 export default function AdminProfileSearch({ datasetId, profiles = [] }) {
-  const [query, setQuery] = useState('');
-  const [majorGroup, setMajorGroup] = useState('all');
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const categories = useMemo(() => new Set(profiles.map((profile) => profile.effectiveMajorGroup).filter(Boolean)), [profiles]);
+  const [query, setQuery] = useState(() => String(searchParams.get('search') || '').slice(0, 200));
+  const [majorGroup, setMajorGroup] = useState(() => {
+    const requested = String(searchParams.get('major') || 'all');
+    return requested === 'all' || categories.has(requested) ? requested : 'all';
+  });
   const normalizedQuery = query.trim().toLowerCase();
   const matches = useMemo(() => {
     return profiles.filter((profile) => {
@@ -14,6 +21,26 @@ export default function AdminProfileSearch({ datasetId, profiles = [] }) {
       return matchesQuery && (majorGroup === 'all' || profile.effectiveMajorGroup === majorGroup);
     });
   }, [majorGroup, normalizedQuery, profiles]);
+
+  function replaceListState(nextQuery, nextMajorGroup) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (nextQuery.trim()) params.set('search', nextQuery.slice(0, 200));
+    else params.delete('search');
+    if (nextMajorGroup !== 'all') params.set('major', nextMajorGroup);
+    else params.delete('major');
+    const serialized = params.toString();
+    window.history.replaceState(null, '', `${pathname}${serialized ? `?${serialized}` : ''}`);
+  }
+
+  function changeQuery(value) {
+    setQuery(value);
+    replaceListState(value, majorGroup);
+  }
+
+  function changeMajorGroup(value) {
+    setMajorGroup(value);
+    replaceListState(query, value);
+  }
 
   return (
     <section className="admin-profile-search" aria-labelledby="admin-profile-search-title">
@@ -24,12 +51,12 @@ export default function AdminProfileSearch({ datasetId, profiles = [] }) {
         className="admin-profile-search-input"
         type="search"
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
+        onChange={(event) => changeQuery(event.target.value)}
         placeholder="e.g. Jay Nguyen, nursing, Little"
         autoComplete="off"
       />
       <label className="admin-profile-search-label" htmlFor="admin-major-group-filter">Major category</label>
-      <select id="admin-major-group-filter" className="admin-profile-search-input" value={majorGroup} onChange={(event) => setMajorGroup(event.target.value)}>
+      <select id="admin-major-group-filter" className="admin-profile-search-input" value={majorGroup} onChange={(event) => changeMajorGroup(event.target.value)}>
         <option value="all">All categories</option>
         <option value="Other / Undeclared">Other / Undeclared review</option>
         {[...new Set(profiles.map((profile) => profile.effectiveMajorGroup).filter(Boolean))]
@@ -43,11 +70,11 @@ export default function AdminProfileSearch({ datasetId, profiles = [] }) {
       {matches.length > 0 ? (
         <div className="admin-profile-search-results">
           {matches.map((profile) => (
-            <Link href={`/admin/preview/${encodeURIComponent(datasetId)}/${encodeURIComponent(profile.id)}`} key={profile.id}>
+            <AdminProfileLink datasetId={datasetId} profileId={profile.id} key={profile.id}>
               <strong>{profile.name}</strong>
               <span>{[profile.role, profile.major, profile.effectiveMajorGroup, profile.id].filter(Boolean).join(' · ')}</span>
               {profile.hasMajorGroupOverride && <small>Manual category: {profile.effectiveMajorGroup}</small>}
-            </Link>
+            </AdminProfileLink>
           ))}
         </div>
       ) : (

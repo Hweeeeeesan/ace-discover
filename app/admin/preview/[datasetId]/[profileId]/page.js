@@ -3,11 +3,12 @@ import ProfileDetail from '../../../../../components/ProfileDetail';
 import { getAdminIdentity } from '../../../../../lib/admin/authorization';
 import { getAdminDatasetProfile } from '../../../../../lib/datasets/admin';
 import { VIBE_SCORE_THRESHOLD } from '../../../../../lib/import/profile-normalization';
+import { safeAdminProfileListReturn } from '../../../../../lib/admin/profile-navigation';
 
 export const metadata = { title: 'Dataset preview · ACE Discover', robots: { index: false, follow: false } };
 export const dynamic = 'force-dynamic';
 
-export default async function AdminDatasetProfilePreview({ params }) {
+export default async function AdminDatasetProfilePreview({ params, searchParams }) {
   const identity = await getAdminIdentity();
   if (identity.state === 'unconfigured' || identity.state === 'unauthenticated') redirect('/admin');
   if (identity.state !== 'authorized') notFound();
@@ -17,7 +18,8 @@ export default async function AdminDatasetProfilePreview({ params }) {
   const result = await getAdminDatasetProfile(datasetId, profileId);
   if (!result) notFound();
 
-  const backHref = `/admin?dataset=${encodeURIComponent(result.dataset.id)}`;
+  const query = await searchParams;
+  const backHref = safeAdminProfileListReturn(query?.returnTo, result.dataset.id);
   return (
     <ProfileDetail
       profile={result.profile}
