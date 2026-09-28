@@ -14,6 +14,7 @@ import {
 import {
   buildDatasetImportTargetFields,
   buildDatasetSyncDiff,
+  filterAcknowledgedMissingSourceProfiles,
   preserveMissingSourceProfiles,
   validateSyncApplyAcknowledgement,
 } from '../lib/datasets/sync.js';
@@ -692,6 +693,15 @@ assert.equal(merged.health.preservedMissingSourceCount, 1);
 assert.equal(merged.profiles[2].public.storageImagePath, undefined);
 assert.throws(() => validateSyncApplyAcknowledgement(diff, false), /Acknowledge/);
 assert.doesNotThrow(() => validateSyncApplyAcknowledgement(diff, true));
+const acknowledgedDiff = filterAcknowledgedMissingSourceProfiles(diff, ['jamie-nguyen']);
+assert.deepEqual(acknowledgedDiff.counts, { added: 1, updated: 1, removed: 0 });
+assert.deepEqual(acknowledgedDiff.removed, [], 'acknowledged missing profiles should not repeat in later previews');
+assert.equal(merged.profiles[2].public.id, 'jamie-nguyen', 'acknowledgment must not remove the preserved profile');
+const independentlyTracked = filterAcknowledgedMissingSourceProfiles({
+  ...diff,
+  removed: [diff.removed[0], { id: 'person-b', name: 'Person B', role: 'Big' }],
+}, ['jamie-nguyen']);
+assert.deepEqual(independentlyTracked.removed.map((profile) => profile.id), ['person-b']);
 
 const migration = await readFile(new URL('../supabase/migrations/202609040001_google_sheet_sync.sql', import.meta.url), 'utf8');
 const applyFunction = migration.slice(migration.indexOf('create or replace function public.apply_dataset_sync'));
@@ -702,11 +712,20 @@ assert.match(applyFunction, /target\.imported_at is distinct from draft\.target_
 assert.doesNotMatch(applyFunction, /delete from public\.dataset_profiles/);
 assert.doesNotMatch(applyFunction, /(?:delete|update|insert) (?:from |into )?public\.profile_images/);
 assert.match(applyFunction, /acknowledge_removed is not true/);
+const acknowledgmentMigration = await readFile(new URL('../supabase/migrations/202609270001_missing_source_acknowledgments.sql', import.meta.url), 'utf8');
+assert.match(acknowledgmentMigration, /primary key \(dataset_id, profile_id\)/);
+assert.match(acknowledgmentMigration, /references public\.dataset_profiles\(dataset_id, profile_id\)/);
+assert.match(acknowledgmentMigration, /acknowledge_missing_source_profiles/);
+assert.match(acknowledgmentMigration, /delete from public\.dataset_profile_source_acknowledgments/);
+assert.match(acknowledgmentMigration, /jsonb_array_elements\(draft\.normalized_profiles\)/);
+assert.doesNotMatch(acknowledgmentMigration, /delete from public\.dataset_profiles/);
+assert.doesNotMatch(acknowledgmentMigration, /(?:delete|update|insert) (?:from |into )?public\.profile_images/);
 
 const routePaths = [
   '../app/api/admin/datasets/sheets/connect/route.js',
   '../app/api/admin/datasets/sheets/analyze/route.js',
   '../app/api/admin/datasets/sync/apply/route.js',
+  '../app/api/admin/datasets/sync/acknowledge/route.js',
 ];
 for (const path of routePaths) {
   const source = await readFile(new URL(path, import.meta.url), 'utf8');
@@ -728,6 +747,12 @@ const datasetAdmin = await readFile(new URL('../lib/datasets/admin.js', import.m
 assert.match(datasetAdmin, /\.select\('[^']*imported_at[^']*'\)[\s\S]*\.eq\('id', datasetId\)/, 'sync target reads must include the current imported_at version');
 assert.match(datasetAdmin, /\.\.\.targetFields/, 'all preview inserts must use the paired target-field builder');
 assert.doesNotMatch(datasetAdmin, /target_dataset_id:\s*targetDatasetId|target_imported_at:\s*targetImportedAt/, 'preview inserts must not assign target fields independently');
+assert.match(datasetAdmin, /dataset_profile_source_acknowledgments/);
+assert.match(datasetAdmin, /filterAcknowledgedMissingSourceProfiles/);
+assert.match(datasetAdmin, /diff: rawDiff/);
+const manager = await readFile(new URL('../components/DatasetManager.js', import.meta.url), 'utf8');
+assert.match(manager, /\/api\/admin\/datasets\/sync\/acknowledge/);
+assert.match(manager, /profileIds: diff\.removed\.map/);
 const driveAuth = await readFile(new URL('../lib/google-drive-server.js', import.meta.url), 'utf8');
 assert.match(driveAuth, /spreadsheets\.readonly/);
 const sheetsServer = await readFile(new URL('../lib/google-sheets-server.js', import.meta.url), 'utf8');

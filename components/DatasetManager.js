@@ -153,10 +153,28 @@ function ImportPreview({ preview, onSaved }) {
 
 function SyncPreview({ preview, onApplied, onCancel }) {
   const [pending, setPending] = useState(false);
+  const [acknowledging, setAcknowledging] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const [error, setError] = useState('');
   const { diff } = preview;
   const needsAcknowledgement = diff.counts.removed > 0;
+
+  async function acknowledge() {
+    if (acknowledged || acknowledging || !needsAcknowledgement) return;
+    setAcknowledging(true);
+    setError('');
+    try {
+      await postJson('/api/admin/datasets/sync/acknowledge', {
+        datasetId: preview.metadata.id,
+        profileIds: diff.removed.map((profile) => profile.id),
+      });
+      setAcknowledged(true);
+    } catch (acknowledgementError) {
+      setError(acknowledgementError.message);
+    } finally {
+      setAcknowledging(false);
+    }
+  }
 
   async function apply() {
     setPending(true);
@@ -199,7 +217,7 @@ function SyncPreview({ preview, onApplied, onCancel }) {
           <AlertTriangle size={18} />
           <div><strong>{diff.counts.removed} profile{diff.counts.removed === 1 ? ' is' : 's are'} no longer present in the source.</strong><p>ACE Discover will preserve {diff.counts.removed === 1 ? 'this profile' : 'these profiles'} and all existing galleries.</p></div>
           <ul>{diff.removed.map((profile) => <li key={profile.id}>{profile.name}</li>)}</ul>
-          <label><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /> I understand these profiles are missing from the source and will be preserved.</label>
+          <label><input type="checkbox" checked={acknowledged} disabled={acknowledging || pending} onChange={acknowledge} /> {acknowledging ? 'Saving acknowledgment…' : 'I understand these profiles are missing from the source and will be preserved.'}</label>
         </div>
       )}
       <p className="dataset-preview-note">Applying updates normalized public fields atomically. Existing Admin-managed galleries remain authoritative; changed Drive links are reported but do not replace them.</p>
@@ -208,7 +226,7 @@ function SyncPreview({ preview, onApplied, onCancel }) {
       {error && <p className="admin-form-error" role="alert">{error}</p>}
       <div className="dataset-preview-actions">
         <button type="button" onClick={onCancel} disabled={pending}>Cancel</button>
-        <button className="dataset-primary-action" type="button" onClick={apply} disabled={pending || (needsAcknowledgement && !acknowledged)}><Database size={17} /> {pending ? 'Applying…' : 'Apply Changes'}</button>
+        <button className="dataset-primary-action" type="button" onClick={apply} disabled={pending || acknowledging || (needsAcknowledgement && !acknowledged)}><Database size={17} /> {pending ? 'Applying…' : 'Apply Changes'}</button>
       </div>
     </section>
   );
