@@ -6,7 +6,7 @@ import AdminProfileEditor from './AdminProfileEditor';
 import ProfileGallery from './ProfileGallery';
 import SeenProfileMarker from './SeenProfileMarker';
 import SavedProfileButton from './SavedProfileButton';
-import { normalizeProfileIntro, normalizeProfileStory } from '../lib/profile-story';
+import { normalizeProfileStory } from '../lib/profile-story';
 import { normalizePublicHttpUrl } from '../lib/public-url';
 
 function InfoSection({ title, children }) {
@@ -73,7 +73,6 @@ function EditorialStory({ story, aceTraitSlideUrl }) {
 
 export default function ProfileDetail({ profile, datasetSlug, adminPreview = null }) {
   const story = normalizeProfileStory(profile);
-  const intro = normalizeProfileIntro(profile, story);
   const interests = Array.isArray(profile.interests)
     ? profile.interests.filter((interest) => !['Big', 'Little', 'Family'].includes(interest))
     : [];
@@ -111,9 +110,9 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
           </div>
           <div className="detail-role-label">{profile.role}</div>
           <div className="eyebrow dark">{profile.major} · {profile.year}</div>
-          {intro.tagline
-            ? <p className="detail-tagline">“{intro.tagline}”</p>
-            : intro.bio ? <p className="detail-bio">{intro.bio}</p> : null}
+          {story.isEditorial && story.tagline
+            ? <p className="detail-tagline">“{story.tagline}”</p>
+            : null}
           {interests.length > 0 && (
             <div className="tag-row detail-tags">
               {interests.map((interest) => <span className="tag light" key={interest}>{interest}</span>)}

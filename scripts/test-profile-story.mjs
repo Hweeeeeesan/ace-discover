@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { normalizeProfileIntro, normalizeProfileStory } from '../lib/profile-story.js';
+import { normalizeProfileStory } from '../lib/profile-story.js';
 import { normalizePublicHttpUrl } from '../lib/public-url.js';
 
 const story = normalizeProfileStory({
@@ -151,14 +151,6 @@ assert.equal(emptyStory.isEditorial, false);
 for (const field of ['tagline', 'uniqueThingsText', 'passion', 'perfectDay', 'hobbies', 'hobbyDetails', 'music', 'moviesTv', 'idealHangout', 'bucketList', 'hotTake']) {
   assert.equal(emptyStory[field], '', `${field} must remain hidden when unanswered`);
 }
-assert.deepEqual(normalizeProfileIntro({ role: 'Little', bio: 'Little applicant' }), { tagline: '', bio: '' });
-assert.deepEqual(normalizeProfileIntro({ role: 'Big', bio: 'Big applicant' }), { tagline: '', bio: '' });
-assert.deepEqual(normalizeProfileIntro({ role: 'Little', bio: 'A real public story.' }), { tagline: '', bio: 'A real public story.' });
-assert.deepEqual(
-  normalizeProfileIntro({ role: 'Big', bio: 'A real story.', ...sharedFields }),
-  { tagline: sharedFields.tagline, bio: 'A real story.' },
-  'Big editorial intro rendering remains unchanged',
-);
 
 const detailSource = await readFile(new URL('../components/ProfileDetail.js', import.meta.url), 'utf8');
 const storySource = await readFile(new URL('../lib/profile-story.js', import.meta.url), 'utf8');

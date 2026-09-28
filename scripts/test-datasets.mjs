@@ -53,8 +53,10 @@ assert.equal(profilePath('fall-2025', 'same-person'), '/profile/fall-2025/same-p
 assert.notEqual(profilePath('fall-2025', 'same-person'), profilePath('spring-2026', 'same-person'));
 assert.notEqual(datasetSeenKey('fall-2025'), datasetSeenKey('spring-2026'));
 assert.notEqual(datasetDiscoveryKey('fall-2025'), datasetDiscoveryKey('spring-2026'));
-const bulkProfile = discoveryProfile({ id: 'example', name: 'Example', instagram: 'https://instagram.com/private-handle/' });
+const bulkProfile = discoveryProfile({ id: 'example', name: 'Example', instagram: 'https://instagram.com/private-handle/', bio: 'private story', story: 'private story' });
 assert.equal('instagram' in bulkProfile, false, 'bulk discovery records must not contain Instagram');
+assert.equal('bio' in bulkProfile, false, 'bulk discovery records must not contain Profile Story');
+assert.equal('story' in bulkProfile, false, 'bulk discovery records must not contain source story');
 const detailProfile = profiles.find((profile) => profile.instagram);
 assert.match(detailProfile.instagram, /^https:\/\/www\.instagram\.com\//, 'single-profile detail data retains canonical Instagram');
 

@@ -14,6 +14,7 @@ ALLOWLIST_PATH = ROOT / 'lib' / 'drive-image-allowlist.js'
 PRIVATE_KEYS = {
     'imageSourceUrl', 'driveFileId', 'driveFolderId', 'storagePath',
     'resolvedDriveFileId', 'imageIssue', 'imageKind', 'sourceGroup', 'sourceRow',
+    'story', 'bio',
 }
 EMAIL_RE = re.compile(r'\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b', re.I)
 PHONE_RE = re.compile(r'(?<!\w)(?:\+?1[ .-]?)?(?:\(?\d{3}\)?[ .-]?)\d{3}[ .-]?\d{4}(?!\w)')
@@ -28,7 +29,7 @@ SENSITIVE_PARAMETER_RE = re.compile(
 )
 PRIVATE_KEY_RE = re.compile(r'-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----', re.I)
 PUBLIC_TEXT_FIELDS = {
-    'name', 'role', 'major', 'year', 'school', 'program', 'family', 'bio',
+    'name', 'role', 'major', 'year', 'school', 'program', 'family',
     'hobbies', 'music', 'movies', 'perfectDay', 'instagram', 'interests', 'vibes',
     'majorGroup', 'normalizedYear', 'socialStyle',
 }

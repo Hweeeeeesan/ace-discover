@@ -12,7 +12,7 @@ const TEXT_FIELDS = [
   ['tagline', 'Personality phrase', 'textarea'], ['passion', 'I could talk about this for hours', 'textarea'],
   ['perfectDay', 'Perfect day', 'textarea'], ['idealHangout', 'Ideal hangout', 'textarea'],
   ['bucketList', 'Bucket list', 'textarea'], ['hotTake', 'Harmless hot take', 'textarea'],
-  ['bio', 'Public story', 'textarea'], ['aceTraitSlideUrl', 'Personal ACE Trait slide URL', 'input'],
+  ['aceTraitSlideUrl', 'Personal ACE Trait slide URL', 'input'],
 ];
 
 const VIBE_ORDER = [
@@ -159,7 +159,7 @@ export default function AdminProfileEditor({
             <label key={field}>
               <span>{label}</span>
               {type === 'textarea'
-                ? <textarea value={values[field]} onChange={(event) => update(field, event.target.value)} rows={field === 'bio' ? 6 : 3} />
+                ? <textarea value={values[field]} onChange={(event) => update(field, event.target.value)} rows={3} />
                 : <input type={field === 'aceTraitSlideUrl' ? 'url' : 'text'} value={values[field]} onChange={(event) => update(field, event.target.value)} />}
               {publicOverrides[field] !== undefined && changedUnderOverride.includes(field) && <small className="admin-profile-source-change">Imported source: {String(importedPublicData?.[field] || '')}</small>}
               <button type="button" className="admin-profile-reset" onClick={() => reset(field)} disabled={sameValue(values[field], importedPublicData?.[field] || '')}>Reset to imported</button>

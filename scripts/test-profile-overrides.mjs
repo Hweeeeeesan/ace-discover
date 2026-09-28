@@ -10,6 +10,7 @@ import {
 const imported = {
   id: 'hazel-tran', name: 'Hazel Tran', role: 'Little', major: 'Nutrition',
   passion: 'Crafts', vibes: ['Photography', 'Creative'], phone: 'private',
+  bio: 'Private Profile Story content', story: 'Private source story',
   aceTraitSlideUrl: 'https://docs.google.com/presentation/d/imported-slide/edit',
 };
 
@@ -30,6 +31,9 @@ assert.deepEqual(
 );
 
 assert.equal(resolveEffectivePublicProfile(imported, {}).major, 'Nutrition');
+assert.equal('bio' in resolveEffectivePublicProfile(imported, {}), false);
+assert.equal('story' in resolveEffectivePublicProfile(imported, {}), false);
+assert.throws(() => validatePublicOverrides({ bio: 'Profile Story override' }), /cannot be overridden/);
 assert.equal(resolveEffectivePublicProfile(imported, { major: 'Nutritional Science — Dietetics' }).major, 'Nutritional Science — Dietetics');
 assert.equal(resolveEffectivePublicProfile(imported, { passion: '' }).passion, '');
 assert.deepEqual(resolveEffectivePublicProfile(imported, { vibes: [] }).vibes, []);
@@ -111,6 +115,7 @@ assert.match(editor, /Reset to automatic/);
 assert.match(editor, /Automatic vibe reasoning/);
 assert.match(editor, /aceTraitSlideUrl/);
 assert.match(editor, /Personal ACE Trait slide URL/);
+assert.doesNotMatch(editor, /Public story|\['bio'/);
 assert.match(editor, /Major Category/);
 assert.match(editor, /Reset to automatic/);
 assert.match(majorGroupMigration, /'majorGroup'/);
