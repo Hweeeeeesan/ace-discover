@@ -187,6 +187,27 @@ assert.deepEqual(
   1,
   'major category overrides must drive option counts',
 );
+const overrideAwareProfile = {
+  ...majorOverrideProfile,
+  publicOverrides: { majorGroup: 'Engineering' },
+};
+assert.deepEqual(
+  filterAndOrderProfiles([overrideAwareProfile], { majorGroups: ['engineering'], seed }).map(({ id }) => id),
+  ['override-profile'],
+  'Discovery filters must use the effective majorGroup override',
+);
+assert.deepEqual(
+  filterAndOrderProfiles([overrideAwareProfile], { majorGroups: ['other undeclared'], seed }),
+  [],
+  'an overridden profile must leave the automatic category immediately',
+);
+assert.equal(
+  getDiscoveryOptions([overrideAwareProfile]).majorGroups.find((option) => option.label === 'Engineering')?.count,
+  1,
+  'Discovery option counts must use effective majorGroup',
+);
+assert.ok(scoreProfile(overrideAwareProfile, 'engineering') >= 0, 'majorGroup search metadata must use the effective category');
+assert.equal(scoreProfile(overrideAwareProfile, 'other undeclared'), -1, 'old automatic category must leave search metadata after override');
 
 const canonicalPhotography = scoreVibeEvidence({ hobbies: wholeProfileFixture.hobbies })
   .find(({ vibe }) => vibe === 'Photography');

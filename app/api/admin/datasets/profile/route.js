@@ -41,6 +41,8 @@ export async function POST(request) {
     });
     const datasetSlug = current.dataset.slug;
     revalidatePath('/', 'layout');
+    revalidatePath('/admin');
+    revalidatePath(`/admin/preview/${encodeURIComponent(datasetId)}`);
     revalidatePath(`/profile/${encodeURIComponent(datasetSlug)}/${encodeURIComponent(profileId)}`);
     revalidatePath(`/admin/preview/${encodeURIComponent(datasetId)}/${encodeURIComponent(profileId)}`);
     return Response.json({ ok: true, publicOverrides: overrides, updatedAt: result.updatedAt });

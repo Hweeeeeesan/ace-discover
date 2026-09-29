@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   buildPublicOverridePatch,
+  getEffectiveMajorGroupDistribution,
   publicOverrideFields,
+  resolveEffectiveMajorGroup,
   resolveEffectivePublicProfile,
   validatePublicOverrides,
 } from '../lib/profile-overrides.js';
@@ -15,6 +17,8 @@ const imported = {
 };
 
 assert.equal(resolveEffectivePublicProfile({ major: 'Human Systems Integration', majorGroup: 'Other / Undeclared' }, {}).majorGroup, 'Other / Undeclared');
+assert.equal(resolveEffectiveMajorGroup({ major: 'EE', majorGroup: 'Other / Undeclared', publicOverrides: { majorGroup: 'Engineering' } }), 'Engineering');
+assert.equal(resolveEffectiveMajorGroup({ major: 'EE', majorGroup: 'Other / Undeclared' }), 'Other / Undeclared');
 assert.equal(
   resolveEffectivePublicProfile({ major: 'Human Systems Integration', majorGroup: 'Other / Undeclared' }, { majorGroup: 'Engineering' }).majorGroup,
   'Engineering',
@@ -29,6 +33,16 @@ assert.deepEqual(
   buildPublicOverridePatch({ major: 'Human Systems Integration' }, { majorGroup: 'Engineering' }, { majorGroup: 'Engineering' }),
   { majorGroup: 'Engineering' },
 );
+const categoryFixture = [
+  { major: 'EE', majorGroup: 'Other / Undeclared', publicOverrides: { majorGroup: 'Engineering' } },
+  { major: 'EE', majorGroup: 'Other / Undeclared' },
+  { major: 'Computer Science', majorGroup: 'Computing & Data' },
+];
+assert.equal(getEffectiveMajorGroupDistribution(categoryFixture).Engineering, 1);
+assert.equal(getEffectiveMajorGroupDistribution(categoryFixture)['Other / Undeclared'], 1);
+assert.equal(getEffectiveMajorGroupDistribution(categoryFixture)['Computing & Data'], 1);
+assert.equal(getEffectiveMajorGroupDistribution(categoryFixture.map((profile) => ({ ...profile, publicOverrides: {} }))).Engineering, 0);
+assert.equal(getEffectiveMajorGroupDistribution(categoryFixture.map((profile) => ({ ...profile, publicOverrides: {} })))['Other / Undeclared'], 2);
 
 assert.equal(resolveEffectivePublicProfile(imported, {}).major, 'Nutrition');
 assert.equal('bio' in resolveEffectivePublicProfile(imported, {}), false);
@@ -120,6 +134,10 @@ assert.match(editor, /Major Category/);
 assert.match(editor, /Reset to automatic/);
 assert.match(majorGroupMigration, /'majorGroup'/);
 assert.match(majorGroupMigration, /canonical major groups/);
+assert.match(adminSource, /getEffectiveMajorGroupDistribution/);
+assert.match(adminSource, /select\('public_data,public_overrides,public_hidden'\)/);
+assert.match(adminRoute, /revalidatePath\('\/admin'\)/);
+assert.match(adminRoute, /admin\/preview/);
 assert.doesNotMatch(editor, /profileImages|storagePath|phone|email|birthday/);
 
 console.log('Public profile override resolver, validation, security, sync preservation, and Admin wiring tests passed.');
