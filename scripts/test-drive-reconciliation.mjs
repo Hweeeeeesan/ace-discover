@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import sharp from 'sharp';
+import { evaluateAdminReadAccess } from '../lib/admin/guard.js';
+import { renderAdminDriveThumbnail, ADMIN_DRIVE_THUMBNAIL_LONG_EDGE } from '../lib/admin-drive-thumbnail.js';
+import { fetchDriveThumbnail } from '../lib/google-drive-server.js';
 import { ingestProfileImages } from '../lib/profile-image-ingestion.js';
 import {
   classifyDriveImageReconciliation,
@@ -105,6 +108,86 @@ assert.equal(unsupported.unsupportedCount, 1);
 assert.equal(unsupported.newCount, 0);
 
 const png = await sharp({ create: { width: 40, height: 30, channels: 4, background: '#57a5d8' } }).png().toBuffer();
+
+const adminEnvironment = {
+  NODE_ENV: 'production',
+  ACE_APP_ORIGIN: 'https://ace-discover.vercel.app',
+};
+const thumbnailRequestUrl = 'https://ace-discover.vercel.app/api/admin/datasets/images/reconcile/thumbnail?datasetId=11111111-1111-4111-8111-111111111111&profileId=person-one&driveFileId=1234567890FILEA';
+const authorizedIdentity = { state: 'authorized', role: 'admin' };
+assert.equal(evaluateAdminReadAccess(
+  authorizedIdentity,
+  thumbnailRequestUrl,
+  new Headers({ 'Sec-Fetch-Site': 'same-origin', Referer: 'https://ace-discover.vercel.app/admin/preview/fall-2026/person-one' }),
+  adminEnvironment,
+).ok, true, 'same-origin image GET must not require an Origin header');
+assert.equal(evaluateAdminReadAccess(
+  { state: 'unauthenticated' }, thumbnailRequestUrl, new Headers(), adminEnvironment,
+).status, 401, 'thumbnail remains Admin-authenticated');
+assert.equal(evaluateAdminReadAccess(
+  authorizedIdentity, thumbnailRequestUrl, new Headers({ 'Sec-Fetch-Site': 'cross-site' }), adminEnvironment,
+).status, 403, 'cross-site image embedding is rejected');
+
+const reviewJpeg = await sharp({
+  create: { width: 1800, height: 1200, channels: 3, background: '#c97e68' },
+}).jpeg({ quality: 92 }).toBuffer();
+const originalFetch = globalThis.fetch;
+try {
+  const thumbnailCalls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    thumbnailCalls.push({ url: String(url), authorization: options.headers?.Authorization || '' });
+    if (String(url) === 'https://thumbnail.example/review=s800') {
+      return new Response(reviewJpeg, { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
+    }
+    return new Response('unexpected request', { status: 500 });
+  };
+  const driveFile = {
+    id: '1234567890FILEA',
+    name: 'DSC_0130.jpeg',
+    mimeType: 'image/jpeg',
+    thumbnailLink: 'https://thumbnail.example/review=s220',
+  };
+  const rendition = await fetchDriveThumbnail(driveFile.id, { accessToken: 'test-token' }, driveFile);
+  assert.equal(rendition.status, 200);
+  assert.equal(rendition.headers.get('content-type'), 'image/jpeg');
+  assert.equal(rendition.headers.get('x-drive-download-source'), 'metadata_thumbnail');
+  assert.deepEqual(thumbnailCalls, [{
+    url: 'https://thumbnail.example/review=s800',
+    authorization: 'Bearer test-token',
+  }], 'the authenticated Google rendition is preferred over original media');
+  assert.equal(driveFile.id, '1234567890FILEA', 'thumbnail retrieval never changes reconciliation identity');
+
+  const rendered = await renderAdminDriveThumbnail(rendition);
+  const renderedBytes = Buffer.from(await rendered.arrayBuffer());
+  const renderedMetadata = await sharp(renderedBytes).metadata();
+  assert.equal(rendered.status, 200);
+  assert.equal(rendered.headers.get('content-type'), 'image/webp');
+  assert.equal(rendered.headers.get('cross-origin-resource-policy'), 'same-origin');
+  assert.ok(Math.max(renderedMetadata.width, renderedMetadata.height) <= ADMIN_DRIVE_THUMBNAIL_LONG_EDGE);
+  assert.ok(renderedBytes.length < reviewJpeg.length, 'Admin thumbnail is lighter than the source rendition');
+
+  const fallbackCalls = [];
+  globalThis.fetch = async (url) => {
+    fallbackCalls.push(String(url));
+    if (String(url) === 'https://thumbnail.example/missing=s800') {
+      return new Response('not available', { status: 404, headers: { 'Content-Type': 'text/plain' } });
+    }
+    if (String(url).includes('/drive/v3/files/1234567890FILEB?') && String(url).includes('alt=media')) {
+      return new Response(reviewJpeg, { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
+    }
+    return new Response('unexpected request', { status: 500 });
+  };
+  const fallback = await fetchDriveThumbnail('1234567890FILEB', { accessToken: 'test-token' }, {
+    id: '1234567890FILEB',
+    mimeType: 'image/jpeg',
+    thumbnailLink: 'https://thumbnail.example/missing=s220',
+  });
+  assert.equal(fallback.headers.get('x-drive-download-source'), 'original_media');
+  assert.ok(fallbackCalls.some((url) => url.includes('alt=media')), 'authenticated original is the thumbnail fallback');
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
 const downloaded = [];
 const selectedIngestion = await ingestProfileImages({
   profile: profile([]),
@@ -247,11 +330,18 @@ assert.match(server, /candidateDriveFileIds: selectedIds/);
 assert.match(server, /requireAllSupported: true/);
 assert.match(server, /commitDriveImageAppend/, 'DB append and staged cleanup must use the tested transaction coordinator');
 assert.match(server, /source_drive_file_id === image\.resolvedDriveFileId/, 'RPC uncertainty must confirm exact provenance');
+assert.match(server, /if \(!DRIVE_ID\.test[\s\S]*Invalid Drive file/, 'malformed Drive thumbnail IDs must be rejected');
+assert.match(server, /supported direct child of this profile folder/, 'unrelated Drive thumbnail IDs must be rejected');
 
-for (const route of ['preview', 'review', 'apply', 'thumbnail']) {
+for (const route of ['preview', 'review', 'apply']) {
   const source = await readFile(new URL(`../app/api/admin/datasets/images/reconcile/${route}/route.js`, import.meta.url), 'utf8');
   assert.match(source, /authorizeAdminRequest/, `${route} reconciliation route must require Admin authorization`);
 }
+const thumbnailRoute = await readFile(new URL('../app/api/admin/datasets/images/reconcile/thumbnail/route.js', import.meta.url), 'utf8');
+assert.match(thumbnailRoute, /authorizeAdminReadRequest/, 'thumbnail GET uses authenticated same-origin read authorization');
+assert.match(thumbnailRoute, /getDriveReconciliationThumbnailContext/, 'arbitrary Drive IDs must be rejected by profile-folder allowlisting');
+assert.match(thumbnailRoute, /fetchDriveThumbnail/, 'thumbnail route must prefer a Drive rendition before original media');
+assert.doesNotMatch(thumbnailRoute, /append|reviewLegacy|\.rpc\(|storage\./, 'thumbnail GET cannot mutate reconciliation or Storage state');
 
 const manager = await readFile(new URL('../components/AdminImageManager.js', import.meta.url), 'utf8');
 assert.match(manager, /Check Drive for new images/);
