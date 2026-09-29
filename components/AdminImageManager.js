@@ -16,7 +16,27 @@ async function postAction(body) {
   return payload;
 }
 
-export default function AdminImageManager({ datasetId, datasetSlug, profileId, images = [], imageClearedByAdmin = false }) {
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (!bytes) return 'Unknown size';
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function formatDate(value) {
+  const date = value ? new Date(value) : null;
+  return date && Number.isFinite(date.getTime()) ? date.toLocaleDateString() : 'Unknown date';
+}
+
+export default function AdminImageManager({
+  datasetId,
+  datasetSlug,
+  profileId,
+  images = [],
+  imageClearedByAdmin = false,
+  driveFolderId = '',
+  driveFileId = '',
+}) {
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
   const [makePrimary, setMakePrimary] = useState(false);
@@ -24,11 +44,44 @@ export default function AdminImageManager({ datasetId, datasetSlug, profileId, i
   const [sourceHealth, setSourceHealth] = useState(null);
   const [healthError, setHealthError] = useState('');
   const [checkingHealth, setCheckingHealth] = useState(false);
+  const [reconciliation, setReconciliation] = useState(null);
+  const [selectedDriveIds, setSelectedDriveIds] = useState([]);
+  const [legacySelections, setLegacySelections] = useState({});
+  const [reconciling, setReconciling] = useState(false);
+  const imagesById = new Map(images.map((image) => [image.id, image]));
+
+  function reconciliationHealth(payload) {
+    return {
+      state: payload.state === 'new_images' || payload.state === 'legacy_review' ? 'needs_import' : payload.state,
+      label: payload.label,
+      summary: payload.summary,
+      detail: payload.missingFromDriveCount
+        ? `${payload.missingFromDriveCount} tracked gallery image${payload.missingFromDriveCount === 1 ? ' is' : 's are'} no longer present in Drive and will be preserved.`
+        : 'Drive reconciliation never removes or reorders existing gallery images.',
+      displayedFrom: { label: images.length ? 'Supabase relational gallery' : 'No relational gallery' },
+      storageGallery: { label: `${payload.existingCount} relational image${payload.existingCount === 1 ? '' : 's'}` },
+      driveSource: { label: driveFolderId ? `Folder · ${payload.supportedCount} supported` : driveFileId ? 'File' : 'None' },
+      focalMessage: 'Existing presentation metadata remains unchanged.',
+    };
+  }
 
   async function checkSourceHealth() {
     setCheckingHealth(true);
     setHealthError('');
     try {
+      if (images.length > 0 && (driveFolderId || driveFileId)) {
+        const response = await fetch('/api/admin/datasets/images/reconcile/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ datasetId, profileId }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || 'Drive reconciliation could not be checked.');
+        setReconciliation(payload);
+        setSelectedDriveIds(payload.newCandidates?.map((file) => file.id) || []);
+        setSourceHealth(reconciliationHealth(payload));
+        return;
+      }
       const response = await fetch('/api/admin/datasets/images/health', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -49,6 +102,65 @@ export default function AdminImageManager({ datasetId, datasetSlug, profileId, i
     // A refreshed gallery receives a new image count and should be classified again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetId, profileId, images.length]);
+
+  async function reviewLegacy(imageId, preserveAsLegacy = false) {
+    const driveFileIdForImage = legacySelections[imageId] || '';
+    if (!preserveAsLegacy && !driveFileIdForImage) {
+      setHealthError('Choose the matching Drive file first.');
+      return;
+    }
+    const message = preserveAsLegacy
+      ? 'Confirm this existing image is not represented by a current Drive file? The image and all presentation settings will remain unchanged.'
+      : 'Attach this Drive identity to the existing gallery image? Only provenance metadata will change.';
+    if (!window.confirm(message)) return;
+    setReconciling(true);
+    setHealthError('');
+    try {
+      const response = await fetch('/api/admin/datasets/images/reconcile/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          datasetId,
+          profileId,
+          imageId,
+          driveFileId: driveFileIdForImage,
+          preserveAsLegacy,
+          confirm: true,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Drive identity review failed.');
+      await checkSourceHealth();
+      router.refresh();
+    } catch (reviewError) {
+      setHealthError(reviewError.message);
+    } finally {
+      setReconciling(false);
+    }
+  }
+
+  async function appendSelectedDriveImages() {
+    if (!selectedDriveIds.length) return;
+    if (!window.confirm(`Append ${selectedDriveIds.length} new Drive image${selectedDriveIds.length === 1 ? '' : 's'}? Existing gallery images and presentation settings will be preserved.`)) return;
+    setReconciling(true);
+    setHealthError('');
+    try {
+      const response = await fetch('/api/admin/datasets/images/reconcile/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ datasetId, profileId, driveFileIds: selectedDriveIds, confirm: true }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Drive images could not be appended.');
+      setReconciliation(null);
+      setSelectedDriveIds([]);
+      router.refresh();
+    } catch (applyError) {
+      setHealthError(applyError.message);
+    } finally {
+      setReconciling(false);
+    }
+  }
 
   async function refreshAfter(task) {
     setError('');
@@ -150,6 +262,85 @@ export default function AdminImageManager({ datasetId, datasetSlug, profileId, i
         )}
         {healthError && <p className="admin-image-source-health-error" role="alert">{healthError}</p>}
       </section>
+      {images.length > 0 && driveFolderId && (
+        <section className="admin-drive-reconciliation" aria-labelledby="admin-drive-reconciliation-title">
+          <div className="admin-drive-reconciliation-heading">
+            <div>
+              <h3 id="admin-drive-reconciliation-title">Drive gallery reconciliation</h3>
+              <p>Check the current folder and append only images with new, reviewed Drive identities.</p>
+            </div>
+            <button type="button" onClick={checkSourceHealth} disabled={checkingHealth || reconciling}>
+              {checkingHealth ? 'Checking…' : 'Check Drive for new images'}
+            </button>
+          </div>
+          {reconciliation?.state === 'legacy_review' && (
+            <div className="admin-drive-legacy-review">
+              <strong>Existing gallery predates Drive source tracking.</strong>
+              <p>Match each legacy image to its Drive file, or mark it as a preserved non-Drive image. Nothing about the image presentation changes.</p>
+              {reconciliation.legacyImages.map((legacyImage) => (
+                <div className="admin-drive-legacy-row" key={legacyImage.id}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={imagesById.get(legacyImage.id)?.src} alt="" />
+                  <span>Existing image {legacyImage.position + 1}{legacyImage.isPrimary ? ' · Primary' : ''}</span>
+                  <select
+                    aria-label={`Drive match for image ${legacyImage.position + 1}`}
+                    value={legacySelections[legacyImage.id] || ''}
+                    onChange={(event) => setLegacySelections((current) => ({ ...current, [legacyImage.id]: event.target.value }))}
+                  >
+                    <option value="">Choose matching Drive file</option>
+                    {reconciliation.reviewDriveFiles.map((file) => (
+                      <option value={file.id} key={file.id}>{file.name} · {formatBytes(file.size)}</option>
+                    ))}
+                  </select>
+                  <button type="button" disabled={reconciling} onClick={() => reviewLegacy(legacyImage.id)}>Confirm match</button>
+                  <button type="button" disabled={reconciling} onClick={() => reviewLegacy(legacyImage.id, true)}>Not in current Drive folder</button>
+                </div>
+              ))}
+              <div className="admin-drive-file-grid">
+                {reconciliation.reviewDriveFiles.map((file) => (
+                  <figure key={file.id}>
+                    {/* This URL is Admin-authorized and verifies direct folder ownership server-side. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={file.thumbnailUrl} alt="" loading="lazy" />
+                    <figcaption><strong>{file.name}</strong><span>{formatBytes(file.size)} · {formatDate(file.modifiedTime)}</span></figcaption>
+                  </figure>
+                ))}
+              </div>
+            </div>
+          )}
+          {reconciliation?.state === 'new_images' && (
+            <div className="admin-drive-new-images">
+              <strong>{reconciliation.newCount} new Drive image{reconciliation.newCount === 1 ? '' : 's'} found</strong>
+              <p>{reconciliation.existingCount} existing gallery images will remain unchanged. Selected images will be appended after the current last position.</p>
+              <div className="admin-drive-file-grid">
+                {reconciliation.newCandidates.map((file) => (
+                  <label key={file.id}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={file.thumbnailUrl} alt="" loading="lazy" />
+                    <span><input
+                      type="checkbox"
+                      checked={selectedDriveIds.includes(file.id)}
+                      onChange={(event) => setSelectedDriveIds((current) => event.target.checked
+                        ? [...new Set([...current, file.id])]
+                        : current.filter((id) => id !== file.id))}
+                    /> <strong>{file.name}</strong></span>
+                    <small>{formatBytes(file.size)} · {formatDate(file.modifiedTime)}</small>
+                  </label>
+                ))}
+              </div>
+              <button type="button" onClick={appendSelectedDriveImages} disabled={reconciling || !selectedDriveIds.length}>
+                {reconciling ? 'Appending…' : `Append ${selectedDriveIds.length} selected image${selectedDriveIds.length === 1 ? '' : 's'}`}
+              </button>
+            </div>
+          )}
+          {reconciliation && reconciliation.unsupportedCount > 0 && (
+            <p>{reconciliation.unsupportedCount} unsupported Drive file{reconciliation.unsupportedCount === 1 ? ' was' : 's were'} ignored.</p>
+          )}
+          {reconciliation && reconciliation.missingFromDriveCount > 0 && (
+            <p>{reconciliation.missingFromDriveCount} tracked gallery image{reconciliation.missingFromDriveCount === 1 ? ' is' : 's are'} no longer in Drive and will be preserved.</p>
+          )}
+        </section>
+      )}
       {error && <p className="admin-image-manager-error" role="alert">{error}</p>}
       {!images.length && (
         <div className={`admin-image-manager-empty${imageClearedByAdmin ? ' is-intentionally-cleared' : ''}`}>

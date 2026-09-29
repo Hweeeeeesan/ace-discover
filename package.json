@@ -20,7 +20,7 @@
     "test:profile-qa": "node scripts/test-profile-qa.mjs",
     "validate:data": "python3 scripts/validate-public-data.py",
     "test:drive": "node scripts/test-drive-route.mjs",
-    "test:images": "node scripts/test-profile-images.mjs && node scripts/test-profile-image-derivatives.mjs && node scripts/test-profile-gallery-loading.mjs",
+    "test:images": "node scripts/test-profile-images.mjs && node scripts/test-profile-image-derivatives.mjs && node scripts/test-profile-gallery-loading.mjs && node scripts/test-drive-reconciliation.mjs",
     "test:image-health": "node scripts/test-profile-image-health.mjs",
     "test:auth": "node scripts/test-auth-redirect.mjs",
     "test:drive-recovery": "node scripts/test-drive-recovery.mjs",

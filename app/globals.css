@@ -631,6 +631,25 @@ select:focus-visible {
 .admin-image-source-health.state-unsupported_source, .admin-image-source-health.state-failed, .admin-image-source-health.state-inaccessible { border-color: #efcaca; background: #fff8f8; }
 .admin-image-source-health.state-degraded_source, .admin-image-source-health.state-normalization_required { border-color: #eed9a8; background: #fffaf0; }
 .admin-image-source-health-error { color: #9a2929 !important; }
+.admin-drive-reconciliation { margin-top: 16px; padding: 16px; border: 1px solid #d7e2ec; border-radius: 16px; background: #fff; color: #263b50; }
+.admin-drive-reconciliation-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.admin-drive-reconciliation h3 { margin: 0 0 5px; font-size: 16px; }
+.admin-drive-reconciliation p { margin: 5px 0 0; color: #607086; font-size: 11px; line-height: 1.5; }
+.admin-drive-reconciliation button { min-height: 34px; padding: 0 11px; border: 1px solid #cbd7e2; border-radius: 10px; color: #263b50; background: #f5f9fc; cursor: pointer; font-size: 10px; font-weight: 820; }
+.admin-drive-reconciliation button:disabled { cursor: wait; opacity: .55; }
+.admin-drive-legacy-review, .admin-drive-new-images { margin-top: 14px; padding: 13px; border-radius: 12px; background: #f5f8fb; }
+.admin-drive-legacy-review > p, .admin-drive-new-images > p { margin-bottom: 12px; }
+.admin-drive-legacy-row { display: grid; grid-template-columns: 72px minmax(110px,.55fr) minmax(200px,1fr) auto auto; gap: 8px; align-items: center; padding: 9px 0; border-top: 1px solid #dce5ed; font-size: 11px; }
+.admin-drive-legacy-row > img { width: 72px; height: 72px; border-radius: 9px; display: block; object-fit: cover; background: #15191e; }
+.admin-drive-legacy-row select { min-width: 0; min-height: 34px; border: 1px solid #cbd7e2; border-radius: 9px; background: #fff; color: #263b50; font-size: 11px; }
+.admin-drive-file-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 10px; margin: 12px 0; }
+.admin-drive-file-grid figure, .admin-drive-file-grid label { overflow: hidden; margin: 0; border: 1px solid #d7e2ec; border-radius: 11px; display: grid; background: #fff; }
+.admin-drive-file-grid img { width: 100%; height: 132px; display: block; object-fit: contain; background: #15191e; }
+.admin-drive-file-grid figcaption, .admin-drive-file-grid label > span, .admin-drive-file-grid label > small { padding: 7px 9px 0; min-width: 0; }
+.admin-drive-file-grid figcaption { display: grid; gap: 3px; padding-bottom: 8px; }
+.admin-drive-file-grid strong { overflow-wrap: anywhere; font-size: 10px; }
+.admin-drive-file-grid span, .admin-drive-file-grid small { color: #607086; font-size: 9px; line-height: 1.4; }
+.admin-drive-file-grid label > small { padding-bottom: 8px; }
 .admin-image-manager-empty { margin: 20px 0 0 !important; padding: 16px; border: 1px dashed rgba(20,30,45,.2); border-radius: 14px; display: flex; flex-direction: column; gap: 5px; color: #607086; }
 .admin-image-manager-empty strong { color: #26364d; font-size: 13px; }
 .admin-image-manager-empty span { font-size: 11px; line-height: 1.45; }
@@ -644,6 +663,8 @@ select:focus-visible {
   .admin-image-manager-preview { height: min(58svh, 380px); min-height: 250px; }
   .admin-image-source-health dl { grid-template-columns: 1fr; }
   .admin-image-source-health-heading { align-items: flex-start; }
+  .admin-drive-reconciliation-heading { display: grid; }
+  .admin-drive-legacy-row { grid-template-columns: 1fr; }
 }
 .admin-image-manager-actions { display: flex; flex-wrap: wrap; gap: 7px; padding: 11px 12px 13px; }
 .admin-image-manager-actions button { padding: 7px 9px; border: 1px solid rgba(20,30,45,.15); border-radius: 9px; color: #26364d; background: #fff; cursor: pointer; font-size: 10px; font-weight: 800; }

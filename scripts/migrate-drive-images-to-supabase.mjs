@@ -307,7 +307,7 @@ async function main() {
       remove: inspector.remove.bind(inspector),
     }),
     createImage: async ({ profile, image, makePrimary }) => {
-      const { data, error } = await supabase.rpc('create_profile_image_with_derivative', {
+      const { data, error } = await supabase.rpc('create_google_drive_profile_image_with_derivatives', {
         requested_dataset_id: dataset.id,
         requested_profile_id: profile.id,
         requested_image_id: image.imageId,
@@ -322,12 +322,17 @@ async function main() {
         requested_discovery_height: image.discoveryHeight,
         requested_discovery_mime_type: image.discoveryMimeType,
         requested_discovery_byte_length: image.discoveryByteLength,
+        requested_drive_file_id: image.resolvedDriveFileId,
+        requested_drive_folder_id: profile.driveFolderId || null,
+        requested_source_filename: image.name || null,
+        requested_source_modified_time: image.sourceModifiedTime || null,
+        requested_source_size: image.sourceSize || null,
         requested_make_primary: makePrimary,
       });
       if (!error && data?.storagePath === image.storagePath) return data;
       const { data: confirmed } = await supabase
         .from('profile_images')
-        .select('id,storage_path,profile_storage_path,discovery_storage_path,position,is_primary')
+        .select('id,storage_path,profile_storage_path,discovery_storage_path,position,is_primary,source_type,source_drive_file_id')
         .eq('id', image.imageId)
         .eq('dataset_id', dataset.id)
         .eq('profile_id', profile.id)
@@ -336,6 +341,8 @@ async function main() {
         confirmed?.storage_path === image.storagePath
         && confirmed?.profile_storage_path === image.profileStoragePath
         && confirmed?.discovery_storage_path === image.discoveryStoragePath
+        && confirmed?.source_type === 'google_drive'
+        && confirmed?.source_drive_file_id === image.resolvedDriveFileId
       ) {
         return {
           id: confirmed.id,

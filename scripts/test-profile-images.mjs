@@ -1610,7 +1610,7 @@ assert.match(migrationToolSource, /pathExists\(storagePath\)[\s\S]*listImagePath
 assert.match(migrationToolSource, /findExistingPath\(profile\)[\s\S]*listPrimaryPaths/, 'legacy recovery must remain limited to unambiguous primary objects');
 assert.match(migrationToolSource, /migrateDatasetProfileGalleries/);
 assert.match(migrationToolSource, /from\('profile_images'\)/, 'migration must inspect relational galleries before touching Drive');
-assert.match(migrationToolSource, /create_profile_image_with_derivative/, 'migration must transactionally commit canonical and derivative metadata');
+assert.match(migrationToolSource, /create_google_drive_profile_image_with_derivatives/, 'migration must transactionally commit canonical, derivative, and Drive provenance metadata');
 assert.match(migrationToolSource, /removeStorage: inspector\.remove/, 'metadata failures must use Storage cleanup');
 assert.match(migrationToolSource, /--replace-existing requires an explicit --profile/);
 assert.match(migrationToolSource, /replace_profile_image_gallery/);

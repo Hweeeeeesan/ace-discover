@@ -169,6 +169,8 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
           profileId={profile.id}
           images={profile.profileImages || []}
           imageClearedByAdmin={profile.imageClearedByAdmin === true}
+          driveFolderId={profile.driveFolderId || ''}
+          driveFileId={profile.driveFileId || ''}
         />
       )}
     </main>
