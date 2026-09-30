@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { evaluateAdminWriteAccess } from '../lib/admin/guard.js';
 import { safeAdminRedirect } from '../lib/admin/redirects.js';
 import { roleForEmail } from '../lib/admin/roles.js';
-import { datasetDiscoveryKey, datasetSeenKey, discoveryProfile, profilePath } from '../lib/datasets/model.js';
+import { datasetDiscoveryKey, datasetSeenKey, discoveryProfile, profilePath, publicDetailProfile } from '../lib/datasets/model.js';
+import { resolveEffectivePublicProfile, validatePublicOverrides } from '../lib/profile-overrides.js';
 import {
   MAX_UPLOAD_REQUEST_BYTES,
   MAX_WORKBOOK_BYTES,
@@ -57,8 +58,34 @@ const bulkProfile = discoveryProfile({ id: 'example', name: 'Example', instagram
 assert.equal('instagram' in bulkProfile, false, 'bulk discovery records must not contain Instagram');
 assert.equal('bio' in bulkProfile, false, 'bulk discovery records must not contain Profile Story');
 assert.equal('story' in bulkProfile, false, 'bulk discovery records must not contain source story');
-const detailProfile = profiles.find((profile) => profile.instagram);
-assert.match(detailProfile.instagram, /^https:\/\/www\.instagram\.com\//, 'single-profile detail data retains canonical Instagram');
+const importedDetailProfile = {
+  id: 'example', name: 'Example', instagram: 'https://www.instagram.com/private-handle/',
+  bio: 'private story', story: 'private story', hobbies: 'Reading', major: 'Engineering',
+};
+const detailProfile = publicDetailProfile(importedDetailProfile);
+assert.equal(detailProfile.instagram, importedDetailProfile.instagram, 'public ProfileDetail records retain Instagram');
+assert.equal('bio' in detailProfile, false, 'public ProfileDetail records exclude Profile Story bio');
+assert.equal('story' in detailProfile, false, 'public ProfileDetail records exclude source story');
+assert.equal(detailProfile.hobbies, importedDetailProfile.hobbies, 'detail sanitization preserves unrelated public fields');
+assert.equal(resolveEffectivePublicProfile(importedDetailProfile, {}).instagram, importedDetailProfile.instagram);
+assert.equal(
+  publicDetailProfile(resolveEffectivePublicProfile(importedDetailProfile, { instagram: 'https://instagram.com/override.handle' })).instagram,
+  'https://instagram.com/override.handle',
+  'a valid Instagram override reaches the public detail sanitizer',
+);
+assert.equal(
+  publicDetailProfile(resolveEffectivePublicProfile(importedDetailProfile, { instagram: '' })).instagram,
+  '',
+  'an explicit empty Instagram override remains an intentional reset/hide value',
+);
+assert.equal(validatePublicOverrides({ instagram: 'raw.handle' }).instagram, 'https://www.instagram.com/raw.handle/');
+assert.equal(validatePublicOverrides({ instagram: '@at.handle' }).instagram, 'https://www.instagram.com/at.handle/');
+assert.equal(validatePublicOverrides({ instagram: 'https://www.instagram.com/full.handle/' }).instagram, 'https://www.instagram.com/full.handle/');
+const fallbackDetailProfile = profiles.find((profile) => profile.instagram);
+assert.match(fallbackDetailProfile.instagram, /^https:\/\/www\.instagram\.com\//, 'single-profile detail data retains canonical Instagram');
+const publicSource = await readFile(new URL('../lib/datasets/public.js', import.meta.url), 'utf8');
+assert.match(publicSource, /publicDetailProfile\(resolveEffectivePublicProfile\(data\.profile\)\)/, 'Supabase public detail resolution uses the detail sanitizer');
+assert.doesNotMatch(publicSource, /discoveryProfile\(resolveEffectivePublicProfile\(data\.profile\)\)/, 'Supabase public detail resolution does not use the Discovery sanitizer');
 
 const validFile = {
   name: 'semester.xlsx',
