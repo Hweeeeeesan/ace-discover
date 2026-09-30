@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { MAJOR_GROUP_ORDER, normalizeMajorGroup } from '../lib/import/major-group';
+import { UNMATCHED_HOBBY, applyDescriptionMatches } from '../lib/profile-format-recommendations';
 
 const TEXT_FIELDS = [
   ['name', 'Name', 'input'], ['pronouns', 'Pronouns', 'input'], ['year', 'Year', 'input'],
@@ -33,6 +34,10 @@ function sameValue(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function canApplyMatches(hobbies, matches) {
+  return Boolean(matches?.length) && applyDescriptionMatches(hobbies, matches).ok;
+}
+
 export default function AdminProfileEditor({
   datasetId, datasetSlug, profileId, profile, importedPublicData, publicOverrides = {},
   publicOverridesUpdatedAt = null, publicHidden = false, vibeReasoning = [], vibeThreshold = 5,
@@ -44,6 +49,8 @@ export default function AdminProfileEditor({
   const [hidden, setHidden] = useState(publicHidden === true);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [matching, setMatching] = useState(null);
+  const [matchingValues, setMatchingValues] = useState(null);
   const overrideCount = Object.keys(publicOverrides || {}).length;
   const changedUnderOverride = Object.keys(publicOverrides || {}).filter((field) => !sameValue(importedPublicData?.[field], profile?.[field]));
 
@@ -77,6 +84,10 @@ export default function AdminProfileEditor({
 
   async function save(event) {
     event.preventDefault();
+    await saveValues(values);
+  }
+
+  async function saveValues(nextValues) {
     setPending(true);
     setError('');
     setMessage('');
@@ -84,18 +95,50 @@ export default function AdminProfileEditor({
       const response = await fetch('/api/admin/datasets/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ datasetId, datasetSlug, profileId, expectedUpdatedAt: publicOverridesUpdatedAt, values }),
+        body: JSON.stringify({ datasetId, datasetSlug, profileId, expectedUpdatedAt: publicOverridesUpdatedAt, values: nextValues }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || 'Profile changes could not be saved.');
       setMessage('Public profile changes saved.');
       setEditing(false);
+      setMatching(null);
+      setMatchingValues(null);
       router.refresh();
     } catch (saveError) {
       setError(saveError.message);
     } finally {
       setPending(false);
     }
+  }
+
+  async function checkFormatting() {
+    setPending(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch('/api/admin/datasets/profile/format', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ datasetId, profileId }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Formatting analysis failed.');
+      setMatching({ ...payload.recommendation, downstreamPreview: payload.downstreamPreview });
+      setMatchingValues(payload.recommendation?.descriptions || []);
+    } catch (formatError) {
+      setError(formatError.message);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function applyMatches() {
+    if (!matchingValues) return;
+    const result = applyDescriptionMatches(profile?.hobbies, matchingValues);
+    if (!result.ok) {
+      setError(result.reason);
+      return;
+    }
+    await saveValues({ hobbyDetails: result.hobbyDetails });
   }
 
   async function setVisibility(nextHidden) {
@@ -133,6 +176,7 @@ export default function AdminProfileEditor({
           {overrideCount > 0 && <span>{overrideCount} public field{overrideCount === 1 ? '' : 's'} overridden</span>}
           {publicOverridesUpdatedAt && <span>Last edited {new Date(publicOverridesUpdatedAt).toLocaleString()}</span>}
           {!editing && <button type="button" onClick={() => { setMessage(''); setError(''); setEditing(true); }}>Edit profile</button>}
+          {!editing && <button type="button" onClick={checkFormatting} disabled={pending}>Match hobby descriptions</button>}
           <button type="button" onClick={() => setVisibility(!hidden)} disabled={pending}>
             {hidden ? 'Restore to public' : 'Hide from public'}
           </button>
@@ -140,6 +184,40 @@ export default function AdminProfileEditor({
       </div>
       {message && <p className="admin-form-success" role="status">{message}</p>}
       {error && <p className="admin-form-error" role="alert">{error}</p>}
+      {matching && (
+        <section className="admin-format-review" aria-labelledby="admin-format-review-title">
+          <h3 id="admin-format-review-title">Hobby Description Matching</h3>
+          {matching.status === 'clean' ? <>
+            <p>Hobby descriptions already matched.</p>
+            <button type="button" onClick={() => { setMatching(null); setMatchingValues(null); }} disabled={pending}>Cancel</button>
+          </> : matching.status === 'no-descriptions' ? <>
+            <p>{matching.reason}</p>
+            <button type="button" onClick={() => { setMatching(null); setMatchingValues(null); }} disabled={pending}>Cancel</button>
+          </> : <>
+            <p>Detected descriptions: {matching.descriptions.length}</p>
+            {matching.descriptions.map((description, index) => {
+              const selected = matchingValues?.find((value) => value.id === description.id)?.hobby || UNMATCHED_HOBBY;
+              return <div className="admin-format-match-row" key={description.id}>
+                <strong>Description {index + 1}</strong>
+                <pre>{description.text}</pre>
+                <label><span>Matched hobby</span><select value={selected} onChange={(event) => setMatchingValues((current) => current.map((value) => value.id === description.id ? { ...value, hobby: event.target.value, matchType: event.target.value === UNMATCHED_HOBBY ? 'UNMATCHED' : 'MANUAL' } : value))}>
+                  <option value={UNMATCHED_HOBBY}>Unmatched / preserve</option>
+                  {matching.hobbies.map((hobby) => <option value={hobby} key={hobby}>{hobby}</option>)}
+                </select></label>
+                <small>Match type: {selected === UNMATCHED_HOBBY ? 'UNMATCHED' : matchingValues?.find((value) => value.id === description.id)?.matchType || description.matchType}</small>
+              </div>;
+            })}
+            {matchingValues && new Set(matchingValues.filter((value) => value.hobby !== UNMATCHED_HOBBY).map((value) => value.hobby.toLocaleLowerCase())).size !== matchingValues.filter((value) => value.hobby !== UNMATCHED_HOBBY).length && <p className="admin-form-error">Multiple descriptions are mapped to the same hobby. Choose one description per hobby.</p>}
+            {matching.reason && <p>{matching.reason}</p>}
+            {matching.downstreamPreview && <p><strong>Derived after apply:</strong> Interests: {matching.downstreamPreview.interests.join(', ') || '—'} · Vibes: {matching.downstreamPreview.vibes.join(', ') || '—'}</p>}
+            <div className="admin-profile-editor-actions">
+              <button type="button" onClick={() => setMatchingValues(matching.suggested)} disabled={pending}>Reset suggestions</button>
+              <button type="button" onClick={() => { setMatching(null); setMatchingValues(null); }} disabled={pending}>Cancel</button>
+              <button type="button" className="dataset-primary-action" onClick={applyMatches} disabled={pending || !canApplyMatches(profile?.hobbies, matchingValues)}>{pending ? 'Applying…' : 'Apply matches'}</button>
+            </div>
+          </>}
+        </section>
+      )}
       {editing ? (
         <form className="admin-profile-editor-form" onSubmit={save}>
           <fieldset className="admin-profile-major-group">

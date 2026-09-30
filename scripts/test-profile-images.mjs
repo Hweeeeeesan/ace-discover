@@ -1451,7 +1451,7 @@ const homepageSource = await readFile(new URL('../app/page.js', import.meta.url)
 assert.match(homepageSource, /export const dynamic = ['"]force-dynamic['"]/,
   'homepage must read current public image metadata instead of a static dataset snapshot');
 const publicDatasetSource = await readFile(new URL('../lib/datasets/public.js', import.meta.url), 'utf8');
-assert.match(publicDatasetSource, /resolveProfileImages\(payload\.profiles\.map\(discoveryProfile\)\)/,
+assert.match(publicDatasetSource, /resolveProfileImages\(payload\.profiles\.map\(\(profile\) => \([\s\S]*discoveryProfile\(resolveEffectivePublicProfile\(profile\)\)/,
   'the bulk RPC profiles must use the shared primary-image resolver');
 assert.doesNotMatch(publicDatasetSource, /unstable_cache|force-cache|cacheTag|cacheLife/,
   'Discovery dataset reads must not retain a separate stale data cache');

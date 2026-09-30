@@ -690,6 +690,11 @@ select:focus-visible {
 .profile-external-link:hover { background: #f1eee7; }
 .profile-external-link:focus-visible { outline: 3px solid rgba(41,39,34,.18); outline-offset: 2px; }
 .instagram-button { margin-top: 18px; }
+
+.admin-format-review { margin: 20px 0; padding: 16px; border: 1px solid #dedad1; border-radius: 14px; background: #faf9f5; }
+.admin-format-preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
+.admin-format-preview pre { min-height: 88px; margin: 6px 0 0; padding: 10px; white-space: pre-wrap; font: inherit; background: #fff; border: 1px solid #ebe8e1; border-radius: 8px; }
+.admin-format-preview textarea { display: block; width: 100%; margin-top: 6px; box-sizing: border-box; }
 .profile-external-link-icon { width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center; color: white; background: #171717; }
 .profile-external-link > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .profile-external-link strong { font-size: 14px; }

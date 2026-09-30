@@ -8,10 +8,13 @@ import {
   resolveEffectivePublicProfile,
   validatePublicOverrides,
 } from '../lib/profile-overrides.js';
+import { inferVibes } from '../lib/import/profile-normalization.js';
 
 const imported = {
   id: 'hazel-tran', name: 'Hazel Tran', role: 'Little', major: 'Nutrition',
   passion: 'Crafts', vibes: ['Photography', 'Creative'], phone: 'private',
+  hobbies: 'Photography, hiking', hobbyDetails: 'I develop film in a small home darkroom.',
+  music: 'Instrumental music', movies: 'Documentaries', perfectDay: 'A quiet creative day.',
   bio: 'Private Profile Story content', story: 'Private source story',
   aceTraitSlideUrl: 'https://docs.google.com/presentation/d/imported-slide/edit',
 };
@@ -45,6 +48,28 @@ assert.equal(getEffectiveMajorGroupDistribution(categoryFixture.map((profile) =>
 assert.equal(getEffectiveMajorGroupDistribution(categoryFixture.map((profile) => ({ ...profile, publicOverrides: {} })))['Other / Undeclared'], 2);
 
 assert.equal(resolveEffectivePublicProfile(imported, {}).major, 'Nutrition');
+assert.deepEqual(resolveEffectivePublicProfile(imported, {}).interests, ['Photography', 'Hiking']);
+const editedHobbies = resolveEffectivePublicProfile(imported, {
+  hobbies: '  pottery, hiking, pottery  ',
+});
+assert.deepEqual(editedHobbies.interests, ['Pottery', 'Hiking'], 'edited hobbies recompute importer-derived interests');
+assert.deepEqual(
+  editedHobbies.vibes,
+  inferVibes({
+    hobbies: '  pottery, hiking, pottery  ',
+    hobbyDetails: imported.hobbyDetails,
+    music: imported.music,
+    movies: imported.movies,
+    perfectDay: imported.perfectDay,
+  }),
+  'edited hobbies recompute importer-derived vibes',
+);
+assert.deepEqual(
+  resolveEffectivePublicProfile(imported, { hobbies: 'Pottery', vibes: ['Creative'] }).vibes,
+  ['Creative'],
+  'an explicit vibe override is not overwritten by hobby reprocessing',
+);
+assert.equal(editedHobbies.music, imported.music, 'unrelated fields remain unchanged');
 assert.equal('bio' in resolveEffectivePublicProfile(imported, {}), false);
 assert.equal('story' in resolveEffectivePublicProfile(imported, {}), false);
 assert.throws(() => validatePublicOverrides({ bio: 'Profile Story override' }), /cannot be overridden/);
