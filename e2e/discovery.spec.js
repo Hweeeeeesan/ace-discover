@@ -380,6 +380,35 @@ test.describe('ACE Discover discovery smoke tests', () => {
     await expect(page.getByRole('searchbox', { name: 'Search profiles' })).toHaveValue('Ashley Kiang');
   });
 
+  test('loads the deep-search corpus once and only after search begins', async ({ page }) => {
+    let corpusRequests = 0;
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname === '/api/discovery/search') corpusRequests += 1;
+    });
+
+    await openDiscovery(page);
+    await page.waitForTimeout(200);
+    expect(corpusRequests).toBe(0);
+
+    if ((page.viewportSize()?.width || 0) < 1200) {
+      await page.getByRole('button', { name: 'Search profiles' }).click();
+    }
+    const search = page.getByRole('searchbox', { name: 'Search profiles' });
+    const firstCorpusResponse = page.waitForResponse((response) => (
+      new URL(response.url()).pathname === '/api/discovery/search'
+    ));
+    await search.fill('darkroom');
+    const corpusResponse = await firstCorpusResponse;
+    expect(corpusResponse.ok()).toBeTruthy();
+    expect(corpusRequests).toBe(1);
+
+    await search.fill('photography');
+    await search.fill('');
+    await search.fill('music');
+    await page.waitForTimeout(300);
+    expect(corpusRequests).toBe(1);
+  });
+
   test('protects Admin and keeps detail-page social/deck links', async ({ page }) => {
     await page.goto('/admin');
     await expect(page.getByText('ACE Discover Admin', { exact: true })).toBeVisible();

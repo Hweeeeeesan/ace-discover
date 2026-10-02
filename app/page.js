@@ -11,5 +11,12 @@ export default async function Home() {
   // A failed ISR regeneration must throw so Next keeps serving the last good
   // page instead of caching the temporary "unavailable" response.
   const dataset = await getActiveDataset({ requireAvailable: true });
-  return <DiscoveryFeed key={dataset.slug} profiles={dataset.profiles} datasetSlug={dataset.slug} />;
+  return (
+    <DiscoveryFeed
+      key={dataset.slug}
+      profiles={dataset.profiles}
+      datasetSlug={dataset.slug}
+      searchCorpusVersion={dataset.searchCorpusVersion}
+    />
+  );
 }

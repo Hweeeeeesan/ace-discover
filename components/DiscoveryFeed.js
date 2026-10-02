@@ -21,6 +21,11 @@ import {
   sanitizeFilters,
 } from '../lib/discovery';
 import {
+  createDiscoverySearchLoader,
+  mergeDiscoverySearchProfiles,
+  PUBLIC_DISCOVERY_SEARCH_PATH,
+} from '../lib/discovery-search';
+import {
   createDiscoveryRefreshCoordinator,
   discoveryNavigationMarkerId,
 } from '../lib/discovery-refresh';
@@ -49,12 +54,25 @@ const INITIAL_STATE = {
   seenOrderIds: [],
 };
 
-export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
+async function fetchDiscoverySearchCorpus() {
+  const response = await fetch(PUBLIC_DISCOVERY_SEARCH_PATH, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) throw new Error(`Discovery search request failed with ${response.status}.`);
+  return response.json();
+}
+
+export default function DiscoveryFeed({
+  profiles,
+  datasetSlug = 'fall-2025',
+  searchCorpusVersion = '',
+}) {
   const router = useRouter();
   const feedRef = useRef(null);
   const stateRef = useRef(INITIAL_STATE);
   const scrollTopRef = useRef(0);
   const toastTimerRef = useRef(null);
+  const searchLoaderRef = useRef(null);
   const [refreshPending, startRefreshTransition] = useTransition();
   const refreshCoordinatorRef = useRef(null);
 
@@ -86,19 +104,29 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
   const [seenIds, setSeenIds] = useState([]);
   const [savedIds, setSavedIds] = useState([]);
   const [encounteredIds, setEncounteredIds] = useState([]);
+  const [deepSearchCorpus, setDeepSearchCorpus] = useState(null);
+  const [deepSearchStatus, setDeepSearchStatus] = useState('idle');
   const encounteredIdsRef = useRef([]);
   const [toast, setToast] = useState('');
+
+  if (!searchLoaderRef.current) {
+    searchLoaderRef.current = createDiscoverySearchLoader(fetchDiscoverySearchCorpus);
+  }
 
   stateRef.current = discovery;
   encounteredIdsRef.current = encounteredIds;
 
+  const searchableProfiles = useMemo(
+    () => deepSearchCorpus ? mergeDiscoverySearchProfiles(profiles, deepSearchCorpus) : profiles,
+    [profiles, deepSearchCorpus],
+  );
   const options = useMemo(() => getDiscoveryOptions(profiles), [profiles]);
   const availableRoles = useMemo(() => getAvailableRoles(profiles), [profiles]);
   const effectiveRole = discovery.role === 'All' || availableRoles.includes(discovery.role)
     ? discovery.role
     : 'All';
   const visibleResults = useMemo(
-    () => buildDiscoveryResults(profiles, {
+    () => buildDiscoveryResults(searchableProfiles, {
       query: discovery.query,
       role: effectiveRole,
       saved: discovery.saved,
@@ -110,7 +138,7 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
       encounteredIds: discovery.encounteredOrderIds,
       orderingSeenIds: discovery.seenOrderIds,
     }),
-    [profiles, discovery.query, effectiveRole, discovery.saved, discovery.unseen, discovery.filters, discovery.seed, discovery.encounteredOrderIds, discovery.seenOrderIds, seenIds, savedIds],
+    [searchableProfiles, discovery.query, effectiveRole, discovery.saved, discovery.unseen, discovery.filters, discovery.seed, discovery.encounteredOrderIds, discovery.seenOrderIds, seenIds, savedIds],
   );
   const visibleProfiles = useMemo(
     () => visibleResults.map(({ profile }) => profile),
@@ -194,6 +222,30 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
     setSearchOpen(Boolean(initial.query));
     setReady(true);
   }, [datasetSlug]);
+
+  useEffect(() => {
+    searchLoaderRef.current.reset();
+    setDeepSearchCorpus(null);
+    setDeepSearchStatus('idle');
+  }, [datasetSlug, searchCorpusVersion]);
+
+  useEffect(() => {
+    if (!ready || !discovery.query.trim() || !searchCorpusVersion) return undefined;
+    let active = true;
+    setDeepSearchStatus('loading');
+    searchLoaderRef.current.load({ datasetSlug, version: searchCorpusVersion })
+      .then((corpus) => {
+        if (!active) return;
+        setDeepSearchCorpus(corpus);
+        setDeepSearchStatus('ready');
+      })
+      .catch((error) => {
+        if (!active) return;
+        console.error('Unable to load full Discovery search:', error);
+        setDeepSearchStatus('error');
+      });
+    return () => { active = false; };
+  }, [datasetSlug, discovery.query, ready, searchCorpusVersion]);
 
   useEffect(() => {
     if (document.visibilityState === 'hidden' || !document.hasFocus()) {
@@ -550,7 +602,11 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
       />
 
       <div className="result-announcer" aria-live="polite" aria-atomic="true">
-        {visibleProfiles.length} profiles available
+        {deepSearchStatus === 'loading'
+          ? `Searching profile details. ${visibleProfiles.length} basic matches available.`
+          : deepSearchStatus === 'error' && discovery.query
+            ? `Full profile search is temporarily unavailable. ${visibleProfiles.length} basic matches available.`
+            : `${visibleProfiles.length} profiles available`}
       </div>
 
       <div
@@ -578,8 +634,20 @@ export default function DiscoveryFeed({ profiles, datasetSlug = 'fall-2025' }) {
         ) : (
           <section className="empty-results" role="status">
             <div className="empty-icon"><SearchX size={28} /></div>
-            <p>{discovery.saved ? (savedIds.length ? 'No saved profiles match these filters.' : 'No saved profiles yet. Bookmark profiles you want to revisit.') : 'No profiles found'}</p>
-            <h1>{discovery.saved ? 'Save profiles with the bookmark icon to build your personal list.' : 'Try a different search or broaden your filters.'}</h1>
+            <p>{deepSearchStatus === 'loading' && discovery.query
+              ? 'Searching profile details…'
+              : deepSearchStatus === 'error' && discovery.query
+                ? 'Full profile search is temporarily unavailable.'
+                : discovery.saved
+                  ? (savedIds.length ? 'No saved profiles match these filters.' : 'No saved profiles yet. Bookmark profiles you want to revisit.')
+                  : 'No profiles found'}</p>
+            <h1>{deepSearchStatus === 'loading' && discovery.query
+              ? 'Checking hobbies and other public profile answers.'
+              : deepSearchStatus === 'error' && discovery.query
+                ? 'Basic name, major, and card-field search is still available.'
+                : discovery.saved
+                  ? 'Save profiles with the bookmark icon to build your personal list.'
+                  : 'Try a different search or broaden your filters.'}</h1>
             <div className="empty-actions">
               {discovery.query && (
                 <button type="button" onClick={() => handleQueryChange('')}>Clear search</button>

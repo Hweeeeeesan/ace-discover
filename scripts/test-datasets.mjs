@@ -168,7 +168,11 @@ const homeSource = await readFile(new URL('../app/page.js', import.meta.url), 'u
 assert.match(homeSource, /getActiveDataset/);
 
 const publicDatasetSource = await readFile(new URL('../lib/datasets/public.js', import.meta.url), 'utf8');
-assert.match(publicDatasetSource, /profiles: resolveProfileImages\(payload\.profiles\.map\(\(profile\) => \([\s\S]*discoveryProfile\(resolveEffectivePublicProfile\(profile\)\)/);
+assert.match(publicDatasetSource, /function effectiveProfiles\(payload\)[\s\S]*discoveryProfile\(resolveEffectivePublicProfile\(profile\)\)/);
+assert.match(publicDatasetSource, /profiles: resolveProfileImages\(profiles\)\.map\(discoveryCardProfile\)/,
+  'the public dataset must serialize only the lightweight card projection');
+assert.match(publicDatasetSource, /getActiveDiscoverySearchCorpus[\s\S]*createDiscoverySearchCorpus\(effectiveProfiles\(data\), dataset\.slug\)/,
+  'deep-search content must use the same effective public profile values');
 assert.match(publicDatasetSource, /rpc\('get_published_profile'/);
 assert.match(publicDatasetSource, /active\.slug !== datasetSlug/);
 assert.match(publicDatasetSource, /return unavailableDataset\(\)/, 'configured database failures must not expose fallback profiles');
