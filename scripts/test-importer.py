@@ -202,6 +202,32 @@ class PublicProfileTests(unittest.TestCase):
             with self.subTest(raw=raw):
                 self.assertEqual(IMPORTER.normalize_program_role(raw), 'Little')
 
+    def test_fall_2026_ar_role_reclassification_is_conservative(self):
+        for raw, expected in {
+            'Yes': 'in-ace', 'Y': 'in-ace', 'TRUE': 'in-ace', 'checked': 'in-ace',
+            'No': 'not-in-ace', 'N': 'not-in-ace', 'FALSE': 'not-in-ace', 'not in ACE': 'not-in-ace',
+            '': 'unknown', 'Maybe': 'unknown', 'possibly': 'unknown',
+        }.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(IMPORTER.normalize_ace_participation(raw), expected)
+
+        self.assertEqual(
+            IMPORTER.derive_profile_role('FAM/ACE LITTLE Program', 'Big', True, 'Yes'),
+            'Little',
+        )
+        self.assertEqual(
+            IMPORTER.derive_profile_role('FAM/ACE LITTLE Program', 'Big', True, 'No'),
+            'Family',
+        )
+        self.assertEqual(
+            IMPORTER.derive_profile_role('FAM/ACE LITTLE Program', 'Big', True, 'Maybe'),
+            'Little',
+        )
+        self.assertEqual(
+            IMPORTER.derive_profile_role('ACE BIG ONLY PROGRAM', 'Little', True, 'No'),
+            'Big',
+        )
+
     def test_ambiguous_program_choice_does_not_default_to_big(self):
         for raw in ('', 'ACE PROGRAM', 'FAMILY OR ACE', 'Interested in ACE'):
             with self.subTest(raw=raw):
@@ -361,11 +387,12 @@ class PublicProfileTests(unittest.TestCase):
             'DA': 'Big ideal hangout',
         }
 
-        def imported_profile(program):
+        def imported_profile(program, ace_participation=''):
             row = list(base_row)
             set_cell(row, 'E', 'Joseph')
             set_cell(row, 'F', 'Nguyen')
             set_cell(row, 'R', program)
+            set_cell(row, 'AR', ace_participation)
             for column, value in {**little, **big}.items():
                 set_cell(row, column, value)
             with tempfile.TemporaryDirectory() as directory:
@@ -422,6 +449,17 @@ class PublicProfileTests(unittest.TestCase):
         self.assertEqual(family_profile['passion'], little['AH'])
         self.assertEqual(family_profile['idealHangout'], little['AA'])
         self.assertEqual(family_profile['aceTraitSlideUrl'], '')
+
+        family_from_ar = imported_profile('FAM/ACE LITTLE Program', 'No')
+        self.assertEqual(family_from_ar['role'], 'Family')
+        self.assertEqual(family_from_ar['hobbies'], little['S'])
+        self.assertEqual(family_from_ar['hobbyDetails'], little['T'])
+        self.assertEqual(family_from_ar['music'], little['U'])
+        self.assertEqual(family_from_ar['uniqueThings'], little['W'])
+        self.assertEqual(family_from_ar['perfectDay'], little['Y'])
+        self.assertEqual(family_from_ar['bucketList'], little['AB'])
+        self.assertEqual(family_from_ar['passion'], little['AH'])
+        self.assertEqual(family_from_ar['idealHangout'], little['AA'])
 
     def test_fall_2026_ideal_hangout_is_selected_by_role(self):
         workbook = pathlib.Path(__file__).parents[1] / 'FALL 26 MASTER APPS TEST.xlsx'

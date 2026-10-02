@@ -473,6 +473,7 @@ def select_sheet_configs(archive, shared, worksheet_paths):
                 'aceTraitSlideByRole': ace_trait_slide_by_role,
                 'instagram': 'K', 'image': ('AQ', 'CX'), 'deck': None,
                 'socialLevel': ('AL', 'CS'), 'socialStyle': ('AN', 'CU'),
+                'aceParticipation': 'AR',
                 'f26': True,
             })
         elif sheet_name == 'BIGS' and 'instagram' in headers.get('DN', ''):
@@ -559,12 +560,24 @@ def normalize_program_role(value):
     return PROGRAM_ROLE_MAP.get(normalization_key(value))
 
 
-def derive_profile_role(program, sheet_role, program_is_authoritative=False):
-    """Keep legacy sheet roles, but require a known program choice for Fall 2026."""
+def normalize_ace_participation(value):
+    """Return the conservative Fall 2026 ACE participation interpretation."""
+    normalized = normalization_key(value)
+    if normalized in {'yes', 'y', 'true', 'checked', 'ace', 'in ace', 'joining ace'}:
+        return 'in-ace'
+    if normalized in {'no', 'n', 'false', 'not ace', 'not in ace', 'not joining ace'}:
+        return 'not-in-ace'
+    return 'unknown'
+
+
+def derive_profile_role(program, sheet_role, program_is_authoritative=False, ace_participation=''):
+    """Resolve program role, then conservatively reclassify non-ACE Littles."""
     if not program_is_authoritative:
         return sheet_role
     role = normalize_program_role(program)
     if role:
+        if role == 'Little' and normalize_ace_participation(ace_participation) == 'not-in-ace':
+            return 'Family'
         return role
     raise ValueError(
         'Fall 2026 program choice is missing or unrecognized; role was not inferred: '
@@ -1539,7 +1552,13 @@ def build_profiles(xlsx_path, allow_partial=False):
                 if not name or '[email removed]' in name or '[phone removed]' in name:
                     continue
 
-                role = derive_profile_role(program, config['role'], config.get('f26', False))
+                ace_participation = first(row, config.get('aceParticipation'))
+                role = derive_profile_role(
+                    program,
+                    config['role'],
+                    config.get('f26', False),
+                    ace_participation,
+                )
                 if standard_role_scoped_row:
                     # Role-specific fields intentionally do not fall back to a
                     # different application's block when the selected block is

@@ -45,6 +45,7 @@ function fall2026SheetFixture() {
   setCell(header, 'E', 'First name');
   setCell(header, 'F', 'Last name');
   setCell(header, 'K', 'Instagram username');
+  setCell(header, 'AR', 'Are you joining ACE');
   setCell(header, 'S', "List your favorite hobbies/activities. (5 minimum) Please don't put eating or sleeping :)");
   setCell(header, 'AH', 'What’s something you’re really passionate about and could talk about for hours? Explain in 1-2 sentences.');
   setCell(header, 'AL', 'Rate your social setting from 1 to 5');
@@ -340,6 +341,60 @@ assert.equal(hazelProfile.public.passion.includes('hazel.private@example.com'), 
 assert.equal(hazelProfile.public.passion.includes('(408) 555-1212'), false);
 assert.match(hazelProfile.public.passion, /\[email removed\].*\[phone removed\]/);
 assert.equal(hazelProfile.driveFileId, '1HazelTranProfileImage2026');
+
+const notInAceFixture = fall2026SheetFixture();
+const notInAceRow = notInAceFixture.values[1];
+setCell(notInAceRow, 'AR', 'No');
+for (const [column, value] of Object.entries({
+  AS: 'Little-block family', S: 'Little-block hobbies', T: 'Little-block details',
+  U: 'Little-block music', V: 'Little-block movies', W: 'Little-block unique things',
+  X: 'Little-block tagline', Y: 'Little-block perfect day', Z: 'Little-block hot take',
+  AB: 'Little-block bucket list', AH: 'Little-block passion', AA: 'Little-block hangout',
+  AL: '2', AN: 'Introvert',
+  BN: 'Big-block family', BY: 'Big-block hobbies', BZ: 'Big-block details',
+  CA: 'Big-block music', CB: 'Big-block movies', CF: 'Big-block unique things',
+  CD: 'Big-block tagline', CE: 'Big-block perfect day', CG: 'Big-block bucket list',
+  CH: 'Big-block hot take', CC: 'Big-block passion', DA: 'Big-block hangout',
+  CS: '5', CU: 'Extrovert',
+})) setCell(notInAceRow, column, value);
+const notInAceProfile = analyzeSheetValues(
+  notInAceFixture.title,
+  [notInAceFixture.values[0], notInAceRow],
+).profiles[0].public;
+assert.equal(notInAceProfile.role, 'Family', 'AR=No must reclassify a would-be Little as Family');
+assert.equal(notInAceProfile.hobbies, 'Little-block hobbies');
+assert.equal(notInAceProfile.hobbyDetails, 'Little-block details');
+assert.equal(notInAceProfile.music, 'Little-block music');
+assert.equal(notInAceProfile.movies, 'Little-block movies');
+assert.equal(notInAceProfile.uniqueThings, 'Little-block unique things');
+assert.equal(notInAceProfile.tagline, 'Little-block tagline');
+assert.equal(notInAceProfile.perfectDay, 'Little-block perfect day');
+assert.equal(notInAceProfile.bucketList, 'Little-block bucket list');
+assert.equal(notInAceProfile.passion, 'Little-block passion');
+assert.equal(notInAceProfile.idealHangout, 'Little-block hangout');
+assert.equal(notInAceProfile.socialLevel, 2);
+assert.equal(notInAceProfile.socialStyle, 'Introvert');
+
+const inAceRow = [...notInAceRow];
+setCell(inAceRow, 'E', 'In');
+setCell(inAceRow, 'F', 'Ace');
+setCell(inAceRow, 'AR', 'Yes');
+const inAceProfile = analyzeSheetValues(notInAceFixture.title, [notInAceFixture.values[0], inAceRow]).profiles[0].public;
+assert.equal(inAceProfile.role, 'Little', 'AR=Yes must preserve Little');
+
+const ambiguousRow = [...notInAceRow];
+setCell(ambiguousRow, 'E', 'Unknown');
+setCell(ambiguousRow, 'F', 'ACE');
+setCell(ambiguousRow, 'AR', 'Maybe');
+const ambiguousRoleProfile = analyzeSheetValues(notInAceFixture.title, [notInAceFixture.values[0], ambiguousRow]).profiles[0].public;
+assert.equal(ambiguousRoleProfile.role, 'Little', 'ambiguous AR must preserve the base role');
+
+const bigNotInAceRow = [...notInAceRow];
+setCell(bigNotInAceRow, 'E', 'Big');
+setCell(bigNotInAceRow, 'F', 'NotAce');
+setCell(bigNotInAceRow, 'R', 'ACE BIG ONLY PROGRAM');
+const bigNotInAceProfile = analyzeSheetValues(notInAceFixture.title, [notInAceFixture.values[0], bigNotInAceRow]).profiles[0].public;
+assert.equal(bigNotInAceProfile.role, 'Big', 'AR must never reclassify Big');
 
 const bigProfile = nodeOnlyPayload.profiles[1];
 assert.equal(bigProfile.public.name, 'Logan Ho');
