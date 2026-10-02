@@ -1448,8 +1448,12 @@ const imageServerSource = await readFile(new URL('../lib/profile-images-server.j
 assert.match(imageServerSource, /import 'server-only'/);
 assert.doesNotMatch(imageServerSource, /SUPABASE_SERVICE_ROLE_KEY/);
 const homepageSource = await readFile(new URL('../app/page.js', import.meta.url), 'utf8');
-assert.match(homepageSource, /export const dynamic = ['"]force-dynamic['"]/,
-  'homepage must read current public image metadata instead of a static dataset snapshot');
+assert.match(homepageSource, /export const dynamic = ['"]force-static['"]/,
+  'the shared public homepage must use ISR instead of recomputing each request');
+assert.match(homepageSource, /export const revalidate = 300/,
+  'the homepage must retain a bounded ISR fallback for image metadata freshness');
+assert.match(homepageSource, /getActiveDataset\(\{ requireAvailable: true \}\)/,
+  'failed ISR regeneration must not replace the last good Discovery page');
 const publicDatasetSource = await readFile(new URL('../lib/datasets/public.js', import.meta.url), 'utf8');
 assert.match(publicDatasetSource, /resolveProfileImages\(payload\.profiles\.map\(\(profile\) => \([\s\S]*discoveryProfile\(resolveEffectivePublicProfile\(profile\)\)/,
   'the bulk RPC profiles must use the shared primary-image resolver');
@@ -1520,7 +1524,7 @@ assert.doesNotMatch(focalRouteSource, /SUPABASE_SERVICE_ROLE_KEY/);
 assert.match(focalRouteSource, /Display mode must be cover or portrait/);
 assert.match(
   focalRouteSource,
-  /const image = await updateAdminProfileImageFocal\([\s\S]*revalidatePath\('\/'\)/,
+  /const image = await updateAdminProfileImageFocal\([\s\S]*revalidatePublicDiscovery\(\)/,
   'a successful focal database update must invalidate the public homepage without a redeploy',
 );
 const uploadRouteSource = await readFile(new URL('../app/api/admin/datasets/images/route.js', import.meta.url), 'utf8');
@@ -1529,7 +1533,7 @@ assert.match(uploadRouteSource, /generateProfileImageAssets/, 'Admin uploads mus
 assert.match(uploadRouteSource, /MAX_PROFILE_IMAGE_INPUT_BYTES/);
 assert.match(uploadRouteSource, /image_too_large_after_normalization/);
 assert.match(uploadRouteSource, /buildProfileImageStoragePath/);
-assert.match(uploadRouteSource, /revalidatePath\('\/'\)/, 'uploads must invalidate Discovery when primary metadata can change');
+assert.match(uploadRouteSource, /revalidatePublicDiscovery\(\)/, 'uploads must invalidate Discovery when primary metadata can change');
 assert.match(uploadRouteSource, /revalidatePath\(`\/profile\/\$\{dataset\.slug\}/, 'uploads must invalidate the public profile');
 assert.doesNotMatch(uploadRouteSource, /SUPABASE_SERVICE_ROLE_KEY/);
 const nextConfigSource = await readFile(new URL('../next.config.mjs', import.meta.url), 'utf8');
@@ -1563,7 +1567,7 @@ assert.match(rotationAssetMigrationSource, /discovery_asset_id is distinct from 
 assert.match(rotationAssetMigrationSource, /profile_asset_id <> discovery_asset_id/);
 assert.doesNotMatch(rotationAssetMigrationSource, /update public\.profile_images/, 'validator migration must not rewrite existing image rows');
 assert.doesNotMatch(rotationAssetMigrationSource, /delete from|storage\.objects/i, 'validator migration must not remove rows or Storage objects');
-assert.match(imageActionRouteSource, /revalidatePath\('\/'\)/, 'primary, rotation, order, and removal actions must invalidate Discovery');
+assert.match(imageActionRouteSource, /revalidatePublicDiscovery\(\)/, 'primary, rotation, order, and removal actions must invalidate Discovery');
 assert.doesNotMatch(imageActionRouteSource, /SUPABASE_SERVICE_ROLE_KEY/);
 const batchImageRouteSources = await Promise.all([
   '../app/api/admin/datasets/images/import/status/route.js',

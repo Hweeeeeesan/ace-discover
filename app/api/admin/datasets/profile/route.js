@@ -1,6 +1,7 @@
 import { revalidatePath } from 'next/cache';
 import { authorizeAdminRequest } from '../../../../../lib/admin/authorization';
 import { getAdminDatasetProfile, updateAdminPublicProfile } from '../../../../../lib/datasets/admin';
+import { revalidatePublicDiscovery } from '../../../../../lib/datasets/revalidation';
 import { buildPublicOverridePatch } from '../../../../../lib/profile-overrides';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -40,7 +41,7 @@ export async function POST(request) {
       actorId: authorization.identity.user.id,
     });
     const datasetSlug = current.dataset.slug;
-    revalidatePath('/', 'layout');
+    revalidatePublicDiscovery();
     revalidatePath('/admin');
     revalidatePath(`/admin/preview/${encodeURIComponent(datasetId)}`);
     revalidatePath(`/profile/${encodeURIComponent(datasetSlug)}/${encodeURIComponent(profileId)}`);

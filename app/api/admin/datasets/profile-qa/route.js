@@ -1,5 +1,6 @@
 import { revalidatePath } from 'next/cache';
 import { authorizeAdminRequest } from '../../../../../lib/admin/authorization';
+import { revalidatePublicDiscovery } from '../../../../../lib/datasets/revalidation';
 import {
   allowProfileQaIssue,
   getDatasetProfileQa,
@@ -58,7 +59,7 @@ export async function PATCH(request) {
         value: action === 'hide' ? '' : body.value,
         actorId: authorization.identity.user.id,
       });
-      revalidatePath('/', 'layout');
+      revalidatePublicDiscovery();
       revalidatePath(`/profile/${encodeURIComponent(result.datasetSlug)}/${encodeURIComponent(profileId)}`);
       revalidatePath(`/admin/preview/${encodeURIComponent(datasetId)}/${encodeURIComponent(profileId)}`);
     } else {

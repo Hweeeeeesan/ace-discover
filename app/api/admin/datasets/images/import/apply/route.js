@@ -1,5 +1,6 @@
 import { revalidatePath } from 'next/cache';
 import { authorizeAdminRequest } from '../../../../../../../lib/admin/authorization';
+import { revalidatePublicDiscovery } from '../../../../../../../lib/datasets/revalidation';
 import { applyMissingProfileImages } from '../../../../../../../lib/profile-image-batch-server';
 
 export const runtime = 'nodejs';
@@ -15,7 +16,7 @@ export async function POST(request) {
       return Response.json({ error: 'Explicit confirmation is required before importing images.' }, { status: 400 });
     }
     const result = await applyMissingProfileImages(String(body?.datasetId || ''));
-    revalidatePath('/');
+    revalidatePublicDiscovery();
     revalidatePath('/admin');
     for (const profile of result.profiles.filter((item) => item.status === 'ready')) {
       revalidatePath(`/profile/${encodeURIComponent(result.dataset.slug)}/${encodeURIComponent(profile.id)}`);

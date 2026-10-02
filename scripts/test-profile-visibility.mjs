@@ -37,7 +37,7 @@ assert.match(adminPreview, /publicHidden: result\.publicHidden/);
 assert.match(adminRoute, /authorizeAdminRequest\(request\)/);
 assert.match(adminRoute, /typeof hidden !== 'boolean'/);
 assert.match(adminRoute, /setAdminProfilePublicVisibility/);
-assert.match(adminRoute, /revalidatePath\('\/', 'layout'\)/);
+assert.match(adminRoute, /revalidatePublicDiscovery\(\)/);
 assert.match(adminRoute, /revalidatePath\(`\/profile/);
 assert.match(adminRoute, /revalidatePath\(`\/admin`\)/);
 assert.match(adminRoute, /revalidatePath\(`\/admin\/preview/);

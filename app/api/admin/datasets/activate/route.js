@@ -1,6 +1,6 @@
-import { revalidatePath } from 'next/cache';
 import { authorizeAdminRequest } from '../../../../../lib/admin/authorization';
 import { activateDataset } from '../../../../../lib/datasets/admin';
+import { revalidatePublicDiscovery } from '../../../../../lib/datasets/revalidation';
 
 export async function POST(request) {
   const authorization = await authorizeAdminRequest(request);
@@ -11,7 +11,7 @@ export async function POST(request) {
       return Response.json({ error: 'Invalid dataset.' }, { status: 400 });
     }
     const dataset = await activateDataset(datasetId);
-    revalidatePath('/', 'layout');
+    revalidatePublicDiscovery();
     return Response.json({ dataset });
   } catch (error) {
     return Response.json({ error: error.message || 'Dataset could not be activated.' }, { status: 422 });

@@ -1,5 +1,6 @@
 import { revalidatePath } from 'next/cache';
 import { authorizeAdminRequest } from '../../../../../../../lib/admin/authorization';
+import { revalidatePublicDiscovery } from '../../../../../../../lib/datasets/revalidation';
 import { applyProfileDriveReconciliation } from '../../../../../../../lib/profile-image-reconciliation-server';
 
 export const runtime = 'nodejs';
@@ -21,7 +22,7 @@ export async function POST(request) {
       profileId,
       driveFileIds: Array.isArray(body?.driveFileIds) ? body.driveFileIds : [],
     });
-    revalidatePath('/');
+    revalidatePublicDiscovery();
     revalidatePath(`/profile/${encodeURIComponent(result.datasetSlug)}/${encodeURIComponent(profileId)}`);
     revalidatePath(`/admin/preview/${encodeURIComponent(datasetId)}/${encodeURIComponent(profileId)}`);
     return Response.json(result);

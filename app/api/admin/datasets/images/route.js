@@ -16,6 +16,7 @@ import {
   createAdminProfileImage,
   getAdminImageContext,
 } from '../../../../../lib/datasets/admin';
+import { revalidatePublicDiscovery } from '../../../../../lib/datasets/revalidation';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'profile-images';
@@ -110,7 +111,7 @@ export async function POST(request) {
       discoveryByteLength: assets.discovery.byteLength,
       makePrimary,
     });
-    revalidatePath('/');
+    revalidatePublicDiscovery();
     revalidatePath(`/profile/${dataset.slug}/${encodeURIComponent(profileId)}`);
     revalidatePath(`/admin/preview/${datasetId}/${encodeURIComponent(profileId)}`);
     return Response.json({

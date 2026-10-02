@@ -1,6 +1,7 @@
 import { revalidatePath } from 'next/cache';
 import { authorizeAdminRequest } from '../../../../../lib/admin/authorization';
 import { getAdminDatasetProfile, setAdminProfilePublicVisibility } from '../../../../../lib/datasets/admin';
+import { revalidatePublicDiscovery } from '../../../../../lib/datasets/revalidation';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PROFILE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -26,7 +27,7 @@ export async function POST(request) {
 
     const result = await setAdminProfilePublicVisibility({ datasetId, profileId, hidden });
     const datasetSlug = current.dataset.slug;
-    revalidatePath('/', 'layout');
+    revalidatePublicDiscovery();
     revalidatePath(`/profile/${encodeURIComponent(datasetSlug)}/${encodeURIComponent(profileId)}`);
     revalidatePath(`/admin`);
     revalidatePath(`/admin/preview/${encodeURIComponent(datasetId)}/${encodeURIComponent(profileId)}`);

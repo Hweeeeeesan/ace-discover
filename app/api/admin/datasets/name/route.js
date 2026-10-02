@@ -1,6 +1,7 @@
 import { revalidatePath } from 'next/cache';
 import { authorizeAdminRequest } from '../../../../../lib/admin/authorization';
 import { updateDatasetName } from '../../../../../lib/datasets/admin';
+import { revalidatePublicDiscovery } from '../../../../../lib/datasets/revalidation';
 
 export async function POST(request) {
   const authorization = await authorizeAdminRequest(request);
@@ -14,7 +15,7 @@ export async function POST(request) {
     }
     const dataset = await updateDatasetName(normalizedId, normalizedName);
     revalidatePath('/admin');
-    revalidatePath('/', 'layout');
+    revalidatePublicDiscovery();
     return Response.json({ dataset });
   } catch (error) {
     return Response.json({ error: error.message || 'Dataset name could not be changed.' }, { status: 422 });

@@ -5,6 +5,7 @@ import { GoogleSheetsError, isValidGoogleSheetId } from '../../../../../../lib/g
 import { inspectGoogleSheet, readGoogleWorksheet } from '../../../../../../lib/google-sheets-server';
 import { analyzeGoogleSheetValues } from '../../../../../../lib/import/google-sheet';
 import { validateSyncApplyAcknowledgement } from '../../../../../../lib/datasets/sync';
+import { revalidatePublicDiscovery } from '../../../../../../lib/datasets/revalidation';
 
 export async function POST(request) {
   const authorization = await authorizeAdminRequest(request);
@@ -50,7 +51,7 @@ export async function POST(request) {
       return Response.json({ error: 'Invalid sync preview.' }, { status: 400 });
     }
     const dataset = await applyDatasetSyncImport(stagedImportId, datasetId, authorization.identity.user.id, acknowledgeRemoved === true);
-    revalidatePath('/', 'layout');
+    revalidatePublicDiscovery();
     revalidatePath('/admin');
     return Response.json({ dataset });
   } catch (error) {
