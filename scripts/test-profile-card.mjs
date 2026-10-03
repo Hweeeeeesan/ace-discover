@@ -15,7 +15,7 @@ assert.ok(component.includes('SavedProfileButton'), 'bookmark behavior remains p
 assert.ok(component.includes('onOpenProfile?.(profile.id)'), 'profile navigation callback remains present');
 assert.match(component, /filter\(\(interest\) => !\['Big', 'Little', 'Family'\]\.includes\(interest\)\)/, 'role chips must be excluded from the discovery chip row');
 assert.match(component, /interests\.length > 0/, 'empty chip rows must remain omitted');
-assert.ok(component.includes('profile.role.toUpperCase()'), 'the top role badge remains present');
+assert.ok(component.includes('publicRoleLabel(profile.role).toUpperCase()'), 'the top role badge uses the public Family/FAM formatter');
 assert.match(component, /focalX=\{profile\.focalX\}/, 'cards must pass primary focalX through');
 assert.match(component, /focalY=\{profile\.focalY\}/, 'cards must pass primary focalY through');
 assert.match(component, /displayMode=\{profile\.displayMode\}/, 'cards must pass primary display mode through');

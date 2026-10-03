@@ -12,6 +12,7 @@ import {
   PUBLIC_DISCOVERY_SEARCH_PATH,
 } from '../lib/discovery-search.js';
 import { buildDiscoveryResults } from '../lib/discovery.js';
+import { filterEligibleDiscoveryProfiles } from '../lib/discovery-eligibility.js';
 
 const imageId = '123e4567-e89b-42d3-a456-426614174000';
 const fullProfile = {
@@ -110,6 +111,13 @@ assert.deepEqual(
   'hydrated deep search must preserve ranking, match field, and snippet semantics',
 );
 assert.equal(buildDiscoveryResults(merged, { query: 'Private Profile Story', seed: 7 }).length, 0);
+
+const familyProfile = { ...fullProfile, id: 'family-jane-doe', name: 'Jane Doe', role: 'Family', major: 'Engineering', year: 'Third Year', majorGroup: 'Engineering', vibes: ['Gaming'], interests: ['Gaming'], hobbies: 'Gaming' };
+const familyExcluded = filterEligibleDiscoveryProfiles([fullProfile, familyProfile], false);
+assert.deepEqual(familyExcluded.map((profile) => profile.id), ['payload-example'], 'Family profiles must be removed before the lightweight projection');
+assert.equal(buildDiscoveryResults(familyExcluded, { query: 'Jane Doe', seed: 7 }).length, 0, 'excluded Family names must not be searchable');
+assert.equal(createDiscoverySearchCorpus(familyExcluded, 'fall-2026', false).profiles.some(([id]) => id === familyProfile.id), false, 'excluded Family profiles must not enter the deep corpus');
+assert.notEqual(createDiscoverySearchCorpus([familyProfile], 'fall-2026', true).version, createDiscoverySearchCorpus([familyProfile], 'fall-2026', false).version, 'Family visibility must participate in corpus versioning');
 
 let fetchCount = 0;
 let releaseFetch;

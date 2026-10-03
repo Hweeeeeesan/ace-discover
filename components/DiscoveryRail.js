@@ -7,7 +7,7 @@ const ROLE_FILTERS = [
   { value: 'All', label: 'All' },
   { value: 'Little', label: 'Little' },
   { value: 'Big', label: 'Big' },
-  { value: 'Family', label: 'Family' },
+  { value: 'Family', label: 'FAM' },
 ];
 
 function filterSummary(values, key, fallback) {

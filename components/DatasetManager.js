@@ -547,6 +547,24 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
     }
   }
 
+  async function setFamilyDiscovery(dataset, showFamilyInDiscovery) {
+    setPendingAction(`family-discovery-${dataset.id}`);
+    setError('');
+    setMessage('');
+    try {
+      await postJson('/api/admin/datasets/family-discovery', {
+        datasetId: dataset.id,
+        showFamilyInDiscovery,
+      });
+      setMessage(`${dataset.name}: Family profiles are now ${showFamilyInDiscovery ? 'included in' : 'excluded from'} public Discovery.`);
+      router.refresh();
+    } catch (actionError) {
+      setError(actionError.message);
+    } finally {
+      setPendingAction('');
+    }
+  }
+
   function openRemoveDialog(dataset) {
     if (dataset.status === 'active') {
       setError('You cannot remove the active semester. Activate another semester first.');
@@ -648,6 +666,23 @@ export default function DatasetManager({ datasets, selectedDatasetId = '' }) {
             </form>
           )}
           {showSourceEditor && selected.sourceType !== 'google_sheet' && <SheetConnector dataset={selected} onPreview={setPreview} onError={setError} setPendingAction={setPendingAction} pendingAction={pendingAction} />}
+        </section>
+      )}
+      {selected && (
+        <section className="dataset-source-card dataset-discovery-setting" aria-labelledby="family-discovery-setting-title">
+          <div><span>Public Discovery</span><h3 id="family-discovery-setting-title">Family profile visibility</h3></div>
+          <label className="rail-toggle-row">
+            <span>Show FAM profiles in Discovery</span>
+            <input
+              type="checkbox"
+              checked={selected.showFamilyInDiscovery !== false}
+              disabled={Boolean(pendingAction)}
+              onChange={(event) => setFamilyDiscovery(selected, event.target.checked)}
+              aria-describedby="family-discovery-setting-description"
+            />
+            <span className="toggle-track" aria-hidden="true"><span /></span>
+          </label>
+          <p id="family-discovery-setting-description">When off, profiles classified as FAM remain preserved and accessible in Admin and by direct profile link, but are excluded from the public Discovery feed, filters, search, and shuffle.</p>
         </section>
       )}
       {selected && (

@@ -8,6 +8,7 @@ import SeenProfileMarker from './SeenProfileMarker';
 import SavedProfileButton from './SavedProfileButton';
 import { normalizeProfileStory } from '../lib/profile-story';
 import { normalizePublicHttpUrl } from '../lib/public-url';
+import { publicRoleLabel } from '../lib/roles';
 
 function InfoSection({ title, children }) {
   if (!children) return null;
@@ -101,14 +102,14 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
           {adminPreview
             ? <AdminPreviewBackButton className="back-button" datasetId={adminPreview.datasetId} returnTo={adminBackHref} iconOnly />
             : <DiscoveryBackButton className="back-button" iconOnly profileId={profile.id} datasetSlug={datasetSlug} />}
-          <span className="detail-role-pill">{profile.role}</span>
+          <span className="detail-role-pill">{publicRoleLabel(profile.role)}</span>
         </div>
         <div className="detail-content">
           <div className="detail-name-row">
             <h1>{profile.name}</h1>
             {!adminPreview && <SavedProfileButton profileId={profile.id} datasetSlug={datasetSlug} className="detail-save-button" />}
           </div>
-          <div className="detail-role-label">{profile.role}</div>
+          <div className="detail-role-label">{publicRoleLabel(profile.role)}</div>
           <div className="eyebrow dark">{profile.major} · {profile.year}</div>
           {story.isEditorial && story.tagline
             ? <p className="detail-tagline">“{story.tagline}”</p>

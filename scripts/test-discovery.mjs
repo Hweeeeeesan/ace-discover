@@ -21,6 +21,7 @@ import {
   seededShuffle,
 } from '../lib/discovery.js';
 import { scoreVibeEvidence } from '../lib/import/vibe-evidence.js';
+import { publicRoleLabel } from '../lib/roles.js';
 import { resolveEffectivePublicProfile } from '../lib/profile-overrides.js';
 import { markProfileSeen, readSeenIds, resetSeenIds, SEEN_PROFILES_KEY } from '../lib/seen-profiles.js';
 import { isProfileSaved, readSavedIds, saveProfile, toggleSavedProfile } from '../lib/saved-profiles.js';
@@ -37,6 +38,8 @@ assert.equal(canonicalYear('freshman'), 'First year');
 assert.equal(canonicalYear('5th year'), 'Fourth year+');
 assert.equal(canonicalYear('Grad student'), 'Graduate / Other');
 assert.equal(normalizeText('Data Science & AI'), 'data science and ai');
+assert.equal(publicRoleLabel('Family'), 'FAM');
+assert.equal(publicRoleLabel('Little'), 'Little');
 const seed = 873421;
 
 const wholeProfileFixture = {
@@ -511,11 +514,14 @@ assert.ok(!discoveryFeedSource.includes('discovery.selectedVibes'));
 assert.ok(discoveryFeedSource.includes('filterSheetSection'), 'Discovery should keep section targeting separate from filter values');
 assert.ok(discoveryFeedSource.includes('initialSection={filterSheetSection}'));
 assert.ok(discoveryFeedSource.includes('onOpenFilters={openFilters}'));
+assert.ok(discoveryFeedSource.includes("availableRoles.includes(discovery.role)"), 'stale unavailable role state must be detected');
+assert.ok(discoveryFeedSource.includes("role: 'All'"), 'stale Family filter state must recover to All');
 const discoveryRailSource = await readFile(new URL('../components/DiscoveryRail.js', import.meta.url), 'utf8');
 for (const section of ['vibes', 'year', 'majorArea', 'socialLevel', 'socialStyle']) {
   assert.ok(discoveryRailSource.includes(`id: '${section}'`), `Discovery rail should use a stable ${section} target`);
 }
 assert.ok(discoveryRailSource.includes('onOpenFilters(section.id)'), 'Rail sections should request their own FilterSheet target');
+assert.ok(discoveryRailSource.includes("{ value: 'Family', label: 'FAM' }"), 'public Family role control uses the FAM label');
 assert.deepEqual(seededShuffle([1, 2, 3, 4], 12), seededShuffle([1, 2, 3, 4], 12));
 const originalCrypto = globalThis.crypto;
 try {

@@ -84,8 +84,15 @@ assert.equal(validatePublicOverrides({ instagram: 'https://www.instagram.com/ful
 const fallbackDetailProfile = profiles.find((profile) => profile.instagram);
 assert.match(fallbackDetailProfile.instagram, /^https:\/\/www\.instagram\.com\//, 'single-profile detail data retains canonical Instagram');
 const publicSource = await readFile(new URL('../lib/datasets/public.js', import.meta.url), 'utf8');
+const eligibilitySource = await readFile(new URL('../lib/discovery-eligibility.js', import.meta.url), 'utf8');
 assert.match(publicSource, /publicDetailProfile\(resolveEffectivePublicProfile\(data\.profile\)\)/, 'Supabase public detail resolution uses the detail sanitizer');
 assert.doesNotMatch(publicSource, /discoveryProfile\(resolveEffectivePublicProfile\(data\.profile\)\)/, 'Supabase public detail resolution does not use the Discovery sanitizer');
+const detailResolverSource = publicSource.match(/async function loadPublishedProfile[\s\S]*?\n}\n\n\/\/ generateMetadata/)?.[0] || '';
+assert.match(detailResolverSource, /rpc\('get_published_profile'/, 'ProfileDetail uses the exact-profile public RPC');
+assert.doesNotMatch(detailResolverSource, /getActiveDataset|get_active_dataset/, 'ProfileDetail must not load the full active dataset');
+assert.match(publicSource, /export const getPublishedProfile = cache\(loadPublishedProfile\)/, 'ProfileDetail lookup is request-memoized for metadata and page rendering');
+assert.match(publicSource, /filterEligibleDiscoveryProfiles\(payload\.profiles, dataset\.showFamilyInDiscovery\)/, 'Family visibility is applied before public projection');
+assert.match(eligibilitySource, /profile\?\.role !== 'Family'/, 'Discovery eligibility excludes Family only when the dataset setting is off');
 
 const validFile = {
   name: 'semester.xlsx',
@@ -110,6 +117,7 @@ assert.deepEqual(readSeenIds('spring-2026', memoryStorage), []);
 
 const migration = await readFile(new URL('../supabase/migrations/202608150001_ace_discover_v4_datasets.sql', import.meta.url), 'utf8');
 const hardeningMigration = await readFile(new URL('../supabase/migrations/202608150002_ace_discover_v4_hardening.sql', import.meta.url), 'utf8');
+const familyVisibilityMigration = await readFile(new URL('../supabase/migrations/202610030001_family_discovery_visibility.sql', import.meta.url), 'utf8');
 const serviceRoleGrantsMigration = await readFile(new URL('../supabase/migrations/202608160001_ace_discover_v4_service_role_grants.sql', import.meta.url), 'utf8');
 const datasetNameMigration = await readFile(new URL('../supabase/migrations/202609040002_dataset_name_edit.sql', import.meta.url), 'utf8');
 assert.match(migration, /datasets_one_active_idx[\s\S]*where status = 'active'/);
@@ -130,6 +138,11 @@ assert.match(hardeningMigration, /activate_dataset[\s\S]*public\.app_settings wh
 assert.match(hardeningMigration, /set_dataset_status[\s\S]*public\.app_settings where singleton for update[\s\S]*live dataset cannot change status/i);
 assert.match(hardeningMigration, /seed_fall_2025_dataset[\s\S]*jsonb_array_length\(seed_profiles\) <> 210[\s\S]*stored_count <> 210[\s\S]*status = 'active'/);
 assert.match(hardeningMigration, /grant execute on function public\.get_published_profile\(text, text\) to anon, authenticated/);
+assert.match(familyVisibilityMigration, /add column if not exists show_family_in_discovery boolean not null default true/);
+assert.match(familyVisibilityMigration, /alter column show_family_in_discovery set default false/);
+assert.match(familyVisibilityMigration, /set_dataset_family_discovery_visibility\([\s\S]*requested_dataset_id uuid[\s\S]*requested_show boolean/);
+assert.match(familyVisibilityMigration, /d\.show_family_in_discovery or coalesce\(dp\.public_data->>'role', ''\) <> 'Family'/);
+assert.match(familyVisibilityMigration, /grant execute on function public\.set_dataset_family_discovery_visibility\(uuid, boolean\) to service_role/);
 assert.match(hardeningMigration, /grant execute on function public\.seed_fall_2025_dataset\(jsonb, jsonb, jsonb\) to service_role/);
 assert.match(serviceRoleGrantsMigration, /begin;[\s\S]*commit;\s*$/);
 assert.match(serviceRoleGrantsMigration, /grant select on table public\.datasets to service_role/);
@@ -171,11 +184,19 @@ const publicDatasetSource = await readFile(new URL('../lib/datasets/public.js', 
 assert.match(publicDatasetSource, /function effectiveProfiles\(payload\)[\s\S]*discoveryProfile\(resolveEffectivePublicProfile\(profile\)\)/);
 assert.match(publicDatasetSource, /profiles: resolveProfileImages\(profiles\)\.map\(discoveryCardProfile\)/,
   'the public dataset must serialize only the lightweight card projection');
-assert.match(publicDatasetSource, /getActiveDiscoverySearchCorpus[\s\S]*createDiscoverySearchCorpus\(effectiveProfiles\(data\), dataset\.slug\)/,
+assert.match(publicDatasetSource, /getActiveDiscoverySearchCorpus[\s\S]*createDiscoverySearchCorpus\(effectiveProfiles\(data\), dataset\.slug, dataset\.showFamilyInDiscovery\)/,
   'deep-search content must use the same effective public profile values');
 assert.match(publicDatasetSource, /rpc\('get_published_profile'/);
-assert.match(publicDatasetSource, /active\.slug !== datasetSlug/);
+assert.match(publicDatasetSource, /datasetSlug !== FALL_2025_DATASET\.slug/, 'local fallback detail lookup remains dataset-scoped');
 assert.match(publicDatasetSource, /return unavailableDataset\(\)/, 'configured database failures must not expose fallback profiles');
+
+const profileRouteSource = await readFile(new URL('../app/profile/[id]/[profileId]/page.js', import.meta.url), 'utf8');
+assert.equal(
+  (profileRouteSource.match(/getPublishedProfile\(datasetSlug, profileId\)/g) || []).length,
+  2,
+  'metadata and page rendering share the same memoized lookup with identical arguments',
+);
+assert.match(profileRouteSource, /if \(!result\) notFound\(\)/, 'missing and hidden profiles remain unavailable');
 
 const analyzeRouteSource = await readFile(new URL('../app/api/admin/datasets/analyze/route.js', import.meta.url), 'utf8');
 assert.match(analyzeRouteSource, /uploadRequestTooLarge\(request\.headers\.get\('content-length'\)\)/);
@@ -194,6 +215,14 @@ const previewListSource = await readFile(new URL('../app/admin/preview/[datasetI
 assert.match(previewListSource, /getAdminIdentity\(\)/);
 assert.match(previewListSource, /identity\.state !== 'authorized'/);
 assert.match(previewListSource, /getAdminDatasetProfileList/);
+const familyVisibilityRoute = await readFile(new URL('../app/api/admin/datasets/family-discovery/route.js', import.meta.url), 'utf8');
+assert.match(familyVisibilityRoute, /authorizeAdminRequest\(request\)/);
+assert.match(familyVisibilityRoute, /typeof body\.showFamilyInDiscovery !== 'boolean'/);
+assert.match(familyVisibilityRoute, /revalidatePublicDiscovery\(\)/);
+assert.match(familyVisibilityRoute, /setDatasetFamilyDiscoveryVisibility/);
+const datasetManagerSource = await readFile(new URL('../components/DatasetManager.js', import.meta.url), 'utf8');
+assert.match(datasetManagerSource, /Show FAM profiles in Discovery/);
+assert.match(datasetManagerSource, /When off, profiles classified as FAM remain preserved/);
 
 const nextConfigSource = await readFile(new URL('../next.config.mjs', import.meta.url), 'utf8');
 assert.match(nextConfigSource, /proxyClientMaxBodySize: '53mb'/, 'oversized Admin images need a bounded multipart envelope before normalization');

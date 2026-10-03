@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ArrowUpRight, Presentation } from 'lucide-react';
 import ProfileImage from './ProfileImage';
 import SavedProfileButton from './SavedProfileButton';
+import { publicRoleLabel } from '../lib/roles';
 
 function MatchSnippet({ snippet }) {
   if (!snippet?.parts?.length) return null;
@@ -80,7 +81,7 @@ export default function ProfileCard({
       <div className="image-overlay" />
 
       <div className="card-status-bar">
-        <div className="brand-pill">{profile.role.toUpperCase()}</div>
+        <div className="brand-pill">{publicRoleLabel(profile.role).toUpperCase()}</div>
         <div className="counter">
           {String(index + 1).padStart(2, '0')} / {String(total).padStart(2, '0')}
         </div>

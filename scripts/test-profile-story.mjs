@@ -173,7 +173,7 @@ assert.match(
   /title="IDEAL HANGOUT"[\s\S]*?when=\{story\.idealHangout\}/,
   'ProfileDetail must hide the Ideal Hangout section when its canonical value is empty',
 );
-assert.match(detailSource, /className="detail-role-pill">\{profile\.role\}/, 'the image role badge remains');
+assert.match(detailSource, /className="detail-role-pill">\{publicRoleLabel\(profile\.role\)\}/, 'the image role badge uses the public Family/FAM formatter');
 assert.match(detailSource, /interests\.filter\(\(interest\) => !\['Big', 'Little', 'Family'\]\.includes\(interest\)\)/, 'the standalone role chip is excluded from the detail chip row');
 assert.match(detailSource, /interests\.length > 0[\s\S]*className="tag light"/, 'the detail chip row is omitted when no non-role chips remain');
 assert.match(detailSource, /profile\.program && <span>\{profile\.program\}<\/span>/, 'the program context pill remains');
