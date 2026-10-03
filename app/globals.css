@@ -1025,6 +1025,34 @@ select:focus-visible {
 .admin-profile-search-results strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .admin-profile-search-results span { overflow: hidden; color: #777168; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .admin-profile-search-empty { margin: 12px 0 0; color: #777168; font-size: 13px; }
+.admin-image-difference { margin-top: 18px; padding: 18px; border: 1px solid #e2dfd8; border-radius: 20px; background: #fffdf9; }
+.admin-image-difference-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.admin-image-difference-copy { max-width: 720px; margin: 0; color: #777168; font-size: 12px; line-height: 1.5; }
+.admin-image-difference-last-checked { margin: 0; color: #777168; font-size: 11px; line-height: 1.5; }
+.admin-image-difference-button, .admin-image-difference-review { min-height: 40px; padding: 0 13px; border: 1px solid #d8d4cb; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; color: #111; background: white; font-size: 12px; font-weight: 800; cursor: pointer; }
+.admin-image-difference-button:disabled { opacity: .55; cursor: wait; }
+.admin-image-difference-controls { max-width: 330px; margin-top: 15px; }
+.admin-image-difference-controls label { display: block; margin-bottom: 6px; color: #6d6962; font-size: 12px; font-weight: 750; }
+.admin-image-difference-search { display: block; max-width: 430px; margin-top: 13px; color: #6d6962; font-size: 12px; font-weight: 750; }
+.admin-image-difference-search input { display: block; margin-top: 6px; }
+.admin-image-issue-cards { margin-top: 15px; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 9px; }
+.admin-image-issue-card { min-width: 0; padding: 14px; border: 1px solid #e2dfd8; border-radius: 16px; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 10px; text-align: left; color: #111; background: white; cursor: pointer; }
+.admin-image-issue-card:hover { border-color: #b9dcff; background: #f8fcff; }
+.admin-image-issue-card span { display: grid; gap: 3px; }
+.admin-image-issue-card strong { font-size: 13px; }
+.admin-image-issue-card small, .admin-image-issue-card em { color: #777168; font-size: 11px; font-style: normal; line-height: 1.35; }
+.admin-image-issue-card b { font-size: 24px; line-height: 1; }
+.admin-image-issue-card em { grid-column: 1 / 2; }
+.admin-image-issue-card u { grid-column: 2 / 3; grid-row: 2 / 4; align-self: end; color: #3473aa; font-size: 11px; font-weight: 800; text-decoration: none; }
+.admin-image-difference-list { margin-top: 12px; display: grid; gap: 8px; }
+.admin-image-difference-row { padding: 12px; border: 1px solid #e7e3dc; border-radius: 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px; background: #fff; }
+.admin-image-difference-row > div { min-width: 0; display: grid; gap: 3px; }
+.admin-image-difference-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.admin-image-difference-row span, .admin-image-difference-row small { color: #777168; font-size: 11px; }
+.admin-image-difference-row small { font-weight: 750; }
+.admin-image-difference-review { flex: 0 0 auto; text-decoration: none; }
+.admin-image-difference-error { margin: 12px 0 0; color: #a33b2e; font-size: 12px; font-weight: 750; }
+.admin-image-difference-empty { margin: 13px 0 0; color: #777168; font-size: 12px; }
 .admin-profile-editor { margin-top: 24px; padding: 18px; border: 1px solid #e2dfd8; border-radius: 20px; background: #fff; }
 .admin-profile-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .admin-profile-editor-heading h2 { margin: 5px 0 0; font-size: 23px; letter-spacing: -.03em; }
@@ -1143,6 +1171,9 @@ select:focus-visible {
   .admin-dataset-heading { align-items: flex-start; flex-direction: column; }
   .admin-preview-banner { align-items: flex-start; flex-direction: column; }
   .admin-preview-profile-list { grid-template-columns: 1fr; }
+  .admin-image-difference-header, .admin-image-difference-row { align-items: stretch; flex-direction: column; }
+  .admin-image-difference-button, .admin-image-difference-review { width: 100%; }
+  .admin-image-issue-cards { grid-template-columns: 1fr; }
 }
 
 @media (min-width: 760px) {

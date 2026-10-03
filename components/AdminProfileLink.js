@@ -32,10 +32,12 @@ export function AdminProfileListScrollRestoration({ datasetId }) {
   return null;
 }
 
-export default function AdminProfileLink({ datasetId, profileId, hash = '', children, ...props }) {
+export default function AdminProfileLink({ datasetId, profileId, hash = '', returnTo: requestedReturnTo = '', children, ...props }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const returnTo = currentListReturn(pathname, searchParams, datasetId);
+  const returnTo = requestedReturnTo
+    ? safeAdminProfileListReturn(requestedReturnTo, datasetId)
+    : currentListReturn(pathname, searchParams, datasetId);
   const href = adminProfilePreviewPath({ datasetId, profileId, returnTo, hash });
 
   function rememberReturn(event) {

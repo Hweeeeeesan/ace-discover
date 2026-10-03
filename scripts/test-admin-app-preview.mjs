@@ -40,6 +40,8 @@ const adminList = `/admin/preview/${datasetId}`;
 const filteredAdminList = `${adminList}?search=Nguyen&major=Engineering`;
 assert.equal(adminProfileListPath(datasetId), adminList);
 assert.equal(safeAdminProfileListReturn(filteredAdminList, datasetId), filteredAdminList, 'Admin filter state must survive in the return URL');
+const maintenanceReturn = `/admin?dataset=${datasetId}&imageIssue=count&imageSearch=Stan`;
+assert.equal(safeAdminProfileListReturn(maintenanceReturn, datasetId), maintenanceReturn, 'Maintenance image issue state must survive profile review return');
 for (const unsafeReturn of [
   'https://evil.example/admin/preview/' + datasetId,
   '//evil.example/admin/preview/' + datasetId,
@@ -79,6 +81,7 @@ assert.doesNotMatch(publicHomeSource, /AdminAppPreview|admin-preview-device-togg
 assert.doesNotMatch(publicDetailSource, /AdminAppPreview|admin-preview-device-toggle/);
 assert.match(adminListPageSource, /AdminProfileListScrollRestoration/);
 assert.match(adminListPageSource, /<AdminProfileLink datasetId=\{result\.dataset\.id\} profileId=\{profile\.id\}/);
+assert.match(adminSource, /AdminImageDifferenceFilter[\s\S]*maintenance/);
 assert.match(adminProfilePageSource, /safeAdminProfileListReturn\(query\?\.returnTo, result\.dataset\.id\)/);
 assert.match(adminSearchSource, /searchParams\.get\('search'\)/);
 assert.match(adminSearchSource, /searchParams\.get\('major'\)/);

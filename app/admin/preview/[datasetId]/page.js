@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import AdminProfileSearch from '../../../../components/AdminProfileSearch';
+import AdminImageDifferenceFilter from '../../../../components/AdminImageDifferenceFilter';
 import AdminProfileLink, { AdminProfileListScrollRestoration } from '../../../../components/AdminProfileLink';
 import { notFound, redirect } from 'next/navigation';
 import { getAdminIdentity } from '../../../../lib/admin/authorization';
@@ -26,6 +27,7 @@ export default async function AdminDatasetPreview({ params }) {
       </header>
       <AdminProfileListScrollRestoration datasetId={result.dataset.id} />
       <AdminProfileSearch datasetId={result.dataset.id} profiles={result.profiles} />
+      <AdminImageDifferenceFilter datasetId={result.dataset.id} profiles={result.profiles} />
       <section className="admin-preview-profile-list" aria-label={`${result.dataset.name} profiles`}>
         {result.profiles.map((profile) => (
           <AdminProfileLink datasetId={result.dataset.id} profileId={profile.id} key={profile.id}>

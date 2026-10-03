@@ -8,9 +8,20 @@ import { ingestProfileImages } from '../lib/profile-image-ingestion.js';
 import {
   classifyDriveImageReconciliation,
   commitDriveImageAppend,
+  imageDifferenceStatus,
+  IMAGE_DIFFERENCE_STATUSES,
   PROFILE_IMAGE_SOURCE_TYPES,
   reconciliationStatusCopy,
 } from '../lib/profile-image-reconciliation.js';
+
+const differenceRouteSource = await readFile(new URL('../app/api/admin/datasets/images/reconcile/scan/route.js', import.meta.url), 'utf8');
+const differenceUiSource = await readFile(new URL('../components/AdminImageDifferenceFilter.js', import.meta.url), 'utf8');
+assert.match(differenceRouteSource, /authorizeAdminRequest/);
+assert.match(differenceRouteSource, /scanDatasetImageDifferences/);
+assert.match(differenceUiSource, /Check image differences/);
+assert.match(differenceUiSource, /Review images/);
+assert.match(differenceUiSource, /api\/admin\/datasets\/images\/reconcile\/scan/);
+assert.match(differenceUiSource, /read-only/i);
 
 const folderId = '1234567890FOLDER';
 const file = (id, name, overrides = {}) => ({
@@ -55,6 +66,7 @@ assert.equal(newImagePreview.newCandidates[0].id, '1234567890FILEB');
 assert.equal(newImagePreview.images[0].isPrimary, true, 'primary metadata must remain intact in reconciliation state');
 assert.equal(newImagePreview.images[1].sourceType, 'admin_upload', 'Admin uploads must not block Drive append');
 assert.equal(newImagePreview.newCandidates[0].name, newImagePreview.knownFiles[0].name, 'duplicate filenames with different IDs are distinct');
+assert.equal(imageDifferenceStatus(newImagePreview), IMAGE_DIFFERENCE_STATUSES.NEW_IN_DRIVE);
 assert.equal(JSON.stringify([existingA, existingB]), presentationBefore, 'preview must not mutate order, primary, focal, or display metadata');
 
 const renamed = classifyDriveImageReconciliation({
@@ -67,12 +79,14 @@ assert.equal(renamed.newCount, 0);
 const removed = classifyDriveImageReconciliation({ profile: profile([existingA, existingB]), driveFiles: [] });
 assert.equal(removed.missingFromDriveCount, 1, 'removed Drive files are reported');
 assert.equal(removed.existingCount, 2, 'removed Drive files never remove gallery rows');
+assert.equal(imageDifferenceStatus(removed), IMAGE_DIFFERENCE_STATUSES.MISSING_FROM_DRIVE);
 
 const legacy = image('33333333-3333-4333-8333-333333333333', PROFILE_IMAGE_SOURCE_TYPES.LEGACY_UNKNOWN);
 const legacyPreview = classifyDriveImageReconciliation({ profile: profile([legacy]), driveFiles: files });
 assert.equal(legacyPreview.state, 'legacy_review');
 assert.equal(legacyPreview.newCount, 0, 'unlinked files are not called new while legacy identity is unresolved');
 assert.equal(legacyPreview.newCandidates.length, 0);
+assert.equal(imageDifferenceStatus(legacyPreview), IMAGE_DIFFERENCE_STATUSES.COUNT_MISMATCH);
 assert.equal(legacyPreview.unlinkedDriveFiles.length, 2);
 assert.match(reconciliationStatusCopy(legacyPreview).summary, /predates Drive source tracking/i);
 
@@ -80,6 +94,16 @@ const reviewedLegacy = image('33333333-3333-4333-8333-333333333333', PROFILE_IMA
 const afterReview = classifyDriveImageReconciliation({ profile: profile([reviewedLegacy]), driveFiles: files });
 assert.equal(afterReview.state, 'new_images', 'remaining Drive IDs become candidates only after explicit legacy review');
 assert.equal(afterReview.newCount, 2);
+assert.equal(imageDifferenceStatus(afterReview), IMAGE_DIFFERENCE_STATUSES.NEW_IN_DRIVE);
+
+const legacySameCount = classifyDriveImageReconciliation({
+  profile: profile([legacy, image('44444444-4444-4444-8444-444444444444', PROFILE_IMAGE_SOURCE_TYPES.LEGACY_UNKNOWN)]),
+  driveFiles: [files[0], files[1]],
+});
+assert.equal(imageDifferenceStatus(legacySameCount), IMAGE_DIFFERENCE_STATUSES.LEGACY_REVIEW);
+
+const upToDate = classifyDriveImageReconciliation({ profile: profile([existingA]), driveFiles: [files[0]] });
+assert.equal(imageDifferenceStatus(upToDate), IMAGE_DIFFERENCE_STATUSES.UP_TO_DATE);
 
 const cleared = classifyDriveImageReconciliation({
   profile: profile([], { imageClearedByAdmin: true }),
