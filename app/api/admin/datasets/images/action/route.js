@@ -132,8 +132,14 @@ export async function POST(request) {
         // The delete RPC owns the atomic row/profile-state change. Capture the
         // immutable derivative first so both objects can be removed afterward.
         const image = await getAdminProfileImage({ datasetId, profileId, imageId });
+        const intentionallyClear = body?.intentionallyClear === true;
         result = {
-          ...await deleteAdminProfileImage({ datasetId, profileId, imageId }),
+          ...await deleteAdminProfileImage({
+            datasetId,
+            profileId,
+            imageId,
+            intentionallyClear,
+          }),
           profileStoragePath: image.profileStoragePath,
           discoveryStoragePath: image.discoveryStoragePath,
         };

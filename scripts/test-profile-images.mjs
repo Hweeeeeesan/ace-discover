@@ -1099,11 +1099,24 @@ assert.deepEqual(
   'old Storage objects must be removed only after transactional metadata replacement succeeds',
 );
 
+const bonnieReplacementImage = {
+  ...replacementNew[0],
+  profileStoragePath: 'fall-2026/bonnie-tran/derived/11111111-1111-4111-8111-111111111111-profile.webp',
+  profileWidth: 1350,
+  profileHeight: 1800,
+  profileMimeType: 'image/webp',
+  profileByteLength: 210000,
+  discoveryStoragePath: 'fall-2026/bonnie-tran/derived/11111111-1111-4111-8111-111111111111-discovery.webp',
+  discoveryWidth: 1050,
+  discoveryHeight: 1400,
+  discoveryMimeType: 'image/webp',
+  discoveryByteLength: 120000,
+};
 let clearedRestorePlan = null;
 const explicitlyRestoredClearedProfile = await migrateDatasetProfileGalleries({
   dataset: { slug: 'fall-2026' },
   profiles: [{
-    id: 'moderated-profile',
+    id: 'bonnie-tran',
     driveFolderId: '1234567890FOLDER',
     imageClearedByAdmin: true,
     profileImages: [],
@@ -1115,7 +1128,7 @@ const explicitlyRestoredClearedProfile = await migrateDatasetProfileGalleries({
     filesDiscovered: 1,
     supportedImages: 1,
     allSupportedValidated: true,
-    images: replacementNew.slice(0, 1),
+    images: [bonnieReplacementImage],
     rejected: [],
     diagnostics: [],
   }),
@@ -1124,6 +1137,10 @@ const explicitlyRestoredClearedProfile = await migrateDatasetProfileGalleries({
 assert.equal(explicitlyRestoredClearedProfile.rows[0].status, 'replaced');
 assert.deepEqual(clearedRestorePlan.expectedExistingImageIds, []);
 assert.equal(clearedRestorePlan.replacementRows[0].isPrimary, true);
+assert.equal(clearedRestorePlan.replacementRows[0].position, 0);
+assert.ok(clearedRestorePlan.replacementRows[0].storagePath, 'restoration retains the canonical object');
+assert.ok(clearedRestorePlan.replacementRows[0].profileStoragePath, 'restoration includes a ProfileDetail derivative');
+assert.ok(clearedRestorePlan.replacementRows[0].discoveryStoragePath, 'restoration includes a Discovery derivative');
 
 const failedClearedRestorationCleanup = [];
 const failedClearedRestoration = await migrateDatasetProfileGalleries({
@@ -1141,7 +1158,7 @@ const failedClearedRestoration = await migrateDatasetProfileGalleries({
     filesDiscovered: 1,
     supportedImages: 1,
     allSupportedValidated: true,
-    images: replacementNew.slice(0, 1),
+    images: [bonnieReplacementImage],
     rejected: [],
     diagnostics: [],
   }),
@@ -1150,7 +1167,11 @@ const failedClearedRestoration = await migrateDatasetProfileGalleries({
 });
 assert.equal(failedClearedRestoration.rows[0].status, 'replacement_failed_preserved');
 assert.equal(failedClearedRestoration.rows[0].primaryStoragePath, '');
-assert.deepEqual(failedClearedRestorationCleanup, [replacementNew[0].storagePath]);
+assert.deepEqual(failedClearedRestorationCleanup, [
+  bonnieReplacementImage.storagePath,
+  bonnieReplacementImage.profileStoragePath,
+  bonnieReplacementImage.discoveryStoragePath,
+]);
 
 const metadataCleanup = [];
 let metadataAttempts = 0;
@@ -1406,6 +1427,11 @@ assert.match(intentionalImageClearSql, /dp\.image_cleared_by_admin,[\s\S]*false/
 assert.match(intentionalImageClearSql, /dp\.image_cleared_by_admin,[\s\S]*true/, 'ProfileDetail must resolve through the intentional-clear guard');
 assert.match(intentionalImageClearSql, /resolve_effective_public_data\(imported_public_data, public_overrides\)[\s\S]*- array\['imageClearedByAdmin', 'image_cleared_by_admin'\]/, 'internal clear metadata must be stripped even if source or override data contains a similarly named key');
 assert.doesNotMatch(intentionalImageClearSql, /jsonb_build_object\([^;]*imageClearedByAdmin/s, 'internal moderation state must not be returned in public payloads');
+const explicitRestorationSql = await readFile(new URL('../supabase/migrations/202610030002_explicit_profile_image_restoration.sql', import.meta.url), 'utf8');
+assert.match(explicitRestorationSql, /delete_profile_image_with_intent/);
+assert.match(explicitRestorationSql, /public\.delete_profile_image\(/, 'intent-aware deletion must reuse established row locking and primary cleanup');
+assert.match(explicitRestorationSql, /remainingCount[\s\S]*not requested_intentionally_clear[\s\S]*image_cleared_by_admin = false/, 'remove-for-replacement must leave an empty but importable gallery');
+assert.match(explicitRestorationSql, /grant execute on function public\.delete_profile_image_with_intent[\s\S]*to service_role/);
 const datasetSyncSql = await readFile(new URL('../supabase/migrations/202609040001_google_sheet_sync.sql', import.meta.url), 'utf8');
 const syncConflictUpdate = datasetSyncSql.slice(
   datasetSyncSql.indexOf('on conflict (dataset_id, profile_id) do update set'),
@@ -1543,6 +1569,8 @@ assert.match(imageActionRouteSource, /authorizeAdminRequest\(request\)/);
 assert.match(imageActionRouteSource, /set-primary/);
 assert.match(imageActionRouteSource, /reorder/);
 assert.match(imageActionRouteSource, /delete/);
+assert.match(imageActionRouteSource, /intentionallyClear/);
+assert.match(imageActionRouteSource, /deleteAdminProfileImage\([\s\S]*intentionallyClear/);
 assert.match(imageActionRouteSource, /rotate-left/);
 assert.match(imageActionRouteSource, /rotate-right/);
 assert.match(imageActionRouteSource, /rotateImage/);
@@ -1587,6 +1615,14 @@ assert.match(batchImageServerSource, /getDriveAuth\(\{ strict: true, serviceAcco
 assert.match(batchImageServerSource, /ingestProfileImages/, 'Admin batch must reuse canonical Drive download, validation, EXIF, path, and upload logic');
 assert.match(batchImageServerSource, /create_profile_image_gallery_with_profile_derivatives_if_empty/,
   'Admin batch must atomically commit the gallery and both derivative classes');
+assert.match(batchImageServerSource, /previewExplicitProfileImageRestoration/);
+assert.match(batchImageServerSource, /applyExplicitProfileImageRestoration/);
+assert.match(batchImageServerSource, /replace_profile_image_gallery_with_profile_derivatives/,
+  'explicit restoration must use the transactional gallery replacement RPC');
+assert.match(batchImageServerSource, /profile\.imageClearedByAdmin !== true/,
+  'the explicit source workflow must be scoped to intentionally cleared profiles');
+assert.match(batchImageServerSource, /source_drive_file_id === expected\.driveFileId/,
+  'uncertain restoration outcomes must confirm exact Drive provenance');
 assert.doesNotMatch(batchImageServerSource, /spawn|python3|python\b/, 'Admin batch must not shell out to external executables');
 const datasetManagerSource = await readFile(new URL('../components/DatasetManager.js', import.meta.url), 'utf8');
 assert.match(datasetManagerSource, /Preview missing images/);
@@ -1599,9 +1635,21 @@ assert.match(imageManagerSource, /FocalPointEditor/);
 assert.match(imageManagerSource, /controlsOutside/);
 assert.equal((imageManagerSource.match(/<FocalPointEditor/g) || []).length, 1, 'the lower image manager must be the only focal editor surface');
 assert.match(imageManagerSource, /images\.length === 1/);
-assert.match(imageManagerSource, /Remove the only profile image\?/);
+assert.match(imageManagerSource, /Remove for replacement/);
+assert.match(imageManagerSource, /Clear profile images/);
 assert.match(imageManagerSource, /action: 'delete'/, 'the sole-image confirmation must use the existing authorized delete action');
 assert.match(imageManagerSource, /Image intentionally removed by Admin/);
+assert.match(imageManagerSource, /Preview source restoration/);
+assert.match(imageManagerSource, /api\/admin\/datasets\/images\/restore\/preview/);
+assert.match(imageManagerSource, /api\/admin\/datasets\/images\/restore\/apply/);
+for (const route of ['preview', 'apply']) {
+  const restorationRoute = await readFile(new URL(`../app/api/admin/datasets/images/restore/${route}/route.js`, import.meta.url), 'utf8');
+  assert.match(restorationRoute, /authorizeAdminRequest/, `${route} restoration route must require Admin authorization`);
+  assert.doesNotMatch(restorationRoute, /SUPABASE_SERVICE_ROLE_KEY|GOOGLE_SERVICE_ACCOUNT/, 'restoration routes must not expose credentials');
+}
+const restorationApplyRoute = await readFile(new URL('../app/api/admin/datasets/images/restore/apply/route.js', import.meta.url), 'utf8');
+assert.match(restorationApplyRoute, /body\?\.confirm !== true/, 'restoration apply requires explicit Admin confirmation');
+assert.match(restorationApplyRoute, /revalidatePublicDiscovery\(\)/, 'successful restoration invalidates Discovery');
 assert.match(profileDetailSource, /imageClearedByAdmin=\{profile\.imageClearedByAdmin === true\}/);
 assert.match(focalEditorSource, /focal-editor-canvas/);
 assert.match(focalEditorSource, /focal-editor-editing-image/);

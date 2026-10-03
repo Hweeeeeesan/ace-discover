@@ -332,6 +332,7 @@ assert.match(server, /commitDriveImageAppend/, 'DB append and staged cleanup mus
 assert.match(server, /source_drive_file_id === image\.resolvedDriveFileId/, 'RPC uncertainty must confirm exact provenance');
 assert.match(server, /if \(!DRIVE_ID\.test[\s\S]*Invalid Drive file/, 'malformed Drive thumbnail IDs must be rejected');
 assert.match(server, /supported direct child of this profile folder/, 'unrelated Drive thumbnail IDs must be rejected');
+assert.match(server, /directContext\.profile\.driveFileId !== driveFileId/, 'direct-file restoration thumbnails require exact profile-source identity');
 
 for (const route of ['preview', 'review', 'apply']) {
   const source = await readFile(new URL(`../app/api/admin/datasets/images/reconcile/${route}/route.js`, import.meta.url), 'utf8');

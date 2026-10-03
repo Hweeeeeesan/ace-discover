@@ -48,6 +48,9 @@ export default function AdminImageManager({
   const [selectedDriveIds, setSelectedDriveIds] = useState([]);
   const [legacySelections, setLegacySelections] = useState({});
   const [reconciling, setReconciling] = useState(false);
+  const [restorationPreview, setRestorationPreview] = useState(null);
+  const [selectedRestorationIds, setSelectedRestorationIds] = useState([]);
+  const [restoring, setRestoring] = useState(false);
   const imagesById = new Map(images.map((image) => [image.id, image]));
 
   function reconciliationHealth(payload) {
@@ -162,6 +165,54 @@ export default function AdminImageManager({
     }
   }
 
+  async function previewSourceRestoration() {
+    setRestoring(true);
+    setHealthError('');
+    try {
+      const response = await fetch('/api/admin/datasets/images/restore/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ datasetId, profileId }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'The source image could not be previewed.');
+      setRestorationPreview(payload);
+      setSelectedRestorationIds(payload.candidates?.map((candidate) => candidate.driveFileId) || []);
+    } catch (previewError) {
+      setHealthError(previewError.message);
+    } finally {
+      setRestoring(false);
+    }
+  }
+
+  async function applySourceRestoration() {
+    if (!selectedRestorationIds.length) return;
+    if (!window.confirm(`Restore ${selectedRestorationIds.length} selected source image${selectedRestorationIds.length === 1 ? '' : 's'}? This will create a new gallery and clear the intentional-clear state only after the image transaction succeeds.`)) return;
+    setRestoring(true);
+    setHealthError('');
+    try {
+      const response = await fetch('/api/admin/datasets/images/restore/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          datasetId,
+          profileId,
+          driveFileIds: selectedRestorationIds,
+          confirm: true,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'The selected source image could not be restored.');
+      setRestorationPreview(null);
+      setSelectedRestorationIds([]);
+      router.refresh();
+    } catch (restoreError) {
+      setHealthError(restoreError.message);
+    } finally {
+      setRestoring(false);
+    }
+  }
+
   async function refreshAfter(task) {
     setError('');
     try {
@@ -199,12 +250,21 @@ export default function AdminImageManager({
     return refreshAfter(() => postAction({ datasetId, datasetSlug, profileId, action: 'set-primary', imageId }));
   }
 
-  function remove(imageId) {
+  function remove(imageId, intentionallyClear = false) {
     const message = images.length === 1
-      ? 'Remove the only profile image? The profile will intentionally show no image until an Admin uploads or imports a replacement.'
+      ? intentionallyClear
+        ? 'Intentionally clear this profile? Automatic imports will remain blocked until an Admin explicitly restores an image.'
+        : 'Remove the last image for replacement? The gallery will be empty, but future Admin/source imports will remain allowed.'
       : 'Remove this profile image?';
     if (!window.confirm(message)) return Promise.resolve();
-    return refreshAfter(() => postAction({ datasetId, datasetSlug, profileId, action: 'delete', imageId }));
+    return refreshAfter(() => postAction({
+      datasetId,
+      datasetSlug,
+      profileId,
+      action: 'delete',
+      imageId,
+      intentionallyClear,
+    }));
   }
 
   function move(imageIndex, direction) {
@@ -350,6 +410,45 @@ export default function AdminImageManager({
             : sourceHealth?.focalMessage || 'Checking the current source before focal-point editing can be enabled.'}</span>
         </div>
       )}
+      {!images.length && imageClearedByAdmin && (driveFolderId || driveFileId) && (
+        <section className="admin-drive-reconciliation admin-image-restoration" aria-labelledby="admin-image-restoration-title">
+          <div className="admin-drive-reconciliation-heading">
+            <div>
+              <h3 id="admin-image-restoration-title">Restore an explicitly selected source image</h3>
+              <p>Automatic imports remain blocked. Previewing is read-only; the cleared state changes only after a confirmed image transaction succeeds.</p>
+            </div>
+            <button type="button" onClick={previewSourceRestoration} disabled={restoring}>
+              {restoring && !restorationPreview ? 'Checking…' : 'Preview source restoration'}
+            </button>
+          </div>
+          {restorationPreview && (
+            <div className="admin-drive-new-images">
+              <strong>{restorationPreview.candidates.length} validated source image{restorationPreview.candidates.length === 1 ? '' : 's'} available</strong>
+              <p>Select the image or images that should become the new gallery. The first restored image becomes primary.</p>
+              <div className="admin-drive-file-grid">
+                {restorationPreview.candidates.map((candidate) => (
+                  <label key={candidate.driveFileId}>
+                    {/* The Admin-only thumbnail route validates this exact profile source. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={candidate.thumbnailUrl} alt="" loading="lazy" />
+                    <span><input
+                      type="checkbox"
+                      checked={selectedRestorationIds.includes(candidate.driveFileId)}
+                      onChange={(event) => setSelectedRestorationIds((current) => event.target.checked
+                        ? [...new Set([...current, candidate.driveFileId])]
+                        : current.filter((id) => id !== candidate.driveFileId))}
+                    /> <strong>{candidate.name}</strong></span>
+                    <small>{candidate.width}×{candidate.height} · {formatBytes(candidate.byteLength)}</small>
+                  </label>
+                ))}
+              </div>
+              <button type="button" onClick={applySourceRestoration} disabled={restoring || !selectedRestorationIds.length}>
+                {restoring ? 'Restoring…' : `Restore ${selectedRestorationIds.length} selected image${selectedRestorationIds.length === 1 ? '' : 's'}`}
+              </button>
+            </div>
+          )}
+        </section>
+      )}
       <div className="admin-image-manager-grid" id="admin-image-manager-grid">
         {images.map((image, index) => (
           <article className="admin-image-manager-card" key={image.id}>
@@ -379,7 +478,12 @@ export default function AdminImageManager({
               <button type="button" onClick={() => move(index, 1)} disabled={index === images.length - 1}>Move down</button>
               <button type="button" onClick={() => rotate(image.id, 'left')}>Rotate left 90°</button>
               <button type="button" onClick={() => rotate(image.id, 'right')}>Rotate right 90°</button>
-              <button type="button" className="admin-image-remove" onClick={() => remove(image.id)}>Remove</button>
+              {images.length === 1 ? (
+                <>
+                  <button type="button" className="admin-image-remove" onClick={() => remove(image.id, false)}>Remove for replacement</button>
+                  <button type="button" className="admin-image-remove" onClick={() => remove(image.id, true)}>Clear profile images</button>
+                </>
+              ) : <button type="button" className="admin-image-remove" onClick={() => remove(image.id, false)}>Remove</button>}
             </div>
           </article>
         ))}
