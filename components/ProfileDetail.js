@@ -132,6 +132,7 @@ export default function ProfileDetail({ profile, datasetSlug, adminPreview = nul
             importedPublicData={adminPreview.importedPublicData}
             publicOverrides={adminPreview.publicOverrides}
             publicOverridesUpdatedAt={adminPreview.publicOverridesUpdatedAt}
+            publicHidden={adminPreview.publicHidden}
             vibeReasoning={adminPreview.vibeReasoning}
             vibeThreshold={adminPreview.vibeThreshold}
           />}

@@ -6,6 +6,7 @@ const publicSource = await readFile(new URL('../lib/datasets/public.js', import.
 const adminSource = await readFile(new URL('../lib/datasets/admin.js', import.meta.url), 'utf8');
 const adminRoute = await readFile(new URL('../app/api/admin/datasets/profile-visibility/route.js', import.meta.url), 'utf8');
 const editorSource = await readFile(new URL('../components/AdminProfileEditor.js', import.meta.url), 'utf8');
+const profileDetailSource = await readFile(new URL('../components/ProfileDetail.js', import.meta.url), 'utf8');
 const profileRoute = await readFile(new URL('../app/profile/[id]/[profileId]/page.js', import.meta.url), 'utf8');
 const adminPreview = await readFile(new URL('../app/admin/preview/[datasetId]/[profileId]/page.js', import.meta.url), 'utf8');
 
@@ -47,6 +48,8 @@ assert.match(editorSource, /window\.confirm/);
 assert.match(editorSource, /Hide from public/);
 assert.match(editorSource, /Restore to public/);
 assert.match(editorSource, /publicHidden/);
+assert.match(profileDetailSource, /publicHidden=\{adminPreview\.publicHidden\}/,
+  'Admin ProfileDetail must pass the resolved visibility state into the editor');
 
 for (const protectedId of ['mandy-lau', 'mandy-lau-2', 'khoa-nguyen', 'khoa-nguyen-2']) {
   assert.doesNotMatch(migration, new RegExp(`profile_id\\s*=\\s*'${protectedId}'`), 'visibility must remain generic and never target names');
