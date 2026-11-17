@@ -130,3 +130,91 @@ Measure real reduction only after a separately approved cleanup and a fresh
 `plan`/Storage inventory. Supabase's billing-period GB-hour average will lag the
 current object total. Do not claim a 1 GB result from a completed reference switch
 alone.
+
+## Independent superseded-canonical cleanup
+
+Cleanup is deliberately separate from compression apply and rollback. The default
+command is local, read-only `status`; `plan` and `verify` read production and write only
+local reports. There is no bulk-delete command and no generic `--yes` flag.
+
+Before any cleanup, deploy and record the separately reviewed migration
+`supabase/migrations/202611050001_guarded_image_compression_cleanup.sql`. Do not use
+`supabase db push` when unrelated migrations are pending. The migration adds a durable
+reservation/deletion registry and triggers that reject any Admin, import,
+reconciliation, or rollback attempt to reattach a reserved or deleted path. Its brief
+table locks serialize initial reference verification with database writers. Storage is
+outside PostgreSQL transactions, so privileged out-of-band writes that disable triggers
+or bypass normal application roles remain an operational boundary.
+
+### Preserve and prove recovery first
+
+Copy the original bytes to encrypted storage independent of the Supabase project and
+retrieve them to a mounted path. A file that has merely existed locally is insufficient.
+Create a backup record only after independently retrieving and hashing it and rehearsing
+a restore. The cleanup CLI repeats the read/copy/hash rehearsal on every verification.
+
+```json
+{
+  "imageId": "IMAGE_UUID",
+  "oldPath": "DATASET/PROFILE/OLD_CANONICAL.jpg",
+  "originalSha256": "64_HEX_CHARACTERS",
+  "independentOfSupabaseBucket": true,
+  "location": "encrypted archive identifier",
+  "backupFile": "/mounted/independent-backup/IMAGE_UUID.jpg",
+  "verifiedAt": "REAL_ISO_TIMESTAMP",
+  "restoreTestedAt": "REAL_ISO_TIMESTAMP",
+  "restoreSha256": "64_HEX_CHARACTERS"
+}
+```
+
+Save that exact record as `reports/image-compression-full/backup-IMAGE_UUID.json`.
+The backup bytes and this record must not be stored in the `profile-images` bucket.
+
+### Plan, verify, and separately approve cleanup
+
+The default retention is seven days and may be increased with `--retention-days`.
+Values below one day are rejected.
+
+```bash
+npm run images:compression-cleanup -- plan --migration-journal reports/image-compression-full/migration-journal.json --backup-record reports/image-compression-full/backup-IMAGE_UUID.json --image-id IMAGE_UUID --retention-days 7
+
+npm run images:compression-cleanup -- verify --migration-journal reports/image-compression-full/migration-journal.json --backup-record reports/image-compression-full/backup-IMAGE_UUID.json --image-id IMAGE_UUID --retention-days 7
+```
+
+`cleanup-verify.json` must show `eligible: true`, no blockers, a matching current row,
+both hashes, no gallery/fallback/public/archived references, no active import, an
+installed guarded protocol, a completed retention window, and a verified restore.
+Copy only that image's object from `cleanupApprovalRequests` into a JSON array, add
+`"approved": true` and a real ISO `"approvedAt"`, and save it as
+`cleanup-approvals.json`. Compression visual approval is not cleanup approval.
+
+### Delete one exact superseded object
+
+Run only after separate authorization. All identity and confirmation values must match;
+the verification must be successful and less than 15 minutes old.
+
+```bash
+npm run images:compression-cleanup -- delete --migration-journal reports/image-compression-full/migration-journal.json --cleanup-journal reports/image-compression-full/cleanup-journal.json --verification-file reports/image-compression-full/cleanup-verify.json --backup-record reports/image-compression-full/backup-IMAGE_UUID.json --approval-file reports/image-compression-full/cleanup-approvals.json --image-id IMAGE_UUID --old-path DATASET/PROFILE/OLD_CANONICAL.jpg --retention-days 7 --execute --confirm-image-id IMAGE_UUID --confirm-old-path DATASET/PROFILE/OLD_CANONICAL.jpg
+
+npm run images:compression-cleanup -- status --migration-journal reports/image-compression-full/migration-journal.json --cleanup-journal reports/image-compression-full/cleanup-journal.json --image-id IMAGE_UUID
+```
+
+Delete first writes a durable local operation ID, reserves the exact path through the
+guarded RPC, repeats every live check, removes only that one Storage object, verifies it
+is absent, finalizes the database registry, and inventories actual Storage. A crash is
+resumed with the same command and journal. A failed or ambiguous delete leaves the
+reservation active and blocks rollback until an operator reconciles the journal and
+Storage state. Never claim savings from the plan; only a `cleaned` journal plus the
+post-delete inventory is actual reduction.
+
+After cleanup, the ordinary rollback command intentionally cannot point at the deleted
+path. Recovery uses the verified external bytes: upload them under a fresh immutable
+UUID path with `upsert:false`, verify the original SHA-256, then use the existing guarded
+swap RPC with the exact current row and unchanged derivatives. That recovery is a new,
+separately authorized operation; do not disable the cleanup guard or reuse the deleted
+path.
+
+The complete lifecycle is: compress locally; visually inspect; approve exact compression
+hashes; run migration preflight; migrate one image; verify production; preserve and test
+an independent backup; wait through retention; verify all references; separately approve
+cleanup; delete one exact superseded object; verify the actual Storage reduction.
